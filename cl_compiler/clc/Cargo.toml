@@ -8,6 +8,6 @@ description = "Linux/400 Control Language Compiler"
 pest = "2.7"
 pest_derive = "2.7"
 clap = { version = "4.4", features = ["derive"] }
-# Inkwell requires a specific LLVM feature flag. Assuming LLVM 15. 
-# You may need to change this (e.g., llvm14-0, llvm16-0) based on your host environment.
-inkwell = { version = "0.4.0", features = ["llvm15-0"] }
+# Inkwell requires a specific LLVM feature flag matching the LLVM version del container.
+# Ubuntu 26.04 (base del Docker) trae LLVM 21.
+inkwell = { version = "0.8.0", features = ["llvm21-1"] }

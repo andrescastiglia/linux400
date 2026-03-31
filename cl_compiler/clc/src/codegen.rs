@@ -4,7 +4,7 @@ use crate::ast::*;
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::builder::Builder;
-use inkwell::values::{BasicValueEnum, FunctionValue};
+use inkwell::values::FunctionValue;
 use std::path::Path;
 
 pub struct CodeGenerator<'ctx> {
