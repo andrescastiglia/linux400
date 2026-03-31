@@ -1,0 +1,17 @@
+# Linux/400 Project Rules
+
+## 1. Principios de Arquitectura Integrada
+- **Kernel Mínimo ESTRICTO (>= 6.11):** Cgroups V2 y BPF LSM son los motores core nativos de seguridad. Debido al uso de BPF LSM y `kfuncs` asíncronas (`bpf_get_file_xattr`), los bindings generados (`vmlinux.h` / Aya) dependen fuertemente en esta cabecera kernel. Si detectamos un host menor a 6.11, la instalación **abortará explícitamente sin fallbacks**.
+- **Manejo Estricto de Objetos y Metadatos (ZFS + eBPF):** El sistema emula los objetos estrictos interceptando accesos a archivo usando **BPF LSM en Rust (`Aya`)**. ZFS es innegociable y debe formaterase con soporte nativo de atributos (`xattr=sa`). Este file system se aisla en un loop device de un bloque ZFS local inyectado al Sandbox de Docker desde `/linuxpool`.
+- **Persistencia sin Page Cache (Workaround DAX):** Todo el layout asimilable del Single-Level Storage (SLS) se simula absteniéndose del VFS. Si DAX no puede usarse nativo en el host ZFS, **`libl400.so` debe usar SIEMPRE el root flag `O_DIRECT` para dialogar directamente con el ARC de ZFS**.
+
+## 2. Punteros Etiquetados Híbridos (TBI/LAM/Soft)
+- El entorno usa las etiquetas de acceso incrustadas en el "Top Byte" del puntero. Arquitecturas ARM amparan TBI; Servidores Intel Sapphire Rapids Hardware LAM (`arch_prctl`).
+- **NUNCA OLVIDAR EL FALLBACK SOFTWARE:** Si la delegación pura falla, `libL400.so` enmascarará en software ignorando los bits. 
+
+## 3. Compiladores y Toolchains (Rust y BPF/Clang)
+- **`clc` Compiler:** Parser nativo Pest emulando CL en local mediante `Inkwell`.
+- **`c400c` Compiler:** Front-end Clang que enlaza tipos hacia las bases nativas *Berkeley DB*. 
+
+## 4. Gestión Estricta de Cargas
+- **Cgroupsv2 Puros:** Sin sub-componentes experimentales adicionales a menos que se justifique. Limitar los sub-slice `QINTER` (`cpu.weight=10000`) y `QBATCH` manuales con el stack nativo.

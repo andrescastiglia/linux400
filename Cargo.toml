@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = [
+    "l400-ebpf",
+    "l400-ebpf-common",
+    "l400-loader",
+    "c400_compiler",
+    "libl400",
+]

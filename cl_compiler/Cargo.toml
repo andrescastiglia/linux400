@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "clc",
+    "libl400"
+]
+resolver = "2"

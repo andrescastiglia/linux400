@@ -1,0 +1,27 @@
+// Gramática Básica para CL (Control Language) de OS/400
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+// Un archivo CL contiene múltiples comandos separados por espacios/líneas
+file = { SOI ~ command* ~ EOI }
+
+// Un comando CL consiste en un identificador, y de forma opcional sus parámetros
+command = { identifier ~ parameters? }
+
+// Identificador del comando (ej. PGM, SNDPGMMSG, ENDPGM)
+identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+
+// Conjunto de parámetros para un comando
+parameters = { parameter+ }
+
+// Un parámetro puede ser posicional (sólo un valor) o nombrado KWD(VAL)
+parameter = { (identifier ~ "(" ~ value ~ ")") | value }
+
+// Valores posibles para un parámetro
+value = { string_literal | keyword | identifier }
+
+// Cadenas de texto en CL (usualmente comienzan y terminan con comilla simple)
+string_literal = @{ "'" ~ (!"'" ~ ANY)* ~ "'" }
+
+// Palabras clave especiales del sistema que comienzan con asterisco (ej. *SYSOPR, *NO)
+keyword = @{ "*" ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
