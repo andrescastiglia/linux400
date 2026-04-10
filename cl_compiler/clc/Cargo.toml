@@ -4,10 +4,15 @@ version = "0.1.0"
 edition = "2021"
 description = "Linux/400 Control Language Compiler"
 
+[features]
+# Habilitar backend LLVM nativo (requiere llvm-20-dev)
+# En host de dev se usa enlazado dinámico manual vía build.rs para evitar el bloqueo de libPolly.a
+llvm-backend = ["inkwell", "llvm-sys"]
+
 [dependencies]
 pest = "2.7"
 pest_derive = "2.7"
 clap = { version = "4.4", features = ["derive"] }
-# Inkwell requires a specific LLVM feature flag matching the LLVM version del container.
-# Ubuntu 26.04 (base del Docker) trae LLVM 21.
-inkwell = { version = "0.8.0", features = ["llvm21-1"] }
+inkwell = { version = "0.8.0", features = ["llvm20-1"], optional = true }
+llvm-sys = { version = "201.0", features = ["no-llvm-linking"], optional = true }
+l400 = { path = "../../libl400" }

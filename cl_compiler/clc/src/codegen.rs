@@ -1,18 +1,27 @@
 // Codegen de CL utilizando Inkwell (binding LLVM de Rust)
+// Solo disponible con el feature `llvm-backend`.
 
+#[cfg(feature = "llvm-backend")]
 use crate::ast::*;
+#[cfg(feature = "llvm-backend")]
 use inkwell::context::Context;
+#[cfg(feature = "llvm-backend")]
 use inkwell::module::Module;
+#[cfg(feature = "llvm-backend")]
 use inkwell::builder::Builder;
+#[cfg(feature = "llvm-backend")]
 use inkwell::values::FunctionValue;
+#[cfg(feature = "llvm-backend")]
 use std::path::Path;
 
+#[cfg(feature = "llvm-backend")]
 pub struct CodeGenerator<'ctx> {
     pub context: &'ctx Context,
     pub module: Module<'ctx>,
     pub builder: Builder<'ctx>,
 }
 
+#[cfg(feature = "llvm-backend")]
 impl<'ctx> CodeGenerator<'ctx> {
     pub fn new(context: &'ctx Context, module_name: &str) -> Self {
         let module = context.create_module(module_name);

@@ -1,8 +1,21 @@
 #![no_std]
 #![no_main]
 
-use aya_ebpf::{macros::lsm, programs::LsmContext};
+use aya_ebpf::{macros::{lsm, map}, maps::HashMap, programs::LsmContext};
 use aya_log_ebpf::{info, warn};
+use l400_ebpf_common::VALID_OBJ_TYPES;
+
+#[map(name = "L400_STATS")]
+static STATS: HashMap<u32, u64> = HashMap::with_max_entries(16, 0);
+
+#[inline(always)]
+fn inc_stat(key: u32) {
+    if let Some(val) = unsafe { STATS.get_ptr_mut(&key) } {
+        unsafe { *val += 1 };
+    } else {
+        let _ = STATS.insert(&key, &1, 0);
+    }
+}
 use core::ffi::c_void;
 
 #[repr(C)]
@@ -18,7 +31,7 @@ extern "C" {
 
 const EACCES: i32 = -13;
 
-#[lsm(name = "file_open", sleepable)]
+#[lsm(hook = "file_open", sleepable)]
 pub fn file_open(ctx: LsmContext) -> i32 {
     match try_file_open(ctx) {
         Ok(ret) => ret,
@@ -27,7 +40,8 @@ pub fn file_open(ctx: LsmContext) -> i32 {
 }
 
 fn try_file_open(ctx: LsmContext) -> Result<i32, i32> {
-    let file: *mut c_void = unsafe { ctx.arg(0) };
+    let file: *const c_void = unsafe { ctx.arg(0) };
+    let file = file as *mut c_void;
     if file.is_null() {
         return Ok(0); // Ignore null cases safely
     }
@@ -66,21 +80,28 @@ fn try_file_open(ctx: LsmContext) -> Result<i32, i32> {
 
     let prefix = &attr_value[0..4];
     
-    if prefix == b"*PGM" {
-        info!(&ctx, "Valido: Accediendo a objeto *PGM nativo");
-    } else if prefix == b"*FIL" {
-        info!(&ctx, "Valido: Accediendo a objeto *FILE nativo");
-    } else if prefix == b"*USR" {
-        info!(&ctx, "Valido: Accediendo a perfil de usuario");
+    let mut is_valid = false;
+    for (i, obj_type) in VALID_OBJ_TYPES.iter().enumerate() {
+        if prefix == &obj_type.prefix {
+            inc_stat((i as u32) + 2); // Contadores por tipo empieza en 2
+            info!(&ctx, "Valido: Accediendo a objeto L400");
+            is_valid = true;
+            break;
+        }
+    }
+
+    if is_valid {
+        inc_stat(0); // 0 = Permitidos
     } else {
         warn!(&ctx, "Invalido: Etiqueta L400 irreconocible. Bloqueando acceso!");
+        inc_stat(1); // 1 = Denegados
         return Err(EACCES);
     }
 
     Ok(0)
 }
 
-#[lsm(name = "bprm_check_security")]
+#[lsm(hook = "bprm_check_security")]
 pub fn bprm_check_security(ctx: LsmContext) -> i32 {
     info!(&ctx, "Auditoria de bprm_check_security: Ejecucion detectada (Stub de Fase 1). Validacion postergada via file_open.");
     0

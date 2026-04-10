@@ -39,21 +39,47 @@ async fn main() -> Result<(), anyhow::Error> {
 
     info!("Bytecode de eBPF cargado exitosamente al Kernel.");
 
+    let btf = aya::Btf::from_sys_fs()?;
+
     // Enganchar LSM hook "file_open"
     let program: &mut Lsm = bpf.program_mut("file_open").unwrap().try_into()?;
-    program.load()?;
+    program.load("file_open", &btf)?;
     program.attach()?;
 
     // Enganchar LSM hook "bprm_check_security"
     let program2: &mut Lsm = bpf.program_mut("bprm_check_security").unwrap().try_into()?;
-    program2.load()?;
+    program2.load("bprm_check_security", &btf)?;
     program2.attach()?;
 
     info!("LSM Hooks 'file_open' y 'bprm_check_security' ensamblados y activados.");
     info!("La protección nativa OS/400 está en curso. (Presione Ctrl+C para salir)...");
 
-    signal::ctrl_c().await?;
-    info!("Señal capturada. Desprendiendo hooks BPF y saliendo...");
+    let stats_map: aya::maps::HashMap<_, u32, u64> = aya::maps::HashMap::try_from(bpf.map_mut("L400_STATS").unwrap())?;
+
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+                let allowed = stats_map.get(&0, 0).unwrap_or(0);
+                let denied = stats_map.get(&1, 0).unwrap_or(0);
+                
+                info!("--- Estadísticas de L400 ---");
+                info!("Accesos Permitidos : {}", allowed);
+                info!("Accesos Denegados  : {}", denied);
+                
+                for (i, obj) in l400_ebpf_common::VALID_OBJ_TYPES.iter().enumerate() {
+                    let count = stats_map.get(&(i as u32 + 2), 0).unwrap_or(0);
+                    if count > 0 {
+                        info!("  -> {} accesos a {}", count, obj.name);
+                    }
+                }
+                info!("----------------------------");
+            }
+            _ = signal::ctrl_c() => {
+                info!("Señal capturada. Desprendiendo hooks BPF y saliendo...");
+                break;
+            }
+        }
+    }
 
     Ok(())
 }

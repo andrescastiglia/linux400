@@ -16,20 +16,20 @@ El requerimiento base del kernel 6.11 permite inyectar políticas rigurosas de s
 
 ### Fase 2: Storage Object-Oriented (ZFS y Atributos SA)
 Conservar la majestuosidad de ZFS para la gobernanza de datos y copias atomicas, implementando su bypass.
-- [ ] Inicializar ZFS en el host configurando **`xattr=sa`** (System Attributes) para que los metadatos `i:objtype` vivan incrustados en los inodos.
-- [ ] Crear *Storage Pools* locales simulando los ASP.
-- [ ] Enlazar el BPF LSM de la Fase 1 para que valide el atributo extendido de seguridad antes de cualquier apertura.
+- [x] Inicializar ZFS en el host configurando **`xattr=sa`** (System Attributes) para que los metadatos `i:objtype` vivan incrustados en los inodos.
+- [x] Crear *Storage Pools* locales simulando los ASP (Pool `/linux400pool`).
+- [x] Enlazar el BPF LSM de la Fase 1 para que valide el atributo extendido de seguridad antes de cualquier apertura.
 
 ### Fase 3: Subsistema Relacional BDB y Workaround DAX
 Implementar la semántica de *Single-Level Storage (SLS)* garantizando baja latencia a pesar del caché ZFS.
-- [ ] **Workaround DAX sobre ZFS:** Dado que ZFS carece de soporte DAX puro (por su ARC/CoW), `libl400.so` implementará un workaround abriendo los Archivos Físicos/Lógicos emulados con el flag **`O_DIRECT`** o empleando `ZVOLs` paralelos para lograr bypass del Page Cache del Kernel Linux, mitigando la doble capa de caché.
-- [ ] Integrar bindings Rust (`libdb-sys`) mapeando llamadas nativas a Bases de Datos BDB (PF y LF).
-- [ ] Configurar las **Colas de Datos (`*DTAQ`)** como BDB Queues atómicas.
+- [x] **Workaround DAX sobre ZFS:** Implementado en `libl400.so` mediante `AlignedBuffer` (alineación 4096 bytes) y el flag **`O_DIRECT`**, mitigando la doble capa de caché y permitiendo acceso directo a objetos ZFS.
+- [x] Integrar motor de datos relacional (sustituido BDB por **Sled**) mapeando llamadas nativas a PF y LF (Archivo Físico y Lógico).
+- [x] Configurar las **Colas de Datos (`*DTAQ`)** como colas transaccionales sobre `sled`.
 
 ### Fase 4: Compiladores Híbridos (Control Language y C/400)
-- [ ] **Compilador CL (`clc`)**: Ampliar el parser Pest y renderizar IR mediante _Inkwell/LLVM_ emitiendo llamadas directas a `libl400.so`.
-- [ ] **Compilador C/400 (`c400c`)**: Crear el front-end envolvente de C (usando Clang/LLVM subyacente) que ofrezca pragmas integrados de OS/400 (`#pragma mapinc`), validando tipos nativos cruzados e inyectando las meta-llamadas a la BDB.
-- [ ] Los compiladores emitirán instrucciones que inyectan los "tags" espaciales en los top-bytes del puntero automáticamente de acuerdo al esquema LAM.
+- [x] **Compilador CL (`clc`)**: Parser Pest y codegen LLVM operativos. Soporta enlazado dinámico con LLVM 20 para evitar dependencias estáticas (libPolly).
+- [x] **Compilador C/400 (`c400c`)**: Front-end envolvente de C operativo, inyectando la runtime `l400` y realizando catalogación automática en ZFS.
+- [x] Los compiladores emiten binarios que inyectan los "tags" espaciales y catalogan el objeto como `*PGM` en ZFS.
 
 ### Fase 5: Memory Tagging de 64-bits (TBI / Intel LAM)
 - [ ] Configurar las invocaciones iniciales (`arch_prctl`) al Kernel para habilitar soporte in-hardware de **Intel LAM** (En procesadores Sapphire Rapids o superior) o **ARM TBI**.
