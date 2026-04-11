@@ -1,0 +1,143 @@
+name: PR CI — Tests + ISO Build
+
+on:
+  pull_request:
+    branches:
+      - testing
+      - main
+
+jobs:
+  test:
+    name: Tests (l400)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libxattr-dev \
+            xattr
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy (libl400)
+        run: cargo clippy -p l400 --all-targets -- -D warnings
+
+      - name: Run tests (libl400)
+        run: cargo test -p l400 --verbose
+
+      - name: Build user-space tools
+        run: |
+          cargo build -p c400c
+          cargo build -p clc
+          cargo build -p l400-loader
+
+  build-iso:
+    name: Build ISO
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-iso-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-iso-
+
+      - name: Install ISO build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            xorriso \
+            syslinux \
+            syslinux-utils \
+            isolinux \
+            mtools \
+            curl \
+            squashfs-tools \
+            dosfstools \
+            libxattr-dev \
+            xattr
+
+      - name: Build user-space tools (release)
+        run: |
+          cargo build -p c400c --release
+          cargo build -p clc --release
+          cargo build -p l400-loader --release
+
+      - name: Determine ISO suffix
+        id: iso_name
+        run: |
+          if [[ "${{ github.base_ref }}" == "testing" ]]; then
+            echo "suffix=_unstable" >> "$GITHUB_OUTPUT"
+            echo "iso_name=linux400_unstable.iso" >> "$GITHUB_OUTPUT"
+          else
+            echo "suffix=" >> "$GITHUB_OUTPUT"
+            echo "iso_name=linux400.iso" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Alpine rootfs
+        run: |
+          bash scripts/build/build_alpine_base.sh
+        env:
+          OUTPUT_DIR: ${{ github.workspace }}/output
+
+      - name: Build initramfs
+        run: |
+          bash scripts/build/build_initramfs.sh
+        env:
+          OUTPUT_DIR: ${{ github.workspace }}/output
+
+      - name: Build ISO
+        run: |
+          bash scripts/build/build_iso.sh
+        env:
+          OUTPUT_DIR: ${{ github.workspace }}/output
+          ISO_NAME: ${{ steps.iso_name.outputs.iso_name }}
+
+      - name: Rename ISO with suffix
+        run: |
+          SUFFIX="${{ steps.iso_name.outputs.suffix }}"
+          if [[ -n "$SUFFIX" ]]; then
+            find output -name "*.iso" ! -name "*_unstable*" \
+              -exec bash -c 'mv "$1" "${1%.iso}'"$SUFFIX"'.iso"' _ {} \;
+          fi
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.iso_name.outputs.iso_name }}
+          path: output/**/*.iso
+          retention-days: 14
