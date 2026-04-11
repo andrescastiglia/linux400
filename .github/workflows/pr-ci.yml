@@ -27,7 +27,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ github.ref_name }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
@@ -72,7 +72,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-iso-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-iso-${{ github.ref_name }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-cargo-iso-
 
