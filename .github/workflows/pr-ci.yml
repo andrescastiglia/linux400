@@ -113,7 +113,6 @@ jobs:
         run: |
           mkdir -p "${{ github.workspace }}/output"
           docker run --rm \
-            --user "$(id -u):$(id -g)" \
             -v "${{ github.workspace }}:/work" \
             -w /work \
             -e OUTPUT_DIR=/work/output \
@@ -124,6 +123,7 @@ jobs:
               apk add --no-cache bash curl
               bash scripts/build/build_alpine_base.sh
             '
+          sudo chown -R "$(id -u):$(id -g)" "${{ github.workspace }}/output"
 
       - name: Build initramfs
         run: |
