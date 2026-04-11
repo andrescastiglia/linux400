@@ -43,18 +43,26 @@ elif [ -d "/lib/modules/${KERNEL_VERSION}-l400" ]; then
     cp -r "/lib/modules/${KERNEL_VERSION}-l400" "${INITRAMFS_DIR}/lib/"
 fi
 
+# Directorio raíz del repositorio (soporte CI vía $L400_SRC_DIR)
+L400_SRC_DIR="${L400_SRC_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+
 # Compilar e incluir BPF LSM
 echo ">> Compilando BPF LSM..."
-if [ -d "/home/user/Source/linux400/l400-ebpf" ]; then
-    cd /home/user/Source/linux400/l400-ebpf
+if [ -d "${L400_SRC_DIR}/l400-ebpf" ]; then
+    cd "${L400_SRC_DIR}/l400-ebpf"
     cargo build --target bpfel-unknown-none --release 2>/dev/null || true
     cp target/bpfel-unknown-none/release/l400-ebpf "${INITRAMFS_DIR}/l400/hooks/" 2>/dev/null || true
+    cd - > /dev/null
 fi
 
-# Cargar el loader de eBPF
+# Cargar el loader de eBPF (preferir release sobre debug)
 echo ">> Preparando loader eBPF..."
-if [ -f "/home/user/Source/linux400/target/debug/l400-loader" ]; then
-    cp /home/user/Source/linux400/target/debug/l400-loader "${INITRAMFS_DIR}/bin/"
+if [ -f "${L400_SRC_DIR}/target/release/l400-loader" ]; then
+    cp "${L400_SRC_DIR}/target/release/l400-loader" "${INITRAMFS_DIR}/bin/"
+elif [ -f "${L400_SRC_DIR}/target/debug/l400-loader" ]; then
+    cp "${L400_SRC_DIR}/target/debug/l400-loader" "${INITRAMFS_DIR}/bin/"
+else
+    echo "WARNING: l400-loader no encontrado; initramfs arrancará sin loader eBPF."
 fi
 
 # Dispositivos de terminal
