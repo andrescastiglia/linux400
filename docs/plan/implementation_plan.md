@@ -32,17 +32,25 @@ Implementar la semántica de *Single-Level Storage (SLS)* garantizando baja late
 - [x] Los compiladores emiten binarios que inyectan los "tags" espaciales y catalogan el objeto como `*PGM` en ZFS.
 
 ### Fase 5: Memory Tagging de 64-bits (TBI / Intel LAM)
-- [ ] Configurar las invocaciones iniciales (`arch_prctl`) al Kernel para habilitar soporte in-hardware de **Intel LAM** (En procesadores Sapphire Rapids o superior) o **ARM TBI**.
-- [ ] **Fallback de Software Seguro:** Para hardwares donde LAM no esté disponible, se integra un pre-procesador condicional o un enmascaramiento binario (`ptr & 0x0000FFFFFFFFFFFF`) dentro las funciones core de `libL400.so` previo a dereferenciar cualquier dirección para evitar *SIGSEGV*.
+- [x] Módulo `lam.rs` con detección automática de hardware (Intel LAM48 / ARM TBI / Software Mask)
+- [x] `arch_prctl` para LAM48 vía syscall inline en CPUs Intel Sapphire Rapids+
+- [x] **Fallback de Software Seguro:** `untag_pointer()` con enmascaramiento bitwise (`ptr & 0x0000_FFFF_FFFF_FFFF`) para CPUs sin LAM
+- [x] API pública: `tag_pointer()`, `untag_pointer()`, `get_space_bits()`, `is_tagged_pointer()`, `enable_for_platform()`
+- [x] Inicialización automática via `init()` - `enable_for_platform()` llamado en carga de libl400
 
 ### Fase 6: Cargas de Trabajo (Cgroups v2)
-Aislar y emular las cargas clásicas QINTER / QBATCH del sistema respetando la barrera del Kernel 6.11.
-- [ ] Configurar `qinter.slice` (Interactivo) otorgando `cpu.weight=10000` y picos máximos de latencia I/O dentro del árbol BPF/cgroup, para defender el tecleo de las TUI.
-- [ ] Configurar `qbatch.slice` (Lotes) restringiendo el peso de contención a valores bajos (ej. `cpu.weight=50`) para proteger al sistema principal.
+- [x] Módulo `cgroup.rs` con gestión de slices cgroups v2
+- [x] `l400.qinter` slice: `cpu.weight=10000`, `io.weight=100` (Interactive TUI/terminal)
+- [x] `l400.qbatch` slice: `cpu.weight=100`, `io.weight=50` (Batch DTAQ processors)
+- [x] API: `create_l400_slices()`, `assign_to_workload()`, `get_current_workload()`
+- [x] Límites de memoria configurables por workload type
 
 ### Fase 7: Frontend TUI (Green Screen) e Interfaces de Consola
-- [ ] Programar un TUI "Main Menu" iterado (`/bin/os400-menu`) usando `Ratatui`/`Ncurses`.
-- [ ] Configurar atajos clásicos (F3, F4, F12) y setear los perfiles de *Login SSH* para reemplazar a Bash con este despachador, operando asíncronamente en UTF-8 puro.
+- [x] Crate `os400-tui/` con Ratatui y estilo Green Screen
+- [x] Menú principal con opciones: WRKLIB, WRKPGM, WRKOBJ, WRKACTJOB, DSPDTAQ, CMD
+- [x] Paneles: WorkManagement (WRKACTJOB), ObjectBrowser (WRKOBJ), DataQueueViewer (DSPDTAQ), CommandLine
+- [x] Atajos de teclado: F3=Exit, F4=Prompt, F5=Refresh, F12=Cancel, Enter=Select
+- [x] Navegación entre pantallas y historial de comandos
 
 ### Fase 8 (HITO FINAL): Empaquetado de Kernel Minimalista e ISO
 - [ ] Aislar núcleo host configurando Alpine Linux Base + `musl`.

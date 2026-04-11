@@ -7,4 +7,5 @@ members = [
     "c400_compiler",
     "cl_compiler/clc",
     "libl400",
+    "os400-tui",
 ]

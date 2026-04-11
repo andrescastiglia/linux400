@@ -54,7 +54,6 @@ pub fn create_pf(lib_path: &Path, name: &str, _record_len: usize) -> Result<Phys
 }
 
 impl PhysicalFile {
-
     pub fn open(path: &Path) -> Result<Self, DbError> {
         let db = sled::open(path)?;
         let tree = db.open_tree("PF_MEMBER")?;
