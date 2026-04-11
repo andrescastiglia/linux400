@@ -24,6 +24,27 @@ mkdir -p "${EFI_DIR}/boot"
 mkdir -p "${BOOT_DIR}/isolinux"
 mkdir -p "${ROOT_DIR}"
 
+copy_first_existing() {
+    local destination="$1"
+    shift
+
+    for candidate in "$@"; do
+        if [ -f "$candidate" ]; then
+            cp "$candidate" "$destination"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+find_first_file() {
+    local pattern="$1"
+    shift
+
+    find "$@" -type f -name "$pattern" 2>/dev/null | head -n 1
+}
+
 # Copiar kernel
 echo ">> Copiando kernel..."
 if [ -f "${OUTPUT_DIR}/vmlinuz" ]; then
@@ -67,13 +88,25 @@ SYSLINUXCFG
 # Copiar binarios de SYSLINUX
 echo ">> Copiando binarios de bootloader..."
 for f in ldlinux.c32 libutil.c32 libcom32.c32 libgcc.c32; do
-    [ -f "/usr/lib/syslinux/${f}" ] && cp "/usr/lib/syslinux/${f}" "${BOOT_DIR}/isolinux/" 2>/dev/null || true
-    [ -f "/usr/share/syslinux/${f}" ] && cp "/usr/share/syslinux/${f}" "${BOOT_DIR}/isolinux/" 2>/dev/null || true
-    [ -f "/usr/lib/syslinux/modules/bios/${f}" ] && cp "/usr/lib/syslinux/modules/bios/${f}" "${BOOT_DIR}/isolinux/" 2>/dev/null || true
+    copy_first_existing "${BOOT_DIR}/isolinux/" \
+        "/usr/lib/syslinux/${f}" \
+        "/usr/share/syslinux/${f}" \
+        "/usr/lib/syslinux/modules/bios/${f}" \
+        "/usr/lib/syslinux/modules/${f}" \
+        "/usr/lib/SYSLINUX/${f}" || true
 done
-[ -f "/usr/lib/syslinux/isolinux.bin" ] && cp "/usr/lib/syslinux/isolinux.bin" "${BOOT_DIR}/isolinux/" 2>/dev/null || true
-[ -f "/usr/share/syslinux/isolinux.bin" ] && cp "/usr/share/syslinux/isolinux.bin" "${BOOT_DIR}/isolinux/" 2>/dev/null || true
-[ -f "/usr/lib/ISOLINUX/isolinux.bin" ] && cp "/usr/lib/ISOLINUX/isolinux.bin" "${BOOT_DIR}/isolinux/" 2>/dev/null || true
+
+copy_first_existing "${BOOT_DIR}/isolinux/" \
+    "/usr/lib/syslinux/isolinux.bin" \
+    "/usr/share/syslinux/isolinux.bin" \
+    "/usr/lib/ISOLINUX/isolinux.bin" || true
+
+if ! [ -f "${BOOT_DIR}/isolinux/isolinux.bin" ]; then
+    ISOLINUX_PATH=$(find_first_file isolinux.bin /usr/lib /usr/share)
+    if [ -n "${ISOLINUX_PATH}" ]; then
+        cp "${ISOLINUX_PATH}" "${BOOT_DIR}/isolinux/isolinux.bin"
+    fi
+fi
 
 if ! [ -f "${BOOT_DIR}/isolinux/isolinux.bin" ]; then
     echo "ERROR: isolinux.bin no encontrado. Instala el paquete 'isolinux'."
@@ -90,17 +123,30 @@ cp "${BOOT_DIR}/initramfs-${KERNEL_VERSION}-l400.img" "${EFI_DIR}/boot/initrd.im
 
 # Crear imagen FAT para arranque EFI
 EFIBOOT_IMG="${EFI_DIR}/boot/efiboot.img"
-if ! [ -f "${EFIBOOT_IMG}" ]; then
-    echo ">> Creando imagen EFI FAT..."
-    dd if=/dev/zero of="${EFIBOOT_IMG}" bs=1M count=4 2>/dev/null
-    mkfs.fat -F 12 -n "EFI" "${EFIBOOT_IMG}" 2>/dev/null || true
-    if command -v mmd >/dev/null 2>&1; then
-        mmd -i "${EFIBOOT_IMG}" ::/EFI ::/EFI/BOOT 2>/dev/null || true
-        [ -f "${EFI_DIR}/boot/vmlinuz.efi" ] && \
-            mcopy -i "${EFIBOOT_IMG}" "${EFI_DIR}/boot/vmlinuz.efi"  ::/EFI/BOOT/BOOTX64.EFI 2>/dev/null || true
-        [ -f "${EFI_DIR}/boot/initrd.img" ] && \
-            mcopy -i "${EFIBOOT_IMG}" "${EFI_DIR}/boot/initrd.img" ::/EFI/BOOT/initrd.img 2>/dev/null || true
-    fi
+echo ">> Creando imagen EFI FAT..."
+rm -f "${EFIBOOT_IMG}"
+dd if=/dev/zero of="${EFIBOOT_IMG}" bs=1M count=4 2>/dev/null
+
+if ! command -v mkfs.fat >/dev/null 2>&1; then
+    echo "ERROR: mkfs.fat no disponible. Instala el paquete 'dosfstools'."
+    exit 1
+fi
+
+mkfs.fat -F 12 -n "EFI" "${EFIBOOT_IMG}" >/dev/null
+
+if ! command -v mmd >/dev/null 2>&1 || ! command -v mcopy >/dev/null 2>&1; then
+    echo "ERROR: mtools incompleto. Se requieren 'mmd' y 'mcopy'."
+    exit 1
+fi
+
+mmd -i "${EFIBOOT_IMG}" ::/EFI ::/EFI/BOOT
+
+if [ -f "${EFI_DIR}/boot/vmlinuz.efi" ]; then
+    mcopy -i "${EFIBOOT_IMG}" "${EFI_DIR}/boot/vmlinuz.efi" ::/EFI/BOOT/BOOTX64.EFI
+fi
+
+if [ -f "${EFI_DIR}/boot/initrd.img" ]; then
+    mcopy -i "${EFIBOOT_IMG}" "${EFI_DIR}/boot/initrd.img" ::/EFI/BOOT/initrd.img
 fi
 
 # Generar imagen ISO
