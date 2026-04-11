@@ -11,8 +11,24 @@
 
 set -e
 
-OWNER="andrescastiglia"
-REPO="linux400"
+OWNER="${OWNER:-}"
+REPO="${REPO:-}"
+
+if [[ -z "$OWNER" || -z "$REPO" ]]; then
+  REMOTE_URL=$(git config --get remote.origin.url 2>/dev/null || true)
+  if [[ "$REMOTE_URL" =~ github.com[:/]([^/]+)/([^/.]+)(\.git)?$ ]]; then
+    OWNER="${BASH_REMATCH[1]}"
+    REPO="${BASH_REMATCH[2]}"
+  fi
+fi
+
+if [[ -z "$OWNER" || -z "$REPO" ]]; then
+  echo "ERROR: No se pudo determinar OWNER/REPO."
+  echo "Define variables de entorno y reintenta:"
+  echo "  OWNER=<owner> REPO=<repo> GITHUB_TOKEN=<token> bash .github/setup-branch-protection.sh"
+  exit 1
+fi
+
 API="https://api.github.com/repos/${OWNER}/${REPO}/branches"
 
 if [[ -z "$GITHUB_TOKEN" ]]; then

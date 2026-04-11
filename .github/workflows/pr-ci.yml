@@ -113,6 +113,7 @@ jobs:
         run: |
           mkdir -p "${{ github.workspace }}/output"
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v "${{ github.workspace }}:/work" \
             -w /work \
             -e OUTPUT_DIR=/work/output \

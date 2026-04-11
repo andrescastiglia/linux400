@@ -130,11 +130,21 @@ mkdir -p "${ROOTFS_DIR}/l400"
 L400_SRC_DIR="${L400_SRC_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 # Preferir artefactos release sobre debug
-L400_TARGET="${L400_SRC_DIR}/target/release"
-[ -d "${L400_TARGET}" ] || L400_TARGET="${L400_SRC_DIR}/target/debug"
+if [ -f "${L400_SRC_DIR}/target/release/libl400.so" ]; then
+    L400_TARGET="${L400_SRC_DIR}/target/release"
+elif [ -f "${L400_SRC_DIR}/target/debug/libl400.so" ]; then
+    L400_TARGET="${L400_SRC_DIR}/target/debug"
+else
+    echo "WARNING: No se encontró libl400.so en target/release ni target/debug."
+    L400_TARGET=""
+fi
 
-cp -r "${L400_TARGET}/libl400.so" "${ROOTFS_DIR}/lib/l400/" 2>/dev/null || true
-cp -r "${L400_TARGET}/l400"* "${ROOTFS_DIR}/opt/l400/" 2>/dev/null || true
+if [ -n "${L400_TARGET}" ]; then
+    cp -r "${L400_TARGET}/libl400.so" "${ROOTFS_DIR}/lib/l400/" 2>/dev/null || \
+        echo "WARNING: No se pudo copiar libl400.so desde ${L400_TARGET}."
+    cp -r "${L400_TARGET}/l400"* "${ROOTFS_DIR}/opt/l400/" 2>/dev/null || \
+        echo "WARNING: No se encontraron binarios l400* en ${L400_TARGET}."
+fi
 cp -r "${L400_SRC_DIR}/scripts/"* "${ROOTFS_DIR}/opt/l400/scripts/" 2>/dev/null || true
 
 # Configurar PATH
