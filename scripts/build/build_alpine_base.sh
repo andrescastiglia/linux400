@@ -84,9 +84,16 @@ mkdir -p "${ROOTFS_DIR}/opt/l400"
 mkdir -p "${ROOTFS_DIR}/lib/l400"
 mkdir -p "${ROOTFS_DIR}/l400"
 
-cp -r /home/user/Source/linux400/target/debug/libl400.so "${ROOTFS_DIR}/lib/l400/" 2>/dev/null || true
-cp -r /home/user/Source/linux400/target/debug/l400* "${ROOTFS_DIR}/opt/l400/" 2>/dev/null || true
-cp -r /home/user/Source/linux400/scripts/* "${ROOTFS_DIR}/opt/l400/scripts/" 2>/dev/null || true
+# Directorio raíz del repositorio (soporte CI vía $L400_SRC_DIR)
+L400_SRC_DIR="${L400_SRC_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+
+# Preferir artefactos release sobre debug
+L400_TARGET="${L400_SRC_DIR}/target/release"
+[ -d "${L400_TARGET}" ] || L400_TARGET="${L400_SRC_DIR}/target/debug"
+
+cp -r "${L400_TARGET}/libl400.so" "${ROOTFS_DIR}/lib/l400/" 2>/dev/null || true
+cp -r "${L400_TARGET}/l400"* "${ROOTFS_DIR}/opt/l400/" 2>/dev/null || true
+cp -r "${L400_SRC_DIR}/scripts/"* "${ROOTFS_DIR}/opt/l400/scripts/" 2>/dev/null || true
 
 # Configurar PATH
 echo 'export PATH="/opt/l400:$PATH"' >> "${ROOTFS_DIR}/etc/profile"

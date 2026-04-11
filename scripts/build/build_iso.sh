@@ -5,7 +5,10 @@
 set -e
 
 OUTPUT_DIR="${OUTPUT_DIR:-./output}"
-ISO_NAME="linux400-${VERSION:-1.0.0}"
+# Respetar $ISO_NAME si fue inyectado externamente (ej. desde CI)
+ISO_NAME="${ISO_NAME:-linux400-${VERSION:-1.0.0}}"
+# Quitar extensión .iso si viene incluida, para que no quede duplicada
+ISO_NAME="${ISO_NAME%.iso}"
 WORK_DIR="${OUTPUT_DIR}/iso_work"
 EFI_DIR="${WORK_DIR}/efi"
 BOOT_DIR="${WORK_DIR}/boot"
@@ -42,7 +45,7 @@ fi
 # Copiar rootfs si existe
 echo ">> Copiando rootfs..."
 if [ -d "${OUTPUT_DIR}/rootfs" ]; then
-    cp -r "${OUTPUT_DIR}/rootfs}"/* "${ROOT_DIR}/" 2>/dev/null || true
+    cp -r "${OUTPUT_DIR}/rootfs/"* "${ROOT_DIR}/" 2>/dev/null || true
 fi
 
 # Copiar configuración de SYSLINUX
@@ -78,7 +81,22 @@ done
 cp "${BOOT_DIR}/vmlinuz-${KERNEL_VERSION}-l400" "${EFI_DIR}/boot/vmlinuz.efi" 2>/dev/null || true
 cp "${BOOT_DIR}/initramfs-${KERNEL_VERSION}-l400.img" "${EFI_DIR}/boot/initrd.img" 2>/dev/null || true
 
-# Crear EFI partition image
+# Crear imagen FAT para arranque EFI
+EFIBOOT_IMG="${EFI_DIR}/boot/efiboot.img"
+if ! [ -f "${EFIBOOT_IMG}" ]; then
+    echo ">> Creando imagen EFI FAT..."
+    dd if=/dev/zero of="${EFIBOOT_IMG}" bs=1M count=4 2>/dev/null
+    mkfs.fat -F 12 -n "EFI" "${EFIBOOT_IMG}" 2>/dev/null || true
+    if command -v mmd >/dev/null 2>&1; then
+        mmd -i "${EFIBOOT_IMG}" ::/EFI ::/EFI/BOOT 2>/dev/null || true
+        [ -f "${EFI_DIR}/boot/vmlinuz.efi" ] && \
+            mcopy -i "${EFIBOOT_IMG}" "${EFI_DIR}/boot/vmlinuz.efi"  ::/EFI/BOOT/BOOTX64.EFI 2>/dev/null || true
+        [ -f "${EFI_DIR}/boot/initrd.img" ] && \
+            mcopy -i "${EFIBOOT_IMG}" "${EFI_DIR}/boot/initrd.img" ::/EFI/BOOT/initrd.img 2>/dev/null || true
+    fi
+fi
+
+# Generar imagen ISO
 if command -v xorriso >/dev/null 2>&1; then
     echo ">> Generando ISO con xorriso..."
     xorriso -as mkisofs \
@@ -86,15 +104,15 @@ if command -v xorriso >/dev/null 2>&1; then
         -rock \
         -joliet \
         -udf \
-        -full-iso-boot \
         -boot-load-size 4 \
         -boot-info-table \
         -eltorito-catalog "${BOOT_DIR}/isolinux/boot.cat" \
-        -eltorito-alt-boot \
-        -e "${EFI_DIR}/boot" \
+        -b "${BOOT_DIR}/isolinux/isolinux.bin" \
         -no-emul-boot \
-        -append_partition 2 "${EFI_DIR}/boot/efiboot.img" \
-        -gpt-part-type /usr/share/bootloader\
+        -eltorito-alt-boot \
+        -e "efi/boot/efiboot.img" \
+        -no-emul-boot \
+        -isohybrid-gpt-basdat \
         -o "${OUTPUT_DIR}/${ISO_NAME}.iso" \
         "${WORK_DIR}"
 else
