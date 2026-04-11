@@ -38,42 +38,84 @@ EOF
 # Instalar paquetes base
 echo ">> Instalando paquetes base..."
 apk --root "${ROOTFS_DIR}" --arch "${ARCH}" update
-apk --root "${ROOTFS_DIR}" --arch "${ARCH}" add \
-    alpine-base \
-    bash \
-    zfs-utils-linux \
-    zfs-dkms \
-    libstdc++ \
-    clang \
-    llvm20 \
-    musl \
-    openssh \
-    openssl \
-    curl \
-    zlib \
-    libuv \
-    elfutils \
-    file \
-    grep \
-    gawk \
-    sed \
-    coreutils \
-    util-linux \
-    e2fsprogs \
-    dosfstools \
-    mtools \
-    squashfs-tools \
+
+pick_first_available_pkg() {
+    for pkg in "$@"; do
+        if apk --root "${ROOTFS_DIR}" --arch "${ARCH}" add --simulate "$pkg" >/dev/null 2>&1; then
+            echo "$pkg"
+            return 0
+        fi
+    done
+    return 1
+}
+
+LLVM_PKG=""
+if LLVM_PKG=$(pick_first_available_pkg llvm20 llvm19 llvm18 llvm); then
+    echo ">> LLVM detectado: ${LLVM_PKG}"
+else
+    echo "WARNING: No se encontró paquete LLVM; continuando sin LLVM explícito."
+fi
+
+ZFS_PKGS=()
+if apk --root "${ROOTFS_DIR}" --arch "${ARCH}" search -x zfs >/dev/null 2>&1; then
+    ZFS_PKGS+=(zfs)
+elif apk --root "${ROOTFS_DIR}" --arch "${ARCH}" search -x zfs-lts >/dev/null 2>&1; then
+    ZFS_PKGS+=(zfs-lts)
+else
+    echo "WARNING: No se encontró paquete ZFS en repositorios Alpine ${ALPINE_VERSION}."
+fi
+
+BASE_PACKAGES=(
+    alpine-base
+    bash
+    libstdc++
+    clang
+    musl
+    openssh
+    openssl
+    curl
+    zlib
+    libuv
+    elfutils
+    file
+    grep
+    gawk
+    sed
+    coreutils
+    util-linux
+    e2fsprogs
+    dosfstools
+    mtools
+    squashfs-tools
     cdrkit
+)
+
+if [ -n "${LLVM_PKG}" ]; then
+    BASE_PACKAGES+=("${LLVM_PKG}")
+fi
+
+BASE_PACKAGES+=("${ZFS_PKGS[@]}")
+
+apk --root "${ROOTFS_DIR}" --arch "${ARCH}" add "${BASE_PACKAGES[@]}"
 
 # Configurar locale
 echo ">> Configurando locale..."
-sed -i 's/#en_US.UTF-8/en_US.UTF-8/' "${ROOTFS_DIR}/etc/locale.gen"
-sed -i 's/#en_US ISO-8859-1/en_US ISO-8859-1/' "${ROOTFS_DIR}/etc/locale.gen"
+if [ -f "${ROOTFS_DIR}/etc/locale.gen" ]; then
+    sed -i 's/#en_US.UTF-8/en_US.UTF-8/' "${ROOTFS_DIR}/etc/locale.gen"
+    sed -i 's/#en_US ISO-8859-1/en_US ISO-8859-1/' "${ROOTFS_DIR}/etc/locale.gen"
+fi
 
 # Crear usuario l400
 echo ">> Creando usuario l400..."
-adduser -D -s /bin/bash l400 -G users,wheel < "${ROOTFS_DIR}/etc/passwd" 2>/dev/null || true
-echo "l400:l400" | chpasswd -R "${ROOTFS_DIR}"
+if ! chroot "${ROOTFS_DIR}" /bin/sh -c "id -u l400 >/dev/null 2>&1"; then
+    chroot "${ROOTFS_DIR}" /bin/sh -c "adduser -D -s /bin/bash l400" || true
+fi
+
+if chroot "${ROOTFS_DIR}" /bin/sh -c "id -u l400 >/dev/null 2>&1"; then
+    echo "l400:l400" | chroot "${ROOTFS_DIR}" /bin/sh -c "chpasswd" || true
+else
+    echo "WARNING: No se pudo crear usuario l400 dentro del rootfs."
+fi
 
 # Configurar hostname
 echo "linux400" > "${ROOTFS_DIR}/etc/hostname"
