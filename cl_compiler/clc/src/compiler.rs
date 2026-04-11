@@ -1,5 +1,5 @@
-use std::fs;
 use crate::parser::parse_file;
+use std::fs;
 
 pub struct Compiler;
 
@@ -10,10 +10,13 @@ impl Compiler {
             .map_err(|e| format!("Error leyendo el archivo fuente: {}", e))?;
 
         // 2. Parsear código CL (Pest -> AST)
-        let ast = parse_file(&source_code)
-            .map_err(|e| format!("Error de Análisis Sintáctico: {}", e))?;
+        let ast =
+            parse_file(&source_code).map_err(|e| format!("Error de Análisis Sintáctico: {}", e))?;
 
-        println!("AST procesado exitosamente: {} comandos", ast.commands.len());
+        println!(
+            "AST procesado exitosamente: {} comandos",
+            ast.commands.len()
+        );
 
         // 3. Generar código objeto
         #[cfg(feature = "llvm-backend")]
@@ -36,8 +39,8 @@ impl Compiler {
                 source_path
             );
             let stub_c = format!("{}.stub.c", output_path);
-            let mut f = fs::File::create(&stub_c)
-                .map_err(|e| format!("Error creando stub C: {}", e))?;
+            let mut f =
+                fs::File::create(&stub_c).map_err(|e| format!("Error creando stub C: {}", e))?;
             f.write_all(c_stub.as_bytes())
                 .map_err(|e| format!("Error escribiendo stub: {}", e))?;
 

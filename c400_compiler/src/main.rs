@@ -1,7 +1,7 @@
 use clap::Parser;
-use std::process::Command;
-use std::path::Path;
 use l400::zfs::set_objtype;
+use std::path::Path;
+use std::process::Command;
 
 /// Compilador Híbrido C/400 nativo de Linux/400
 #[derive(Parser, Debug)]
@@ -18,30 +18,36 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    
+
     println!("=== Compilación C/400 ===");
     println!("Fuente : {}", args.input);
     println!("Destino: {}", args.output);
 
     let output_path = Path::new(&args.output);
     if !args.output.starts_with("/l400/") {
-        println!("  [WARN] La ruta destino '{}' no está bajo /l400/. ZFS y LSM podrían ignorarla.", args.output);
+        println!(
+            "  [WARN] La ruta destino '{}' no está bajo /l400/. ZFS y LSM podrían ignorarla.",
+            args.output
+        );
     }
 
     // Paso 1: Shell-Out a Clang (o cc como fallback) para generar el binario
     println!(">> (1) Resolviendo AST e inyectando runtime L400 via compilador C...");
-    
+
     // Detectar compilador disponible: clang preferido, cc como fallback
-    let c_compiler = if std::process::Command::new("clang").arg("--version").output().is_ok() {
+    let c_compiler = if std::process::Command::new("clang")
+        .arg("--version")
+        .output()
+        .is_ok()
+    {
         "clang"
     } else {
         "cc"
     };
     println!("   Usando compilador: {}", c_compiler);
-    
-    let lib_path = std::env::var("L400_LIB_PATH")
-        .unwrap_or_else(|_| "target/debug".to_string());
-    
+
+    let lib_path = std::env::var("L400_LIB_PATH").unwrap_or_else(|_| "target/debug".to_string());
+
     let compile_status = Command::new(c_compiler)
         .arg(&args.input)
         .arg("-o")

@@ -1,11 +1,11 @@
-pub mod main_menu;
-pub mod work_mgmt;
-pub mod object_browser;
-pub mod dtaq_viewer;
 pub mod cmd_line;
+pub mod dtaq_viewer;
+pub mod main_menu;
+pub mod object_browser;
+pub mod work_mgmt;
 
-use ratatui::Frame;
 use crossterm::event::KeyEvent;
+use ratatui::Frame;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScreenId {

@@ -80,5 +80,5 @@ pub fn open_object_direct(path: &Path) -> Result<fs::File, ObjectError> {
 
 /// Valida que un buffer cumpla con los requisitos de alineación de O_DIRECT.
 pub fn validate_alignment(buffer: &[u8], alignment: usize) -> bool {
-    buffer.as_ptr() as usize % alignment == 0 && buffer.len() % 512 == 0
+    (buffer.as_ptr() as usize).is_multiple_of(alignment) && buffer.len().is_multiple_of(512)
 }

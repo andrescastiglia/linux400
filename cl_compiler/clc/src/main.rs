@@ -1,12 +1,12 @@
 pub mod ast;
-pub mod parser;
 pub mod codegen;
 pub mod compiler;
+pub mod parser;
 
-use std::process::Command;
 use clap::Parser;
-use std::path::Path;
 use l400::zfs::set_objtype;
+use std::path::Path;
+use std::process::Command;
 
 /// Compilador de Control Language (CL) nativo de Linux/400
 #[derive(Parser, Debug)]
@@ -26,7 +26,7 @@ fn main() {
     println!("=== Compilando {} ===", args.input);
 
     let obj_output = format!("{}.o", args.output);
-    
+
     // 1. AST -> IR -> Objeto
     match compiler::Compiler::compile(&args.input, &obj_output) {
         Ok(_) => println!("✔ Código objeto generado en {}", obj_output),
@@ -38,9 +38,12 @@ fn main() {
 
     // 2. Linking Objecto -> libL400.so -> Runtime Ejecutable
     // Enlazar temporal obj con la libreria core de linux/400 (depende del compilador C cc)
-    println!("Llamando al linker para resolver dependencias a {}", args.output);
-    let lib_path = std::env::var("L400_LIB_PATH")
-        .unwrap_or_else(|_| "../libl400/target/debug".to_string());
+    println!(
+        "Llamando al linker para resolver dependencias a {}",
+        args.output
+    );
+    let lib_path =
+        std::env::var("L400_LIB_PATH").unwrap_or_else(|_| "../libl400/target/debug".to_string());
 
     let link_status = Command::new("cc")
         .arg(&obj_output)
@@ -54,15 +57,15 @@ fn main() {
     match link_status {
         Ok(status) if status.success() => {
             println!("Proceso Completo de C/C++ Linker!");
-            
+
             // 3. Catalogación estricta ZFS
             println!(">> (3) Integrando al Single-Level Storage (zfs xattr)...");
-            
+
             let output_path = Path::new(&args.output);
             if !args.output.starts_with("/l400/") {
                 println!("  [WARN] La ruta destino '{}' no está bajo /l400/. ZFS/LSM ignorará este binario.", args.output);
             }
-            
+
             match set_objtype(output_path, "*PGM") {
                 Ok(_) => {
                     println!("✔ Objeto nativo L400 creado en '{}'", args.output);

@@ -144,8 +144,8 @@ cargo test -p l400 test_object_tagging
 
 ## 8. Métricas de Éxito
 
-- [ ] `detect_hardware_mode()` retorna modo correcto según CPU
-- [ ] `enable_lam48()` configura `arch_prctl` sin errores en HW soportado
-- [ ] `tag_pointer()` / `untag_pointer()` son inversas (round-trip)
-- [ ] `SoftwareMask` produce resultados idénticos a LAM hardware
-- [ ] Tests pasan en entorno sin LAM (fallback correcto)
+- [x] `detect_hardware_mode()` retorna modo correcto según CPU
+- [x] `enable_lam48()` configura `arch_prctl` sin errores en HW soportado
+- [x] `tag_pointer()` / `untag_pointer()` son inversas (round-trip)
+- [x] `SoftwareMask` produce resultados idénticos a LAM hardware
+- [x] Tests pasan en entorno sin LAM (fallback correcto)

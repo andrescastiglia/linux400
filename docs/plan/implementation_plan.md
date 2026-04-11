@@ -53,9 +53,10 @@ Implementar la semántica de *Single-Level Storage (SLS)* garantizando baja late
 - [x] Navegación entre pantallas y historial de comandos
 
 ### Fase 8 (HITO FINAL): Empaquetado de Kernel Minimalista e ISO
-- [ ] Aislar núcleo host configurando Alpine Linux Base + `musl`.
-- [ ] Compilar **Kernel 6.11+** estabilizado inyectando banderas requeridas: `CONFIG_BPF_LSM=y`, `CONFIG_X86_64_LAM=y` (o equivalente a parche backport si no lo contempla la rama principal) y empaquetar módulo ZFS unificado.
-- [ ] Construir Initramfs customizado que despliegue el BPF LSM antes del Systemd chroot inicial.
+- [x] Script `build_alpine_base.sh`: Rootfs Alpine Linux con musl, ZFS, LLVM
+- [x] Script `build_kernel.sh`: Kernel 6.11+ con `CONFIG_BPF_LSM=y`, `CONFIG_X86_64_LAM=y`
+- [x] Script `build_initramfs.sh`: Initramfs con preload BPF LSM
+- [x] Script `build_iso.sh`: ISO booteable con SYSLINUX/EFI
 
 ---
 

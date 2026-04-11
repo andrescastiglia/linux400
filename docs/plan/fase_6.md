@@ -163,8 +163,8 @@ cargo test -p l400 cgroup::tests::test_assign_workload
 
 ## 9. Métricas de Éxito
 
-- [ ] `is_cgroup_v2_available()` retorna `true` en sistemas con cgroups v2
-- [ ] `create_l400_slices()` crea `l400.qinter` y `l400.qbatch` con parámetros correctos
-- [ ] `assign_to_workload()` mueve el proceso al cgroup correcto
-- [ ] `get_current_workload()` retorna el tipo de workload del proceso actual
-- [ ] Tests pasan en entorno sin cgroups v2 (fallback gracefully)
+- [x] `is_cgroup_v2_available()` retorna `true` en sistemas con cgroups v2
+- [x] `create_l400_slices()` crea `l400.qinter` y `l400.qbatch` con parámetros correctos
+- [x] `assign_to_workload()` mueve el proceso al cgroup correcto
+- [x] `get_current_workload()` retorna el tipo de workload del proceso actual
+- [x] Tests pasan en entorno sin cgroups v2 (fallback gracefully)

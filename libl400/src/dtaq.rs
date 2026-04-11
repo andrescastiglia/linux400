@@ -66,7 +66,7 @@ impl DataQueue {
 
     pub fn snddtaq(&self, buffer: &[u8]) -> Result<(), DtaqError> {
         let id = self.db.generate_id()?;
-        self.tree.insert(&id.to_be_bytes(), buffer)?;
+        self.tree.insert(id.to_be_bytes(), buffer)?;
         self.db.flush()?;
         Ok(())
     }

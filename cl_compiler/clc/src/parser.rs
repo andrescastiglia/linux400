@@ -1,6 +1,6 @@
+use crate::ast::*;
 use pest::Parser;
 use pest_derive::Parser;
-use crate::ast::*;
 
 #[derive(Parser)]
 #[grammar = "grammar.pest"]
@@ -22,16 +22,21 @@ pub fn parse_file(source: &str) -> Result<Program, pest::error::Error<Rule>> {
                     for param_node in params_node.into_inner() {
                         let mut p_inner = param_node.into_inner();
                         let first = p_inner.next().unwrap();
-                        
-                        let param = if first.as_rule() == Rule::identifier && p_inner.peek().is_some() {
-                            let key = first.as_str().to_uppercase();
-                            let val_node = p_inner.next().unwrap().into_inner().next().unwrap();
-                            Parameter::Named(key, parse_value(val_node))
-                        } else {
-                            // Era solo value o identifier resolviendo a fallback (Posicional)
-                            let val_node = if first.as_rule() == Rule::value { first.into_inner().next().unwrap() } else { first };
-                            Parameter::Positional(parse_value(val_node))
-                        };
+
+                        let param =
+                            if first.as_rule() == Rule::identifier && p_inner.peek().is_some() {
+                                let key = first.as_str().to_uppercase();
+                                let val_node = p_inner.next().unwrap().into_inner().next().unwrap();
+                                Parameter::Named(key, parse_value(val_node))
+                            } else {
+                                // Era solo value o identifier resolviendo a fallback (Posicional)
+                                let val_node = if first.as_rule() == Rule::value {
+                                    first.into_inner().next().unwrap()
+                                } else {
+                                    first
+                                };
+                                Parameter::Positional(parse_value(val_node))
+                            };
                         parameters.push(param);
                     }
                 }
@@ -48,7 +53,7 @@ fn parse_value(node: pest::iterators::Pair<Rule>) -> Value {
     match node.as_rule() {
         Rule::string_literal => {
             let s = node.as_str();
-            Value::StringLiteral(s[1..s.len()-1].to_string()) // Quitar comillas
+            Value::StringLiteral(s[1..s.len() - 1].to_string()) // Quitar comillas
         }
         Rule::keyword => Value::Keyword(node.as_str().to_uppercase()),
         Rule::identifier => Value::Identifier(node.as_str().to_uppercase()),

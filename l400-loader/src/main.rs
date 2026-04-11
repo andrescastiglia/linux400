@@ -54,18 +54,19 @@ async fn main() -> Result<(), anyhow::Error> {
     info!("LSM Hooks 'file_open' y 'bprm_check_security' ensamblados y activados.");
     info!("La protección nativa OS/400 está en curso. (Presione Ctrl+C para salir)...");
 
-    let stats_map: aya::maps::HashMap<_, u32, u64> = aya::maps::HashMap::try_from(bpf.map_mut("L400_STATS").unwrap())?;
+    let stats_map: aya::maps::HashMap<_, u32, u64> =
+        aya::maps::HashMap::try_from(bpf.map_mut("L400_STATS").unwrap())?;
 
     loop {
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
                 let allowed = stats_map.get(&0, 0).unwrap_or(0);
                 let denied = stats_map.get(&1, 0).unwrap_or(0);
-                
+
                 info!("--- Estadísticas de L400 ---");
                 info!("Accesos Permitidos : {}", allowed);
                 info!("Accesos Denegados  : {}", denied);
-                
+
                 for (i, obj) in l400_ebpf_common::VALID_OBJ_TYPES.iter().enumerate() {
                     let count = stats_map.get(&(i as u32 + 2), 0).unwrap_or(0);
                     if count > 0 {

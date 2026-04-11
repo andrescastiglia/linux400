@@ -4,11 +4,11 @@
 #[cfg(feature = "llvm-backend")]
 use crate::ast::*;
 #[cfg(feature = "llvm-backend")]
+use inkwell::builder::Builder;
+#[cfg(feature = "llvm-backend")]
 use inkwell::context::Context;
 #[cfg(feature = "llvm-backend")]
 use inkwell::module::Module;
-#[cfg(feature = "llvm-backend")]
-use inkwell::builder::Builder;
 #[cfg(feature = "llvm-backend")]
 use inkwell::values::FunctionValue;
 #[cfg(feature = "llvm-backend")]
@@ -26,7 +26,11 @@ impl<'ctx> CodeGenerator<'ctx> {
     pub fn new(context: &'ctx Context, module_name: &str) -> Self {
         let module = context.create_module(module_name);
         let builder = context.create_builder();
-        Self { context, module, builder }
+        Self {
+            context,
+            module,
+            builder,
+        }
     }
 
     /// Generar código para el programa
@@ -38,14 +42,16 @@ impl<'ctx> CodeGenerator<'ctx> {
         let basic_block = self.context.append_basic_block(main_fn, "entry");
         self.builder.position_at_end(basic_block);
 
-        // Mapear comandos. 
+        // Mapear comandos.
         // Idealmente aquí invocaríamos a extern functions declarados de libl400.so (ej. l400_sndpgmmsg)
         for command in &program.commands {
             self.generate_command(command, main_fn)?;
         }
 
         // Devolver 0 para C main
-        self.builder.build_return(Some(&i32_type.const_int(0, false))).map_err(|e| e.to_string())?;
+        self.builder
+            .build_return(Some(&i32_type.const_int(0, false)))
+            .map_err(|e| e.to_string())?;
 
         Ok(())
     }
@@ -59,7 +65,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     // Guardar LLVM en un obj nativo .o
     pub fn emit_object_file(&self, path: &str) -> Result<(), String> {
-        use inkwell::targets::{Target, TargetMachine, InitializationConfig, RelocMode, CodeModel};
+        use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
         use inkwell::OptimizationLevel;
 
         Target::initialize_all(&InitializationConfig::default());

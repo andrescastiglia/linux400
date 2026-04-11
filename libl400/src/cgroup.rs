@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -84,17 +84,13 @@ fn qbatch_path() -> PathBuf {
     l400_root().join(QBATCH_SLICE)
 }
 
-fn write_cgroup_param(
-    path: &PathBuf,
-    file: &str,
-    value: impl AsRef<str>,
-) -> Result<(), CgroupError> {
+fn write_cgroup_param(path: &Path, file: &str, value: impl AsRef<str>) -> Result<(), CgroupError> {
     let file_path = path.join(file);
     std::fs::write(&file_path, value.as_ref())?;
     Ok(())
 }
 
-fn read_cgroup_param(path: &PathBuf, file: &str) -> Result<String, CgroupError> {
+fn read_cgroup_param(path: &Path, file: &str) -> Result<String, CgroupError> {
     let file_path = path.join(file);
     let content = std::fs::read_to_string(&file_path)?;
     Ok(content.trim().to_string())

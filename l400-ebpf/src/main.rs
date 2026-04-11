@@ -1,7 +1,11 @@
 #![no_std]
 #![no_main]
 
-use aya_ebpf::{macros::{lsm, map}, maps::HashMap, programs::LsmContext};
+use aya_ebpf::{
+    macros::{lsm, map},
+    maps::HashMap,
+    programs::LsmContext,
+};
 use aya_log_ebpf::{info, warn};
 use l400_ebpf_common::VALID_OBJ_TYPES;
 
@@ -25,8 +29,17 @@ pub struct bpf_dynptr {
 
 extern "C" {
     // KFuncs kernel 6.11+
-    pub fn bpf_dynptr_from_mem(data: *mut c_void, size: u32, flags: u64, ptr: *mut bpf_dynptr) -> i32;
-    pub fn bpf_get_file_xattr(file: *mut c_void, name__str: *const u8, value_p: *mut bpf_dynptr) -> i32;
+    pub fn bpf_dynptr_from_mem(
+        data: *mut c_void,
+        size: u32,
+        flags: u64,
+        ptr: *mut bpf_dynptr,
+    ) -> i32;
+    pub fn bpf_get_file_xattr(
+        file: *mut c_void,
+        name__str: *const u8,
+        value_p: *mut bpf_dynptr,
+    ) -> i32;
 }
 
 const EACCES: i32 = -13;
@@ -59,19 +72,14 @@ fn try_file_open(ctx: LsmContext) -> Result<i32, i32> {
             &mut dynptr as *mut bpf_dynptr,
         )
     };
-    
+
     if err != 0 {
         return Ok(0); // dynptr fallback (si falla, permitir abrir)
     }
 
     // Extraer atributo a traves de la Kfunc
-    let err = unsafe {
-        bpf_get_file_xattr(
-            file,
-            attr_name.as_ptr(),
-            &mut dynptr as *mut bpf_dynptr,
-        )
-    };
+    let err =
+        unsafe { bpf_get_file_xattr(file, attr_name.as_ptr(), &mut dynptr as *mut bpf_dynptr) };
 
     if err < 0 {
         // No tiene el flag L400 (ej. un fichero nativo linux estandar), pasamos
@@ -79,7 +87,7 @@ fn try_file_open(ctx: LsmContext) -> Result<i32, i32> {
     }
 
     let prefix = &attr_value[0..4];
-    
+
     let mut is_valid = false;
     for (i, obj_type) in VALID_OBJ_TYPES.iter().enumerate() {
         if prefix == &obj_type.prefix {
@@ -93,7 +101,10 @@ fn try_file_open(ctx: LsmContext) -> Result<i32, i32> {
     if is_valid {
         inc_stat(0); // 0 = Permitidos
     } else {
-        warn!(&ctx, "Invalido: Etiqueta L400 irreconocible. Bloqueando acceso!");
+        warn!(
+            &ctx,
+            "Invalido: Etiqueta L400 irreconocible. Bloqueando acceso!"
+        );
         inc_stat(1); // 1 = Denegados
         return Err(EACCES);
     }

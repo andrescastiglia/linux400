@@ -3,6 +3,10 @@ use sled::{Db, Tree};
 use std::path::Path;
 use thiserror::Error;
 
+pub type Record = Vec<u8>;
+pub type RecordPair = (Record, Record);
+pub type RecordSet = Vec<RecordPair>;
+
 #[derive(Error, Debug)]
 pub enum DbError {
     #[error("ZFS Metadata Error: {0}")]
@@ -83,7 +87,7 @@ impl PhysicalFile {
     }
 
     /// Leer todos los registros en orden de clave (equivalente a READNXT secuencial)
-    pub fn read_all(&self) -> Result<Vec<(Vec<u8>, Vec<u8>)>, DbError> {
+    pub fn read_all(&self) -> Result<RecordSet, DbError> {
         let mut result = Vec::new();
         for item in self.tree.iter() {
             let (k, v) = item?;
@@ -196,7 +200,7 @@ impl LogicalFile {
     }
 
     /// READE: Iterar registros del índice en orden de secondary_key (read next equal)
-    pub fn read_all_idx(&self) -> Result<Vec<(Vec<u8>, Vec<u8>)>, DbError> {
+    pub fn read_all_idx(&self) -> Result<RecordSet, DbError> {
         let mut result = Vec::new();
         for item in self.index.iter() {
             let (sk, pk) = item?;
