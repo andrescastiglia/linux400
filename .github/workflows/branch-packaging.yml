@@ -1,0 +1,138 @@
+name: Branch Packaging and Release
+
+on:
+  push:
+    branches:
+      - testing
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  package-iso:
+    name: Build and Package ISO
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^version = "\([0-9]\+\.[0-9]\+\.[0-9]\+\)"/\1/p' libl400/Cargo.toml | head -n1)
+          if [[ -z "$VERSION" ]]; then
+            echo "Unable to detect semantic version from libl400/Cargo.toml" >&2
+            exit 1
+          fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-branchpkg-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-branchpkg-
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install ISO build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            xorriso \
+            syslinux \
+            syslinux-common \
+            syslinux-utils \
+            isolinux \
+            mtools \
+            curl \
+            squashfs-tools \
+            dosfstools \
+            libattr1-dev \
+            xattr
+
+      - name: Build user-space tools (release)
+        run: |
+          cargo build -p c400c --release
+          cargo build -p clc --release
+          cargo build -p l400-loader --release
+
+      - name: Determine ISO name
+        id: iso_name
+        run: |
+          if [[ "${{ github.ref_name }}" == "testing" ]]; then
+            echo "name=linux400_unstable.iso" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=linux400-${{ steps.version.outputs.value }}.iso" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Alpine rootfs (Docker)
+        run: |
+          mkdir -p "${{ github.workspace }}/output"
+          docker run --rm \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            -e OUTPUT_DIR=/work/output \
+            -e L400_SRC_DIR=/work \
+            alpine:3.20 \
+            sh -lc '
+              set -eu
+              apk add --no-cache bash curl
+              bash scripts/build/build_alpine_base.sh
+            '
+          sudo chown -R "$(id -u):$(id -g)" "${{ github.workspace }}/output"
+
+      - name: Build initramfs
+        run: |
+          bash scripts/build/build_initramfs.sh
+        env:
+          OUTPUT_DIR: ${{ github.workspace }}/output
+          L400_SRC_DIR: ${{ github.workspace }}
+
+      - name: Build ISO
+        run: |
+          bash scripts/build/build_iso.sh
+        env:
+          OUTPUT_DIR: ${{ github.workspace }}/output
+          ISO_NAME: ${{ steps.iso_name.outputs.name }}
+          VERSION: ${{ steps.version.outputs.value }}
+
+      - name: Normalize ISO path
+        id: iso_path
+        run: |
+          set -euo pipefail
+          TARGET="output/${{ steps.iso_name.outputs.name }}"
+          mapfile -t ISO_FILES < <(find output -type f -name "*.iso" | sort)
+          if [[ "${#ISO_FILES[@]}" -ne 1 ]]; then
+            echo "Expected exactly one ISO file, found ${#ISO_FILES[@]}" >&2
+            printf 'Found:\n%s\n' "${ISO_FILES[*]-}" >&2
+            exit 1
+          fi
+          if [[ "${ISO_FILES[0]}" != "$TARGET" ]]; then
+            mv "${ISO_FILES[0]}" "$TARGET"
+          fi
+          echo "value=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Upload ISO package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.iso_name.outputs.name }}
+          path: ${{ steps.iso_path.outputs.value }}
+          retention-days: 30
+
+      - name: Create release on main
+        if: ${{ github.ref_name == 'main' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: release/${{ steps.version.outputs.value }}
+          name: release/${{ steps.version.outputs.value }}
+          generate_release_notes: true
+          files: ${{ steps.iso_path.outputs.value }}
