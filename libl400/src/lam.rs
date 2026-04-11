@@ -80,10 +80,10 @@ fn has_cpuid_lam() -> bool {
 #[cfg(target_arch = "x86_64")]
 fn is_sapphire_rapids_or_newer() -> bool {
     let cpuid = std::arch::x86_64::__cpuid(1);
-    let family = ((cpuid.eax >> 8) & 0xF) as u32;
-    let extended_family = ((cpuid.eax >> 20) & 0xFF) as u32;
-    let model = ((cpuid.eax >> 4) & 0xF) as u32;
-    let extended_model = ((cpuid.eax >> 16) & 0xF) as u32;
+    let family = (cpuid.eax >> 8) & 0xF;
+    let extended_family = (cpuid.eax >> 20) & 0xFF;
+    let model = (cpuid.eax >> 4) & 0xF;
+    let extended_model = (cpuid.eax >> 16) & 0xF;
 
     let full_family = if family == 6 {
         extended_family.saturating_add(family)

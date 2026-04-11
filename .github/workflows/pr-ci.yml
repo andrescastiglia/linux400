@@ -27,7 +27,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ github.ref_name }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
@@ -35,7 +35,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            libxattr-dev \
+            libattr1-dev \
             xattr
 
       - name: Check formatting
@@ -72,7 +72,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-iso-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-iso-${{ github.ref_name }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-cargo-iso-
 
@@ -82,13 +82,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             xorriso \
             syslinux \
+            syslinux-common \
             syslinux-utils \
             isolinux \
             mtools \
             curl \
             squashfs-tools \
             dosfstools \
-            libxattr-dev \
+            libattr1-dev \
             xattr
 
       - name: Build user-space tools (release)
@@ -108,17 +109,28 @@ jobs:
             echo "iso_name=linux400.iso" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build Alpine rootfs
+      - name: Build Alpine rootfs (Docker)
         run: |
-          bash scripts/build/build_alpine_base.sh
-        env:
-          OUTPUT_DIR: ${{ github.workspace }}/output
+          mkdir -p "${{ github.workspace }}/output"
+          docker run --rm \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            -e OUTPUT_DIR=/work/output \
+            -e L400_SRC_DIR=/work \
+            alpine:3.20 \
+            sh -lc '
+              set -eu
+              apk add --no-cache bash curl
+              bash scripts/build/build_alpine_base.sh
+            '
+          sudo chown -R "$(id -u):$(id -g)" "${{ github.workspace }}/output"
 
       - name: Build initramfs
         run: |
           bash scripts/build/build_initramfs.sh
         env:
           OUTPUT_DIR: ${{ github.workspace }}/output
+          L400_SRC_DIR: ${{ github.workspace }}
 
       - name: Build ISO
         run: |
@@ -127,17 +139,27 @@ jobs:
           OUTPUT_DIR: ${{ github.workspace }}/output
           ISO_NAME: ${{ steps.iso_name.outputs.iso_name }}
 
-      - name: Rename ISO with suffix
+      - name: Rename ISO deterministically
+        id: finalize_iso
         run: |
-          SUFFIX="${{ steps.iso_name.outputs.suffix }}"
-          if [[ -n "$SUFFIX" ]]; then
-            find output -name "*.iso" ! -name "*_unstable*" \
-              -exec bash -c 'mv "$1" "${1%.iso}'"$SUFFIX"'.iso"' _ {} \;
+          set -euo pipefail
+          TARGET_NAME="${{ steps.iso_name.outputs.iso_name }}"
+          mapfile -t iso_files < <(find output -type f -name "*.iso" | sort)
+          if [[ "${#iso_files[@]}" -ne 1 ]]; then
+            echo "Expected exactly one ISO in output, found ${#iso_files[@]}" >&2
+            printf 'Files found:\n%s\n' "${iso_files[*]-}" >&2
+            exit 1
           fi
+          SOURCE_ISO="${iso_files[0]}"
+          TARGET_ISO="output/${TARGET_NAME}"
+          if [[ "$SOURCE_ISO" != "$TARGET_ISO" ]]; then
+            mv "$SOURCE_ISO" "$TARGET_ISO"
+          fi
+          echo "iso_path=${TARGET_ISO}" >> "$GITHUB_OUTPUT"
 
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.iso_name.outputs.iso_name }}
-          path: output/**/*.iso
+          path: ${{ steps.finalize_iso.outputs.iso_path }}
           retention-days: 14
