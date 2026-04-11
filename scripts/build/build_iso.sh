@@ -69,9 +69,16 @@ echo ">> Copiando binarios de bootloader..."
 for f in ldlinux.c32 libutil.c32 libcom32.c32 libgcc.c32; do
     [ -f "/usr/lib/syslinux/${f}" ] && cp "/usr/lib/syslinux/${f}" "${BOOT_DIR}/isolinux/" 2>/dev/null || true
     [ -f "/usr/share/syslinux/${f}" ] && cp "/usr/share/syslinux/${f}" "${BOOT_DIR}/isolinux/" 2>/dev/null || true
+    [ -f "/usr/lib/syslinux/modules/bios/${f}" ] && cp "/usr/lib/syslinux/modules/bios/${f}" "${BOOT_DIR}/isolinux/" 2>/dev/null || true
 done
 [ -f "/usr/lib/syslinux/isolinux.bin" ] && cp "/usr/lib/syslinux/isolinux.bin" "${BOOT_DIR}/isolinux/" 2>/dev/null || true
 [ -f "/usr/share/syslinux/isolinux.bin" ] && cp "/usr/share/syslinux/isolinux.bin" "${BOOT_DIR}/isolinux/" 2>/dev/null || true
+[ -f "/usr/lib/ISOLINUX/isolinux.bin" ] && cp "/usr/lib/ISOLINUX/isolinux.bin" "${BOOT_DIR}/isolinux/" 2>/dev/null || true
+
+if ! [ -f "${BOOT_DIR}/isolinux/isolinux.bin" ]; then
+    echo "ERROR: isolinux.bin no encontrado. Instala el paquete 'isolinux'."
+    exit 1
+fi
 
 # Copiar binarios de EFISTUB
 echo ">> Configurando EFI..."
@@ -103,11 +110,10 @@ if command -v xorriso >/dev/null 2>&1; then
         -iso-level 3 \
         -rock \
         -joliet \
-        -udf \
         -boot-load-size 4 \
         -boot-info-table \
-        -eltorito-catalog "${BOOT_DIR}/isolinux/boot.cat" \
-        -b "${BOOT_DIR}/isolinux/isolinux.bin" \
+        -eltorito-catalog boot/isolinux/boot.cat \
+        -b boot/isolinux/isolinux.bin \
         -no-emul-boot \
         -eltorito-alt-boot \
         -e "efi/boot/efiboot.img" \
@@ -124,16 +130,16 @@ else
         -no-emul-boot \
         -boot-load-size 4 \
         -boot-info-table \
-        -c "${BOOT_DIR}/isolinux/boot.cat" \
-        -b "${BOOT_DIR}/isolinux/isolinux.bin" \
+        -c boot/isolinux/boot.cat \
+        -b boot/isolinux/isolinux.bin \
         -o "${OUTPUT_DIR}/${ISO_NAME}.iso" \
         "${WORK_DIR}" 2>/dev/null || \
     mkisofs \
         -no-emul-boot \
         -boot-load-size 4 \
         -boot-info-table \
-        -b "${BOOT_DIR}/isolinux/isolinux.bin" \
-        -c "${BOOT_DIR}/isolinux/boot.cat" \
+        -b boot/isolinux/isolinux.bin \
+        -c boot/isolinux/boot.cat \
         -o "${OUTPUT_DIR}/${ISO_NAME}.iso" \
         "${WORK_DIR}"
 fi
