@@ -3,6 +3,25 @@ use l400::zfs::set_objtype;
 use std::path::Path;
 use std::process::Command;
 
+fn resolve_l400_lib_path() -> String {
+    if let Ok(path) = std::env::var("L400_LIB_PATH") {
+        return path;
+    }
+
+    for candidate in [
+        "/lib/l400",
+        "/opt/l400/lib",
+        "target/release",
+        "target/debug",
+    ] {
+        if Path::new(candidate).exists() {
+            return candidate.to_string();
+        }
+    }
+
+    String::from("target/debug")
+}
+
 /// Compilador Híbrido C/400 nativo de Linux/400
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -46,7 +65,7 @@ fn main() {
     };
     println!("   Usando compilador: {}", c_compiler);
 
-    let lib_path = std::env::var("L400_LIB_PATH").unwrap_or_else(|_| "target/debug".to_string());
+    let lib_path = resolve_l400_lib_path();
 
     let compile_status = Command::new(c_compiler)
         .arg(&args.input)

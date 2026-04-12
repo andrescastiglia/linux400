@@ -8,6 +8,27 @@ use l400::zfs::set_objtype;
 use std::path::Path;
 use std::process::Command;
 
+fn resolve_l400_lib_path() -> String {
+    if let Ok(path) = std::env::var("L400_LIB_PATH") {
+        return path;
+    }
+
+    for candidate in [
+        "/lib/l400",
+        "/opt/l400/lib",
+        "../libl400/target/release",
+        "../libl400/target/debug",
+        "target/release",
+        "target/debug",
+    ] {
+        if Path::new(candidate).exists() {
+            return candidate.to_string();
+        }
+    }
+
+    String::from("../libl400/target/debug")
+}
+
 /// Compilador de Control Language (CL) nativo de Linux/400
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -42,8 +63,7 @@ fn main() {
         "Llamando al linker para resolver dependencias a {}",
         args.output
     );
-    let lib_path =
-        std::env::var("L400_LIB_PATH").unwrap_or_else(|_| "../libl400/target/debug".to_string());
+    let lib_path = resolve_l400_lib_path();
 
     let link_status = Command::new("cc")
         .arg(&obj_output)

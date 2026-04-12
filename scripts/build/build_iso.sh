@@ -1,203 +1,216 @@
 #!/bin/bash
-# build_iso.sh - Genera imagen ISO instalable de Linux/400
-# Combina: Kernel + Initramfs + Rootfs Alpine -> ISO booteable
+# build_iso.sh - Genera una ISO live/install de Linux/400 usando GRUB + squashfs
 
-set -e
+set -euo pipefail
 
-OUTPUT_DIR="${OUTPUT_DIR:-./output}"
-# Respetar $ISO_NAME si fue inyectado externamente (ej. desde CI)
-ISO_NAME="${ISO_NAME:-linux400-${VERSION:-1.0.0}}"
-# Quitar extensión .iso si viene incluida, para que no quede duplicada
+L400_SRC_DIR="${L400_SRC_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+OUTPUT_DIR="${OUTPUT_DIR:-${L400_SRC_DIR}/output}"
+VERSION="${VERSION:-1.0.0}"
+KERNEL_VERSION="${KERNEL_VERSION:-$(uname -r)}"
+ISO_NAME="${ISO_NAME:-linux400-${VERSION}}"
 ISO_NAME="${ISO_NAME%.iso}"
 WORK_DIR="${OUTPUT_DIR}/iso_work"
-EFI_DIR="${WORK_DIR}/efi"
-BOOT_DIR="${WORK_DIR}/boot"
-ROOT_DIR="${WORK_DIR}/root"
+ISO_ROOT="${WORK_DIR}/iso_root"
+LIVE_DIR="${ISO_ROOT}/live"
+BOOT_DIR="${ISO_ROOT}/boot"
+GRUB_DIR="${BOOT_DIR}/grub"
+ROOTFS_DIR="${ROOTFS_DIR:-${OUTPUT_DIR}/rootfs-build}"
+INITRAMFS_IMG="${OUTPUT_DIR}/initramfs-${KERNEL_VERSION}-l400.img"
+SQUASHFS_IMG="${LIVE_DIR}/rootfs.squashfs"
+INSTALL_EFI="${OUTPUT_DIR}/BOOTX64.EFI"
+HOST_TOOLS_DIR="${OUTPUT_DIR}/host-tools"
 
-VERSION="${VERSION:-1.0.0}"
-KERNEL_VERSION="${KERNEL_VERSION:-6.11.0}"
-
-echo "=== Generando ISO Linux/400 v${VERSION} ==="
-
-mkdir -p "${WORK_DIR}"
-mkdir -p "${EFI_DIR}/boot"
-mkdir -p "${BOOT_DIR}/isolinux"
-mkdir -p "${ROOT_DIR}"
-
-copy_first_existing() {
-    local destination="$1"
-    shift
-
+find_first_existing() {
+    local candidate
     for candidate in "$@"; do
-        if [ -f "$candidate" ]; then
-            cp "$candidate" "$destination"
+        if [ -f "${candidate}" ]; then
+            echo "${candidate}"
             return 0
         fi
     done
+    return 1
+}
+
+acquire_kernel() {
+    local kernel_src=""
+    local kernel_pkg_dir="${OUTPUT_DIR}/kernel_pkg"
+    local kernel_pkg="linux-image-${KERNEL_VERSION}"
+
+    kernel_src="$(find_first_existing \
+        "${OUTPUT_DIR}/vmlinuz" \
+        "/boot/vmlinuz-${KERNEL_VERSION}" \
+        "/boot/vmlinuz" \
+        "/boot/vmlinuz-linux" 2>/dev/null || true)"
+
+    if [ -n "${kernel_src}" ] && [ -r "${kernel_src}" ]; then
+        echo "${kernel_src}"
+        return 0
+    fi
+
+    if command -v apt-get >/dev/null 2>&1 && command -v dpkg-deb >/dev/null 2>&1; then
+        mkdir -p "${kernel_pkg_dir}"
+        (
+            cd "${kernel_pkg_dir}"
+            if ! ls "${kernel_pkg}"_*.deb >/dev/null 2>&1; then
+                apt-get download "${kernel_pkg}" >/dev/null
+            fi
+            rm -rf extracted
+            dpkg-deb -x "${kernel_pkg}"_*.deb extracted
+        )
+
+        kernel_src="$(find_first_existing "${kernel_pkg_dir}/extracted/boot/vmlinuz-${KERNEL_VERSION}")"
+        if [ -n "${kernel_src}" ] && [ -r "${kernel_src}" ]; then
+            echo "${kernel_src}"
+            return 0
+        fi
+    fi
 
     return 1
 }
 
-find_first_file() {
-    local pattern="$1"
-    shift
+ensure_command_from_apt() {
+    local command_name="$1"
+    local package_name="$2"
+    local package_dir="${HOST_TOOLS_DIR}/${package_name}"
+    local extracted_dir="${package_dir}/extracted"
 
-    find "$@" -type f -name "$pattern" 2>/dev/null | head -n 1
+    if command -v "${command_name}" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if ! command -v apt-get >/dev/null 2>&1 || ! command -v dpkg-deb >/dev/null 2>&1; then
+        echo "ERROR: falta ${command_name} y no se puede descargar ${package_name}." >&2
+        exit 1
+    fi
+
+    mkdir -p "${package_dir}"
+    (
+        cd "${package_dir}"
+        if ! ls "${package_name}"_*.deb >/dev/null 2>&1; then
+            apt-get download "${package_name}" >/dev/null
+        fi
+        rm -rf extracted
+        dpkg-deb -x "${package_name}"_*.deb extracted
+    )
+
+    PATH="${extracted_dir}/usr/bin:${extracted_dir}/bin:${PATH}"
+    export PATH
+
+    command -v "${command_name}" >/dev/null 2>&1 || {
+        echo "ERROR: no se pudo preparar ${command_name} desde ${package_name}." >&2
+        exit 1
+    }
 }
 
-# Copiar kernel
-echo ">> Copiando kernel..."
-if [ -f "${OUTPUT_DIR}/vmlinuz" ]; then
-    cp "${OUTPUT_DIR}/vmlinuz" "${BOOT_DIR}/vmlinuz-${KERNEL_VERSION}-l400"
-elif [ -f "/boot/vmlinuz-linux" ]; then
-    cp "/boot/vmlinuz-linux" "${BOOT_DIR}/vmlinuz-${KERNEL_VERSION}-l400"
-else
-    echo "WARNING: Kernel no encontrado, usando genkernel..."
-    touch "${BOOT_DIR}/vmlinuz-${KERNEL_VERSION}-l400"
-fi
-
-# Copiar initramfs
-echo ">> Copiando initramfs..."
-if [ -f "${OUTPUT_DIR}/initramfs-${KERNEL_VERSION}-l400.img" ]; then
-    cp "${OUTPUT_DIR}/initramfs-${KERNEL_VERSION}-l400.img" \
-       "${BOOT_DIR}/initramfs-${KERNEL_VERSION}-l400.img"
-fi
-
-# Copiar rootfs si existe
-echo ">> Copiando rootfs..."
-if [ -d "${OUTPUT_DIR}/rootfs" ]; then
-    cp -r "${OUTPUT_DIR}/rootfs/"* "${ROOT_DIR}/" 2>/dev/null || true
-fi
-
-# Copiar configuración de SYSLINUX
-echo ">> Configurando bootloader..."
-cat > "${BOOT_DIR}/isolinux/syslinux.cfg" << 'SYSLINUXCFG'
-SAY Linux/400 v1.0.0 - OS/400 Personality on Linux
-DEFAULT l400
-TIMEOUT 30
-PROMPT 1
-
-LABEL l400
-    KERNEL vmlinuz-6.11.0-l400
-    APPEND initrd=initramfs-6.11.0-l400.img l400.root=/dev/ram0 l400 quiet
-LABEL memtest
-    KERNEL memtest
-    APPEND
-SYSLINUXCFG
-
-# Copiar binarios de SYSLINUX
-echo ">> Copiando binarios de bootloader..."
-for f in ldlinux.c32 libutil.c32 libcom32.c32 libgcc.c32; do
-    copy_first_existing "${BOOT_DIR}/isolinux/" \
-        "/usr/lib/syslinux/${f}" \
-        "/usr/share/syslinux/${f}" \
-        "/usr/lib/syslinux/modules/bios/${f}" \
-        "/usr/lib/syslinux/modules/${f}" \
-        "/usr/lib/SYSLINUX/${f}" || true
-done
-
-copy_first_existing "${BOOT_DIR}/isolinux/" \
-    "/usr/lib/syslinux/isolinux.bin" \
-    "/usr/share/syslinux/isolinux.bin" \
-    "/usr/lib/ISOLINUX/isolinux.bin" || true
-
-if ! [ -f "${BOOT_DIR}/isolinux/isolinux.bin" ]; then
-    ISOLINUX_PATH=$(find_first_file isolinux.bin /usr/lib /usr/share)
-    if [ -n "${ISOLINUX_PATH}" ]; then
-        cp "${ISOLINUX_PATH}" "${BOOT_DIR}/isolinux/isolinux.bin"
+ensure_inputs() {
+    if [ ! -d "${ROOTFS_DIR}" ]; then
+        "${L400_SRC_DIR}/scripts/build/build_alpine_base.sh"
     fi
-fi
 
-if ! [ -f "${BOOT_DIR}/isolinux/isolinux.bin" ]; then
-    echo "ERROR: isolinux.bin no encontrado. Instala el paquete 'isolinux'."
-    exit 1
-fi
+    if [ ! -f "${INITRAMFS_IMG}" ]; then
+        "${L400_SRC_DIR}/scripts/build/build_initramfs.sh"
+    fi
 
-# Copiar binarios de EFISTUB
-echo ">> Configurando EFI..."
-for f in shimx64.efi ldlinux.e64 mokmanager.efi; do
-    [ -f "/usr/lib/shim.shimx64.efi.signed" ] && cp "/usr/lib/shim.shimx64.efi.signed" "${EFI_DIR}/boot/" 2>/dev/null || true
-done
-cp "${BOOT_DIR}/vmlinuz-${KERNEL_VERSION}-l400" "${EFI_DIR}/boot/vmlinuz.efi" 2>/dev/null || true
-cp "${BOOT_DIR}/initramfs-${KERNEL_VERSION}-l400.img" "${EFI_DIR}/boot/initrd.img" 2>/dev/null || true
+    command -v mksquashfs >/dev/null 2>&1 || {
+        echo "ERROR: se requiere mksquashfs (squashfs-tools)." >&2
+        exit 1
+    }
 
-# Crear imagen FAT para arranque EFI
-EFIBOOT_IMG="${EFI_DIR}/boot/efiboot.img"
-echo ">> Creando imagen EFI FAT..."
-rm -f "${EFIBOOT_IMG}"
-dd if=/dev/zero of="${EFIBOOT_IMG}" bs=1M count=4 2>/dev/null
+    command -v grub-mkrescue >/dev/null 2>&1 || {
+        echo "ERROR: se requiere grub-mkrescue." >&2
+        exit 1
+    }
 
-if ! command -v mkfs.fat >/dev/null 2>&1; then
-    echo "ERROR: mkfs.fat no disponible. Instala el paquete 'dosfstools'."
-    exit 1
-fi
+    command -v grub-mkstandalone >/dev/null 2>&1 || {
+        echo "ERROR: se requiere grub-mkstandalone." >&2
+        exit 1
+    }
 
-mkfs.fat -F 12 -n "EFI" "${EFIBOOT_IMG}" >/dev/null
+    ensure_command_from_apt mformat mtools
+    ensure_command_from_apt mcopy mtools
+}
 
-if ! command -v mmd >/dev/null 2>&1 || ! command -v mcopy >/dev/null 2>&1; then
-    echo "ERROR: mtools incompleto. Se requieren 'mmd' y 'mcopy'."
-    exit 1
-fi
+stage_tree() {
+    rm -rf "${WORK_DIR}"
+    mkdir -p "${GRUB_DIR}" "${LIVE_DIR}"
 
-mmd -i "${EFIBOOT_IMG}" ::/EFI ::/EFI/BOOT
+    local kernel_src
+    kernel_src="$(acquire_kernel)" || {
+        echo "ERROR: no se encontró kernel para la ISO." >&2
+        exit 1
+    }
 
-if [ -f "${EFI_DIR}/boot/vmlinuz.efi" ]; then
-    mcopy -i "${EFIBOOT_IMG}" "${EFI_DIR}/boot/vmlinuz.efi" ::/EFI/BOOT/BOOTX64.EFI
-fi
+    echo ">> Copiando kernel desde ${kernel_src}..."
+    cp "${kernel_src}" "${BOOT_DIR}/vmlinuz"
 
-if [ -f "${EFI_DIR}/boot/initrd.img" ]; then
-    mcopy -i "${EFIBOOT_IMG}" "${EFI_DIR}/boot/initrd.img" ::/EFI/BOOT/initrd.img
-fi
+    echo ">> Copiando initramfs..."
+    cp "${INITRAMFS_IMG}" "${BOOT_DIR}/initramfs.img"
 
-# Generar imagen ISO
-if command -v xorriso >/dev/null 2>&1; then
-    echo ">> Generando ISO con xorriso..."
-    xorriso -as mkisofs \
-        -iso-level 3 \
-        -rock \
-        -joliet \
-        -boot-load-size 4 \
-        -boot-info-table \
-        -eltorito-catalog boot/isolinux/boot.cat \
-        -b boot/isolinux/isolinux.bin \
-        -no-emul-boot \
-        -eltorito-alt-boot \
-        -e "efi/boot/efiboot.img" \
-        -no-emul-boot \
-        -isohybrid-gpt-basdat \
-        -o "${OUTPUT_DIR}/${ISO_NAME}.iso" \
-        "${WORK_DIR}"
-else
-    echo ">> Generando ISO con genisoimage (fallback)..."
-    genisoimage \
-        -rationalRock \
-        -joliet \
-        -udf \
-        -no-emul-boot \
-        -boot-load-size 4 \
-        -boot-info-table \
-        -c boot/isolinux/boot.cat \
-        -b boot/isolinux/isolinux.bin \
-        -o "${OUTPUT_DIR}/${ISO_NAME}.iso" \
-        "${WORK_DIR}" 2>/dev/null || \
-    mkisofs \
-        -no-emul-boot \
-        -boot-load-size 4 \
-        -boot-info-table \
-        -b boot/isolinux/isolinux.bin \
-        -c boot/isolinux/boot.cat \
-        -o "${OUTPUT_DIR}/${ISO_NAME}.iso" \
-        "${WORK_DIR}"
-fi
+    echo ">> Generando squashfs live..."
+    mksquashfs "${ROOTFS_DIR}" "${SQUASHFS_IMG}" -noappend -comp xz -all-root >/dev/null
+}
 
-# Verificar ISO
-if [ -f "${OUTPUT_DIR}/${ISO_NAME}.iso" ]; then
-    echo "=== ISO generado exitosamente ==="
-    echo "Archivo: ${OUTPUT_DIR}/${ISO_NAME}.iso"
-    ls -lh "${OUTPUT_DIR}/${ISO_NAME}.iso"
-else
-    echo "ERROR: ISO no pudo ser generado"
-    exit 1
-fi
+write_grub_cfg() {
+    cat > "${GRUB_DIR}/grub.cfg" <<'EOF'
+set default=0
+set timeout=5
 
-echo "=== Proceso completado ==="
+menuentry "Linux/400 Live" {
+    linux /boot/vmlinuz quiet l400.live=1
+    initrd /boot/initramfs.img
+}
+
+menuentry "Linux/400 Install" {
+    linux /boot/vmlinuz quiet l400.install=1
+    initrd /boot/initramfs.img
+}
+
+menuentry "Linux/400 Rescue" {
+    linux /boot/vmlinuz l400.rescue=1
+    initrd /boot/initramfs.img
+}
+EOF
+}
+
+build_installer_efi() {
+    local tmp_cfg="${WORK_DIR}/grub-installed.cfg"
+
+    cat > "${tmp_cfg}" <<'EOF'
+set default=0
+set timeout=3
+
+menuentry "Linux/400" {
+    linux /EFI/Linux400/vmlinuz root=LABEL=linux400-root rw quiet l400.installed=1
+    initrd /EFI/Linux400/initramfs.img
+}
+EOF
+
+    echo ">> Generando BOOTX64.EFI para instalación UEFI..."
+    grub-mkstandalone \
+        -O x86_64-efi \
+        -o "${INSTALL_EFI}" \
+        "boot/grub/grub.cfg=${tmp_cfg}" >/dev/null
+
+    cp "${INSTALL_EFI}" "${LIVE_DIR}/BOOTX64.EFI"
+}
+
+build_iso() {
+    echo ">> Generando ISO híbrida con grub-mkrescue..."
+    grub-mkrescue -o "${OUTPUT_DIR}/${ISO_NAME}.iso" "${ISO_ROOT}" >/dev/null
+}
+
+main() {
+    echo "=== Generando ISO Linux/400 v${VERSION} ==="
+    ensure_inputs
+    stage_tree
+    write_grub_cfg
+    build_installer_efi
+    build_iso
+
+    echo "=== ISO lista ==="
+    echo "ISO      : ${OUTPUT_DIR}/${ISO_NAME}.iso"
+    echo "EFI UEFI : ${INSTALL_EFI}"
+    ls -lh "${OUTPUT_DIR}/${ISO_NAME}.iso" "${INSTALL_EFI}"
+}
+
+main "$@"
