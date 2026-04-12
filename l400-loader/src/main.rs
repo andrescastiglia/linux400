@@ -4,6 +4,35 @@ use std::fs;
 use std::path::PathBuf;
 use tokio::signal;
 
+fn resolve_bpf_path() -> Result<PathBuf, anyhow::Error> {
+    if let Ok(path) = std::env::var("L400_BPF_PATH") {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+
+    let candidates = [
+        "/opt/l400/hooks/l400-ebpf",
+        "/usr/lib/l400/hooks/l400-ebpf",
+        "/l400/hooks/l400-ebpf",
+        "../target/bpfel-unknown-none/release/l400-ebpf",
+        "target/bpfel-unknown-none/release/l400-ebpf",
+        "../l400-ebpf/target/bpfel-unknown-none/release/l400-ebpf",
+    ];
+
+    for candidate in candidates {
+        let path = PathBuf::from(candidate);
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "Binario BPF no encontrado. Configura L400_BPF_PATH o instala l400-ebpf en /opt/l400/hooks."
+    ))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     env_logger::init();
@@ -20,14 +49,7 @@ async fn main() -> Result<(), anyhow::Error> {
         warn!("Fallo al remover el limite de memlock, ret: {}", ret);
     }
 
-    // Ruta heurística relativa (asumiendo ejecución desde la raíz del workspace L400)
-    let bpf_path = PathBuf::from("../l400-ebpf/target/bpfel-unknown-none/release/l400-ebpf");
-    if !bpf_path.exists() {
-        return Err(anyhow::anyhow!(
-            "Binario BPF no encontrado en {:?}. ¿Ejecutaste 'cargo build --target bpfel-unknown-none'?",
-            bpf_path
-        ));
-    }
+    let bpf_path = resolve_bpf_path()?;
 
     let bpf_data = fs::read(&bpf_path)?;
     let mut bpf = Ebpf::load(&bpf_data)?;

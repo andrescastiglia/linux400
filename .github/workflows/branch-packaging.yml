@@ -57,13 +57,14 @@ jobs:
             squashfs-tools \
             dosfstools \
             libattr1-dev \
-            xattr
+            xattr \
+            musl-tools
 
       - name: Build user-space tools (release)
-        run: |
-          cargo build -p c400c --release
-          cargo build -p clc --release
-          cargo build -p l400-loader --release
+        run: bash scripts/build/build_userspace.sh
+        env:
+          OUTPUT_DIR: ${{ github.workspace }}/output
+          L400_SRC_DIR: ${{ github.workspace }}
 
       - name: Determine ISO name
         id: iso_name

@@ -1,132 +1,331 @@
 #!/bin/bash
-# build_initramfs.sh - Crea initramfs con preload BPF LSM para Linux/400
-# El BPF LSM se carga antes del init para garantizar protección desde el boot
+# build_initramfs.sh - Crea un initramfs live/install con switch_root para Linux/400
 
-set -e
+set -euo pipefail
 
-OUTPUT_DIR="${OUTPUT_DIR:-./output}"
-INITRAMFS_DIR="${OUTPUT_DIR}/initramfs"
-KERNEL_VERSION="${KERNEL_VERSION:-6.11.0}"
-L400_INIT="${INITRAMFS_DIR}/init"
-
-echo "=== Construyendo Initramfs para Linux/400 ==="
-
-rm -rf "${INITRAMFS_DIR}"
-mkdir -p "${INITRAMFS_DIR}"/{bin,sbin,etc,lib,lib64,proc,sys,dev,run,l400/hooks}
-chmod 1777 "${INITRAMFS_DIR}/dev"
-
-# Copiar bins mínimos (static para evitar dependencias)
-echo ">> Copiando bins mínimos..."
-for bin in sh busybox mount umount mkdir mdev mkdir sed awk grep find cut cat; do
-    cp -a "/bin/${bin}" "${INITRAMFS_DIR}/bin/" 2>/dev/null || \
-    cp -a "/sbin/${bin}" "${INITRAMFS_DIR}/bin/" 2>/dev/null || \
-    cp -a "/usr/bin/${bin}" "${INITRAMFS_DIR}/bin/" 2>/dev/null || true
-done
-
-# Configurar busybox
-ln -sf busybox "${INITRAMFS_DIR}/bin/sh"
-ln -sf busybox "${INITRAMFS_DIR}/bin/mount"
-ln -sf busybox "${INITRAMFS_DIR}/bin/umount"
-ln -sf busybox "${INITRAMFS_DIR}/bin/mkdir"
-ln -sf busybox "${INITRAMFS_DIR}/bin/sed"
-ln -sf busybox "${INITRAMFS_DIR}/bin/awk"
-ln -sf busybox "${INITRAMFS_DIR}/bin/grep"
-ln -sf busybox "${INITRAMFS_DIR}/bin/find"
-ln -sf busybox "${INITRAMFS_DIR}/bin/cut"
-ln -sf busybox "${INITRAMFS_DIR}/bin/cat"
-
-# Copiar módulos del kernel
-echo ">> Copiando módulos del kernel..."
-if [ -d "/lib/modules/${KERNEL_VERSION}" ]; then
-    cp -r "/lib/modules/${KERNEL_VERSION}" "${INITRAMFS_DIR}/lib/"
-elif [ -d "/lib/modules/${KERNEL_VERSION}-l400" ]; then
-    cp -r "/lib/modules/${KERNEL_VERSION}-l400" "${INITRAMFS_DIR}/lib/"
-fi
-
-# Directorio raíz del repositorio (soporte CI vía $L400_SRC_DIR)
 L400_SRC_DIR="${L400_SRC_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+OUTPUT_DIR="${OUTPUT_DIR:-${L400_SRC_DIR}/output}"
+INITRAMFS_DIR="${OUTPUT_DIR}/initramfs"
+KERNEL_VERSION="${KERNEL_VERSION:-$(uname -r)}"
+L400_INIT="${INITRAMFS_DIR}/init"
+USERSPACE_DIR="${OUTPUT_DIR}/userspace"
+ROOTFS_DIR="${ROOTFS_DIR:-${OUTPUT_DIR}/rootfs-build}"
 
-# Compilar e incluir BPF LSM
-echo ">> Compilando BPF LSM..."
-if [ -d "${L400_SRC_DIR}/l400-ebpf" ]; then
-    cd "${L400_SRC_DIR}/l400-ebpf"
-    cargo build --target bpfel-unknown-none --release 2>/dev/null || true
-    cp target/bpfel-unknown-none/release/l400-ebpf "${INITRAMFS_DIR}/l400/hooks/" 2>/dev/null || true
-    cd - > /dev/null
-fi
+ensure_userspace() {
+    if [ ! -x "${USERSPACE_DIR}/bin/l400-loader" ]; then
+        "${L400_SRC_DIR}/scripts/build/build_userspace.sh"
+    fi
+}
 
-# Cargar el loader de eBPF (preferir release sobre debug)
-echo ">> Preparando loader eBPF..."
-if [ -f "${L400_SRC_DIR}/target/release/l400-loader" ]; then
-    cp "${L400_SRC_DIR}/target/release/l400-loader" "${INITRAMFS_DIR}/bin/"
-elif [ -f "${L400_SRC_DIR}/target/debug/l400-loader" ]; then
-    cp "${L400_SRC_DIR}/target/debug/l400-loader" "${INITRAMFS_DIR}/bin/"
-else
-    echo "WARNING: l400-loader no encontrado; initramfs arrancará sin loader eBPF."
-fi
+copy_busybox_applets() {
+    local applets=(
+        sh
+        ash
+        mount
+        umount
+        mkdir
+        mdev
+        modprobe
+        cat
+        cut
+        grep
+        sleep
+        switch_root
+        losetup
+        find
+        findfs
+        blkid
+        ln
+        chown
+        dmesg
+        mountpoint
+    )
 
-# Dispositivos de terminal
-echo ">> Configurando dispositivos..."
-mknod "${INITRAMFS_DIR}/dev/null" c 1 3 2>/dev/null || true
-mknod "${INITRAMFS_DIR}/dev/zero" c 1 5 2>/dev/null || true
-mknod "${INITRAMFS_DIR}/dev/urandom" c 1 9 2>/dev/null || true
-mknod "${INITRAMFS_DIR}/dev/random" c 1 8 2>/dev/null || true
-mknod "${INITRAMFS_DIR}/dev/tty" c 5 0 2>/dev/null || true
-mknod "${INITRAMFS_DIR}/dev/tty0" c 4 0 2>/dev/null || true
-mknod "${INITRAMFS_DIR}/dev/console" c 5 1 2>/dev/null || true
+    for applet in "${applets[@]}"; do
+        ln -sf busybox "${INITRAMFS_DIR}/bin/${applet}"
+    done
+}
 
-# Script init
-cat > "${L400_INIT}" << 'INITINITCH'
-#!/bin/sh
+prepare_tree() {
+    rm -rf "${INITRAMFS_DIR}"
+    mkdir -p "${INITRAMFS_DIR}"/{bin,sbin,etc,proc,sys,dev,run,tmp,mnt/media,mnt/root-ro,mnt/root-rw,mnt/newroot,l400/hooks,live}
+    chmod 1777 "${INITRAMFS_DIR}/tmp"
+}
 
-export PATH=/bin:/sbin:/l400/bin
+copy_modules() {
+    echo ">> Copiando módulos del kernel..."
+    mkdir -p "${INITRAMFS_DIR}/lib"
+    if [ -d "/lib/modules/${KERNEL_VERSION}" ]; then
+        cp -a "/lib/modules/${KERNEL_VERSION}" "${INITRAMFS_DIR}/lib/"
+    else
+        echo "WARNING: no se encontró /lib/modules/${KERNEL_VERSION}; se dependerá de módulos built-in."
+    fi
+}
+
+copy_payloads() {
+    echo ">> Copiando busybox y payloads..."
+    cp /usr/bin/busybox "${INITRAMFS_DIR}/bin/busybox"
+    copy_busybox_applets
+
+    cp "${USERSPACE_DIR}/bin/l400-loader" "${INITRAMFS_DIR}/bin/l400-loader"
+    if [ -f "${USERSPACE_DIR}/hooks/l400-ebpf" ]; then
+        cp "${USERSPACE_DIR}/hooks/l400-ebpf" "${INITRAMFS_DIR}/l400/hooks/l400-ebpf"
+    fi
+
+    chmod +x "${INITRAMFS_DIR}/bin/busybox" "${INITRAMFS_DIR}/bin/l400-loader"
+}
+
+embed_live_rootfs() {
+    if [ ! -d "${ROOTFS_DIR}" ]; then
+        return 0
+    fi
+
+    if ! command -v mksquashfs >/dev/null 2>&1; then
+        echo "WARNING: mksquashfs no disponible; initramfs se construirá sin rootfs embebido."
+        return 0
+    fi
+
+    echo ">> Embebiendo rootfs.squashfs en initramfs..."
+    mksquashfs "${ROOTFS_DIR}" "${INITRAMFS_DIR}/live/rootfs.squashfs" -noappend -comp xz -all-root >/dev/null
+}
+
+create_devices() {
+    echo ">> Configurando dispositivos mínimos..."
+    mknod "${INITRAMFS_DIR}/dev/console" c 5 1 2>/dev/null || true
+    mknod "${INITRAMFS_DIR}/dev/null" c 1 3 2>/dev/null || true
+    mknod "${INITRAMFS_DIR}/dev/tty" c 5 0 2>/dev/null || true
+    mknod "${INITRAMFS_DIR}/dev/tty0" c 4 0 2>/dev/null || true
+    mknod "${INITRAMFS_DIR}/dev/loop0" b 7 0 2>/dev/null || true
+}
+
+write_init() {
+    cat > "${L400_INIT}" <<'EOF'
+#!/bin/busybox sh
+
+set -eu
+
+export PATH=/bin:/sbin
 export LD_LIBRARY_PATH=/lib
 
-echo "=== Linux/400 Bootstrap ==="
-echo "Inicializando..."
+log() {
+    echo "[initramfs] $*"
+}
 
-mount -t proc none /proc
-mount -t sysfs none /sys
-mount -t devpts none /dev/pts 2>/dev/null || true
-mount -t tmpfs none /run
+panic_shell() {
+    echo "[initramfs] ERROR: $*" >&2
+    exec /bin/sh
+}
 
-mdev -s
+mount_early_fs() {
+    mount -t proc proc /proc
+    mount -t sysfs sysfs /sys
+    mount -t devtmpfs devtmpfs /dev 2>/dev/null || mount -t tmpfs tmpfs /dev
+    mkdir -p /dev/pts /run
+    mount -t devpts devpts /dev/pts 2>/dev/null || true
+    mount -t tmpfs tmpfs /run
+    mkdir -p /run/l400 /run/l400/media
+    /bin/mdev -s
+}
 
-# Cargar módulos del kernel necesarios
-echo ">> Cargando módulos..."
-modprobe zfs 2>/dev/null || true
-modprobe zfs-arc 2>/dev/null || true
+load_kernel_modules() {
+    for module in loop squashfs overlay isofs udf; do
+        modprobe "${module}" 2>/dev/null || true
+    done
+}
 
-# Inicializar ZFS pool si existe el archivo
-if [ -f /diskl400pool.img ]; then
-    echo ">> Montando ZFS pool..."
-    losetup /dev/loop0 /diskl400pool.img
-    zpool import -d /dev -o cachefile=/run/zfs.cache l400pool 2>/dev/null || true
-    zfs import -o cachefile=/run/zfs.cache l400pool 2>/dev/null || true
-    mount -t zfs l400pool /l400 2>/dev/null || true
-fi
+load_l400_ebpf() {
+    if [ -x /bin/l400-loader ] && [ -f /l400/hooks/l400-ebpf ]; then
+        log "Cargando BPF LSM..."
+        L400_BPF_PATH=/l400/hooks/l400-ebpf /bin/l400-loader >/run/l400-loader.log 2>&1 &
+        echo "$!" > /run/l400-loader.pid
+    else
+        log "BPF LSM no disponible en initramfs; continuando sin loader."
+    fi
+}
 
-# Cargar BPF LSM si está disponible
-echo ">> Cargando BPF LSM..."
-if [ -x /l400/hooks/l400-ebpf ]; then
-    l400-loader &
-    echo $! > /run/l400-loader.pid
-fi
+find_live_media() {
+    local dev
+    mkdir -p /mnt/media
 
-echo "=== Linux/400 Listo ==="
-echo "Iniciando shell..."
+    for dev in \
+        /dev/sr0 \
+        /dev/vd* \
+        /dev/xvd* \
+        /dev/sd* \
+        /dev/nvme*n1p* \
+        /dev/mmcblk*p*; do
+        [ -b "${dev}" ] || continue
 
-exec /bin/sh
+        if mount -t iso9660 -o ro "${dev}" /mnt/media 2>/dev/null || \
+            mount -o ro "${dev}" /mnt/media 2>/dev/null; then
+                if [ -f /mnt/media/live/rootfs.squashfs ]; then
+                    echo "${dev}"
+                    return 0
+                fi
+                umount /mnt/media 2>/dev/null || true
+            fi
+    done
 
-INITINITCH
-chmod +x "${L400_INIT}"
+    return 1
+}
 
-# Crear initramfs.cpio
-echo ">> Creando archivo initramfs..."
-cd "${INITRAMFS_DIR}"
-find . | cpio -H newc -ov > "${OUTPUT_DIR}/initramfs.cpio" 2>/dev/null || true
-gzip -c "${OUTPUT_DIR}/initramfs.cpio" > "${OUTPUT_DIR}/initramfs-${KERNEL_VERSION}-l400.img"
-rm "${OUTPUT_DIR}/initramfs.cpio"
+get_cmdline_arg() {
+    local key="$1"
+    local token
 
-echo "=== Initramfs creado ==="
-echo "Ubicación: ${OUTPUT_DIR}/initramfs-${KERNEL_VERSION}-l400.img"
+    for token in $(cat /proc/cmdline); do
+        case "${token}" in
+            "${key}"=*)
+                echo "${token#*=}"
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+mount_installed_root() {
+    local boot_mode="installed"
+    local root_spec
+    local root_dev=""
+
+    root_spec="$(get_cmdline_arg root || true)"
+    if [ -z "${root_spec}" ]; then
+        root_spec="LABEL=linux400-root"
+    fi
+
+    case "${root_spec}" in
+        /dev/*)
+            root_dev="${root_spec}"
+            ;;
+        LABEL=*|UUID=*)
+            root_dev="$(findfs "${root_spec}" 2>/dev/null || true)"
+            ;;
+    esac
+
+    [ -n "${root_dev}" ] || panic_shell "No se pudo resolver root=${root_spec}."
+    [ -b "${root_dev}" ] || panic_shell "El dispositivo raíz no existe: ${root_dev}"
+
+    mount "${root_dev}" /mnt/newroot || panic_shell "No se pudo montar la raíz instalada ${root_dev}."
+
+    mkdir -p /mnt/newroot/proc /mnt/newroot/sys /mnt/newroot/dev /mnt/newroot/run /mnt/newroot/home/l400 /mnt/newroot/l400
+    mount -t tmpfs -o mode=0775 tmpfs /mnt/newroot/l400 2>/dev/null || true
+    chown 1000:1000 /mnt/newroot/home/l400 2>/dev/null || true
+    chown 1000:1000 /mnt/newroot/l400 2>/dev/null || true
+
+    echo "${boot_mode}" > /run/l400/boot-mode
+
+    mount --move /proc /mnt/newroot/proc
+    mount --move /sys /mnt/newroot/sys
+    mount --move /dev /mnt/newroot/dev
+    mount --move /run /mnt/newroot/run
+}
+
+mount_live_root() {
+    local boot_mode="live"
+
+    case " $(cat /proc/cmdline) " in
+        *" l400.install=1 "*) boot_mode="install" ;;
+        *" l400.rescue=1 "*) boot_mode="rescue" ;;
+    esac
+
+    local media_dev=""
+    local attempt
+
+    if [ -f /live/rootfs.squashfs ]; then
+        log "Usando rootfs live embebido en initramfs."
+        mount -t squashfs -o loop /live/rootfs.squashfs /mnt/root-ro || \
+            panic_shell "No se pudo montar el rootfs embebido."
+    else
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            media_dev="$(find_live_media || true)"
+            if [ -n "${media_dev}" ]; then
+                break
+            fi
+            sleep 1
+            /bin/mdev -s
+        done
+
+        [ -n "${media_dev}" ] || panic_shell "No se encontró el medio live con /live/rootfs.squashfs."
+        log "Medio live detectado: ${media_dev}"
+
+        mount -t squashfs -o loop /mnt/media/live/rootfs.squashfs /mnt/root-ro || \
+            panic_shell "No se pudo montar rootfs.squashfs."
+
+        mount --move /mnt/media /run/l400/media
+    fi
+
+    mount -t tmpfs tmpfs /mnt/root-rw
+    mkdir -p /mnt/root-rw/upper /mnt/root-rw/work /mnt/newroot
+
+    if ! mount -t overlay overlay \
+        -o lowerdir=/mnt/root-ro,upperdir=/mnt/root-rw/upper,workdir=/mnt/root-rw/work \
+        /mnt/newroot; then
+        log "Overlay no disponible; continuando con rootfs live en modo solo lectura."
+        mount --bind /mnt/root-ro /mnt/newroot || panic_shell "No se pudo preparar el rootfs live sin overlay."
+    fi
+
+    mkdir -p /mnt/newroot/proc /mnt/newroot/sys /mnt/newroot/dev /mnt/newroot/run /mnt/newroot/home/l400 /mnt/newroot/l400
+    mount -t tmpfs -o mode=0775 tmpfs /mnt/newroot/l400
+    chown 1000:1000 /mnt/newroot/home/l400 2>/dev/null || true
+    chown 1000:1000 /mnt/newroot/l400 2>/dev/null || true
+
+    echo "${boot_mode}" > /run/l400/boot-mode
+    mount --move /proc /mnt/newroot/proc
+    mount --move /sys /mnt/newroot/sys
+    mount --move /dev /mnt/newroot/dev
+    mount --move /run /mnt/newroot/run
+}
+
+main() {
+    log "=== Linux/400 initramfs ==="
+    mount_early_fs
+    load_kernel_modules
+    load_l400_ebpf
+
+    case " $(cat /proc/cmdline) " in
+        *" l400.installed=1 "*)
+            mount_installed_root
+            ;;
+        *)
+            mount_live_root
+            ;;
+    esac
+
+    exec switch_root /mnt/newroot /sbin/init
+}
+
+main "$@"
+EOF
+
+    chmod +x "${L400_INIT}"
+}
+
+pack_initramfs() {
+    echo ">> Empaquetando initramfs..."
+    (
+        cd "${INITRAMFS_DIR}"
+        find . -print0 | cpio --null -ov --format=newc > "${OUTPUT_DIR}/initramfs.cpio"
+    ) >/dev/null 2>&1
+
+    gzip -c "${OUTPUT_DIR}/initramfs.cpio" > "${OUTPUT_DIR}/initramfs-${KERNEL_VERSION}-l400.img"
+    rm -f "${OUTPUT_DIR}/initramfs.cpio"
+}
+
+main() {
+    echo "=== Construyendo initramfs Linux/400 ==="
+    ensure_userspace
+    prepare_tree
+    copy_modules
+    copy_payloads
+    embed_live_rootfs
+    create_devices
+    write_init
+    pack_initramfs
+
+    echo "=== Initramfs listo ==="
+    echo "Ubicación: ${OUTPUT_DIR}/initramfs-${KERNEL_VERSION}-l400.img"
+}
+
+main "$@"
