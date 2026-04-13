@@ -1,80 +1,130 @@
-# Roadmap Maestro de Implementación: Proyecto Linux/400
+# Roadmap V1 de Linux/400
 
-Este documento es el **plan estratégico de alto nivel** estructurado a partir de las arquitecturas definidas en `PROJECT.md` y las restricciones técnicas debatidas sobre el `KERNEL.md`. Su objetivo es organizar el desarrollo sistemático del ecosistema "Linux/400".
+Este documento reemplaza el plan anterior de `docs/plan/` y redefine el trabajo hacia una **v1 operable** de Linux/400, usando como visión de producto [PROJECT.md](/home/user/Source/linux400/docs/PROJECT.md:1) y como restricción el estado real del repositorio y del pipeline live/install.
 
-## User Review Required
+## Definición de V1
 
-> [!IMPORTANT]
-> **Estrategia Confirmada:** Se realizará un acoplamiento progresivo de la "personalidad Linux/400" sobre un sistema host Linux base (**Kernel mínimo >= 6.11**). Una vez estabilizados los subsistemas de Compilación (CL y C/400), TUI, la gestión ZFS/DAX y los punteros LAM, se empaquetará todo en una imagen ISO instalable de Kernel Minimalista.
+La v1 de Linux/400 queda definida como:
 
-## Fases del Proyecto (Roadmap de Tareas)
+- Una distribución **live e instalable** que bootea en QEMU UEFI y en entorno controlado.
+- Un sistema que arranca al flujo Linux/400, con **TUI como experiencia principal**.
+- Una base de runtime que integra `libl400`, `os400-tui`, `clc`, `c400c`, `l400-loader` y el hook BPF.
+- Un modelo de objetos usable con `*LIB`, `*PGM`, `*FILE`, `*DTAQ`, `*USRPRF`.
+- Un backend de storage funcional para v1, con enforcement básico y subsistemas interactivo/lote observables.
 
-### Fase 1: Acoplamiento BPF LSM (Kernel Hooks >= 6.11)
-El requerimiento base del kernel 6.11 permite inyectar políticas rigurosas de seguridad en tiempo de ejecución.
-- [x] Incorporar la toolchain Rust (`clc`, `c400c`, `libl400.so`).
-- [x] Desarrollar y cargar módulos **BPF LSM** en Rust (vía *Aya*) para interceptar llamadas como `file_open` y `bprm_check_security`. Esto leerá las meta-etiquetas de ZFS e impondrá el tipado fuerte de los "Objetos" sin impacto en el userspace.
+No forma parte obligatoria de v1:
 
-### Fase 2: Storage Object-Oriented (ZFS y Atributos SA)
-Conservar la majestuosidad de ZFS para la gobernanza de datos y copias atomicas, implementando su bypass.
-- [x] Inicializar ZFS en el host configurando **`xattr=sa`** (System Attributes) para que los metadatos `i:objtype` vivan incrustados en los inodos.
-- [x] Crear *Storage Pools* locales simulando los ASP (Pool `/linux400pool`).
-- [x] Enlazar el BPF LSM de la Fase 1 para que valide el atributo extendido de seguridad antes de cualquier apertura.
+- fidelidad completa a SLS/TIMI
+- soporte amplio de hardware fuera de QEMU/lab
+- enforcement universal sobre todas las syscalls
+- implementación definitiva de todas las ideas teóricas de `PROJECT.md`
 
-### Fase 3: Subsistema Relacional BDB y Workaround DAX
-Implementar la semántica de *Single-Level Storage (SLS)* garantizando baja latencia a pesar del caché ZFS.
-- [x] **Workaround DAX sobre ZFS:** Implementado en `libl400.so` mediante `AlignedBuffer` (alineación 4096 bytes) y el flag **`O_DIRECT`**, mitigando la doble capa de caché y permitiendo acceso directo a objetos ZFS.
-- [x] Integrar motor de datos relacional (sustituido BDB por **Sled**) mapeando llamadas nativas a PF y LF (Archivo Físico y Lógico).
-- [x] Configurar las **Colas de Datos (`*DTAQ`)** como colas transaccionales sobre `sled`.
+## Principios de Planificación
 
-### Fase 4: Compiladores Híbridos (Control Language y C/400)
-- [x] **Compilador CL (`clc`)**: Parser Pest y codegen LLVM operativos. Soporta enlazado dinámico con LLVM 20 para evitar dependencias estáticas (libPolly).
-- [x] **Compilador C/400 (`c400c`)**: Front-end envolvente de C operativo, inyectando la runtime `l400` y realizando catalogación automática en ZFS.
-- [x] Los compiladores emiten binarios que inyectan los "tags" espaciales y catalogan el objeto como `*PGM` en ZFS.
+1. Primero se estabiliza el **sistema booteable e instalable**.
+2. Después se consolida la **experiencia Linux/400 visible al usuario**.
+3. Luego se endurecen **runtime, objetos, storage y enforcement**.
+4. Finalmente se empaqueta una **release candidate v1 reproducible**.
 
-### Fase 5: Memory Tagging de 64-bits (TBI / Intel LAM)
-- [x] Módulo `lam.rs` con detección automática de hardware (Intel LAM48 / ARM TBI / Software Mask)
-- [x] `arch_prctl` para LAM48 vía syscall inline en CPUs Intel Sapphire Rapids+
-- [x] **Fallback de Software Seguro:** `untag_pointer()` con enmascaramiento bitwise (`ptr & 0x0000_FFFF_FFFF_FFFF`) para CPUs sin LAM
-- [x] API pública: `tag_pointer()`, `untag_pointer()`, `get_space_bits()`, `is_tagged_pointer()`, `enable_for_platform()`
-- [x] Inicialización automática via `init()` - `enable_for_platform()` llamado en carga de libl400
+## Estado Actual Relevante
 
-### Fase 6: Cargas de Trabajo (Cgroups v2)
-- [x] Módulo `cgroup.rs` con gestión de slices cgroups v2
-- [x] `l400.qinter` slice: `cpu.weight=10000`, `io.weight=100` (Interactive TUI/terminal)
-- [x] `l400.qbatch` slice: `cpu.weight=100`, `io.weight=50` (Batch DTAQ processors)
-- [x] API: `create_l400_slices()`, `assign_to_workload()`, `get_current_workload()`
-- [x] Límites de memoria configurables por workload type
+Hoy el repositorio ya tiene avances importantes:
 
-### Fase 7: Frontend TUI (Green Screen) e Interfaces de Consola
-- [x] Crate `os400-tui/` con Ratatui y estilo Green Screen
-- [x] Menú principal con opciones: WRKLIB, WRKPGM, WRKOBJ, WRKACTJOB, DSPDTAQ, CMD
-- [x] Paneles: WorkManagement (WRKACTJOB), ObjectBrowser (WRKOBJ), DataQueueViewer (DSPDTAQ), CommandLine
-- [x] Atajos de teclado: F3=Exit, F4=Prompt, F5=Refresh, F12=Cancel, Enter=Select
-- [x] Navegación entre pantallas y historial de comandos
+- ISO live/install, initramfs, rootfs y scripts de build.
+- TUI funcional y autologin para flujo Linux/400.
+- Toolchain `clc` y `c400c`.
+- `libl400`, `l400-loader`, `l400-ebpf`, `l400-ebpf-common`.
+- Gestión de workloads con cgroups v2.
+- Harness E2E de instalación UEFI sobre QEMU+qcow2.
 
-### Fase 8 (HITO FINAL): Empaquetado de Kernel Minimalista e ISO
-- [x] Script `build_alpine_base.sh`: Rootfs Alpine Linux con musl, ZFS, LLVM
-- [x] Script `build_kernel.sh`: Kernel 6.11+ con `CONFIG_BPF_LSM=y`, `CONFIG_X86_64_LAM=y`
-- [x] Script `build_initramfs.sh`: Initramfs con preload BPF LSM
-- [x] Script `build_iso.sh`: ISO booteable con SYSLINUX/EFI
+Bloqueadores detectados en el relevamiento reciente:
 
----
+- La instalación UEFI todavía no completa porque el live no logra montar la partición EFI VFAT dentro del entorno instalado.
+- El pipeline compila el hook eBPF con fallback, pero no hay validación robusta de runtime del loader/hook en el sistema instalado.
+- El modelo de objetos y storage existe, pero todavía no está cerrado como flujo v1 de punta a punta dentro del sistema instalado.
 
-## Análisis de Riesgos y Factibilidad Técnica (Actualizado)
+## Milestones
 
-En base a las deliberaciones arquitectónicas, los bloqueadores han sido resueltos de la siguiente manera:
+### M1. Sistema Base Cerrado
 
-> [!NOTE]
-> **Superación de Conflicto ZFS vs DAX:** Es sabido que ZFS prohíbe el protocolo DAX puro a nivel VFS. El *Workaround* asumido requiere que `libl400.so` mapee las bases de datos de alto impacto en ZFS (o ZVOLs dedicados) abriendo el file descriptor con el flag **`O_DIRECT`**. Aunque perdemos el mapeo zero-copy puro a memoria persistente de memoria persistente por DAX, sorteamos el doble-caching del kernel Linux y nos recostamos puramente en el ARC de ZFS para el rendimiento sin corromper el diseño OOP de los atributos del Archivo físico y lógico.
+Objetivo:
 
-> [!TIP]
-> **Compatibilidad Extendida (Fallback LAM x86_64):** El requerimiento de usar las etiquetas de memoria a nivel hardware restringía agudamente la distribución. Integrando máscaras en software (`bitwise AND`) a nivel de la capa de API de `libl400.so`, habilitamos virtualmente cualquier CPU x86 de los 2010s a correr código empaquetado de C/400 o CL. Existirá una ínfima penalización de rendimiento en estas extracciones de memoria por software comparado al Hardware nativo de LAM (Sapphire Rapids), pero el sacrificio viabiliza la distribución general.
+- ISO live estable
+- instalador UEFI funcionando
+- reboot desde disco validado en QEMU
 
-> [!TIP]
-> **Estabilidad del Kernel (Remoción de Sched_ext):** Al fijar un base razonable de **Kernel 6.11**, podemos confiar firmemente en BPF LSM para la inspección de seguridad delegación, pero **descartamos el uso de sched_ext**, ya que requeriría la rama súper experimental 6.11. Cgroups v2 por si solo será estadísticamente suficiente para retener al `QBATCH` sin sofocar a `QINTER`.
+Salida esperada:
 
----
+- `scripts/test/test_e2e_install_qemu.sh` pasa de punta a punta
+- el sistema instalado arranca desde qcow2 sin intervención
 
-## Open Questions
+### M2. Experiencia Linux/400 Operable
 
-- Las dudas conceptuales se han disuelto. Ahora que todos los subsistemas convergen de manera determinista desde un simple Kernel >= 6.11 y validaciones hibrídas de TBI/LAM o mascara de software, el *Project Plan* ha madurado para comenzar un Sprint de código.
+Objetivo:
+
+- arranque normal a TUI
+- consola de recovery separada
+- sesión Linux/400 consistente en live e instalado
+
+Salida esperada:
+
+- `tty1` entra a `l400-session`
+- `os400-tui` se convierte en flujo principal de operación
+
+### M3. Runtime Integrado
+
+Objetivo:
+
+- toolchain y runtime funcionando dentro del sistema
+- carga de componentes del proyecto validada en entorno real
+
+Salida esperada:
+
+- compilar y ejecutar programas desde el sistema Linux/400
+
+### M4. Objetos + Storage + Enforcement V1
+
+Objetivo:
+
+- objetos tipados utilizables
+- backend de storage v1 definido y documentado
+- enforcement básico verificable
+
+Salida esperada:
+
+- demo funcional con `*LIB`, `*PGM`, `*FILE`, `*DTAQ`
+
+### M5. Release Candidate V1
+
+Objetivo:
+
+- documentación, matriz de soporte, demo y criterios de aceptación cerrados
+
+Salida esperada:
+
+- release candidate reproducible en QEMU y entorno controlado
+
+## Fases del Plan
+
+- [fase_1_base_sistema.md](/home/user/Source/linux400/docs/plan/fase_1_base_sistema.md)
+- [fase_2_experiencia_runtime.md](/home/user/Source/linux400/docs/plan/fase_2_experiencia_runtime.md)
+- [fase_3_objetos_storage.md](/home/user/Source/linux400/docs/plan/fase_3_objetos_storage.md)
+- [fase_4_toolchain_workloads.md](/home/user/Source/linux400/docs/plan/fase_4_toolchain_workloads.md)
+- [fase_5_release_v1.md](/home/user/Source/linux400/docs/plan/fase_5_release_v1.md)
+
+## Riesgos Principales
+
+- Dependencia de kernel/módulos para `overlay`, `vfat`, `zfs`, `bpf`.
+- Entorno Alpine mínimo sin `apk` en host, lo que obliga a empaquetado híbrido.
+- Diferencia entre “compila” y “funciona en runtime” para loader/eBPF.
+- Riesgo de perseguir fidelidad teórica antes de cerrar una base operable.
+
+## Criterio de Cierre de V1
+
+La v1 se considera alcanzada cuando:
+
+1. La ISO live bootea en QEMU UEFI.
+2. La instalación a disco completa y reinicia al sistema instalado.
+3. El sistema entra al flujo Linux/400 con TUI.
+4. `clc`, `c400c`, `libl400` y `os400-tui` funcionan dentro del sistema.
+5. Existe una demo reproducible con objetos tipados y storage v1.

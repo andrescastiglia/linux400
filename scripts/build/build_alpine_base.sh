@@ -64,6 +64,40 @@ EOF
     apk --root "${ROOTFS_DIR}" --arch "${ARCH}" add "${packages[@]}"
 }
 
+install_host_disk_tools_fallback() {
+    local tool
+    local tools=(
+        /usr/sbin/sfdisk
+        /usr/sbin/mkfs.ext4
+        /usr/sbin/mkfs.fat
+    )
+    local libs=(
+        /lib64/ld-linux-x86-64.so.2
+        /lib/x86_64-linux-gnu/libblkid.so.1
+        /lib/x86_64-linux-gnu/libc.so.6
+        /lib/x86_64-linux-gnu/libcom_err.so.2
+        /lib/x86_64-linux-gnu/libe2p.so.2
+        /lib/x86_64-linux-gnu/libext2fs.so.2
+        /lib/x86_64-linux-gnu/libfdisk.so.1
+        /lib/x86_64-linux-gnu/libreadline.so.8
+        /lib/x86_64-linux-gnu/libsmartcols.so.1
+        /lib/x86_64-linux-gnu/libtinfo.so.6
+        /lib/x86_64-linux-gnu/libuuid.so.1
+    )
+
+    mkdir -p "${ROOTFS_DIR}/usr/sbin" "${ROOTFS_DIR}/lib64" "${ROOTFS_DIR}/lib/x86_64-linux-gnu"
+
+    for tool in "${tools[@]}"; do
+        [ -x "${tool}" ] || continue
+        cp "${tool}" "${ROOTFS_DIR}${tool}"
+    done
+
+    for tool in "${libs[@]}"; do
+        [ -f "${tool}" ] || continue
+        cp "${tool}" "${ROOTFS_DIR}${tool}"
+    done
+}
+
 ensure_user_l400() {
     local passwd_file="${ROOTFS_DIR}/etc/passwd"
     local shadow_file="${ROOTFS_DIR}/etc/shadow"
@@ -163,9 +197,18 @@ configure_console_login() {
     if [ -x "${ROOTFS_DIR}/sbin/openrc" ] && [ -f "${ROOTFS_DIR}/etc/inittab" ]; then
         sed -i 's#^tty1::respawn:.*#tty1::respawn:/sbin/getty -n -l /usr/local/bin/l400-console-autologin 115200 tty1 linux#' \
             "${ROOTFS_DIR}/etc/inittab"
+        if grep -q '^ttyS0::respawn:' "${ROOTFS_DIR}/etc/inittab"; then
+            sed -i 's#^ttyS0::respawn:.*#ttyS0::respawn:/sbin/getty -L -n -l /usr/local/bin/l400-console-autologin 115200 ttyS0 vt100#' \
+                "${ROOTFS_DIR}/etc/inittab"
+        else
+            cat >> "${ROOTFS_DIR}/etc/inittab" <<'EOF'
+ttyS0::respawn:/sbin/getty -L -n -l /usr/local/bin/l400-console-autologin 115200 ttyS0 vt100
+EOF
+        fi
     else
         cat > "${ROOTFS_DIR}/etc/inittab" <<'EOF'
 ::respawn:/sbin/getty -n -l /usr/local/bin/l400-console-autologin 115200 tty1 linux
+ttyS0::respawn:/sbin/getty -L -n -l /usr/local/bin/l400-console-autologin 115200 ttyS0 vt100
 ::respawn:/sbin/getty 115200 tty2
 ::respawn:/sbin/getty 115200 tty3
 ::ctrlaltdel:/sbin/reboot
@@ -188,6 +231,7 @@ main() {
     tar -xzf "${OUTPUT_DIR}/${MINIROOT}" -C "${ROOTFS_DIR}"
 
     maybe_install_extra_packages
+    install_host_disk_tools_fallback
     ensure_user_l400
     install_userspace
     configure_shell_environment
