@@ -8,8 +8,9 @@ pub mod zfs;
 
 pub use cgroup::{
     assign_to_workload, cleanup_l400_slices, create_l400_slices, get_current_workload,
-    get_workload_params, is_cgroup_v2_available, set_cpu_priority, set_memory_limit, CgroupError,
-    CgroupParams, WorkloadType,
+    get_workload_params, is_cgroup_v2_available, list_jobs, register_current_job, register_job,
+    remove_job, set_cpu_priority, set_memory_limit, update_job_status, CgroupError, CgroupParams,
+    WorkloadJob, WorkloadType,
 };
 pub use db::{create_lf, create_pf, DbError, LogicalFile, PhysicalFile};
 pub use dtaq::{crtdtaq, DataQueue, DtaqError};

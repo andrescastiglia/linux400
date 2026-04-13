@@ -21,7 +21,9 @@ fn resolve_l400_lib_path() -> String {
         "target/release",
         "target/debug",
     ] {
-        if Path::new(candidate).exists() {
+        let candidate_path = Path::new(candidate);
+        if candidate_path.join("libl400.a").exists() || candidate_path.join("libl400.so").exists()
+        {
             return candidate.to_string();
         }
     }
@@ -70,6 +72,7 @@ fn main() {
         .arg("-o")
         .arg(&args.output)
         .arg(format!("-L{}", lib_path))
+        .arg(format!("-Wl,-rpath,{}", lib_path))
         .arg("-ll400")
         // .arg("-ldb") // Integración futura con BDB real
         .status();

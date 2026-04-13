@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use l400::list_jobs;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
@@ -21,33 +22,35 @@ pub struct WorkManagement {
     jobs: Vec<JobInfo>,
     state: TableState,
     scroll_offset: usize,
+    using_runtime_data: bool,
 }
 
 impl WorkManagement {
     pub fn new() -> Self {
-        let jobs = Self::load_jobs();
+        let (jobs, using_runtime_data) = Self::load_jobs();
         Self {
             jobs,
             state: TableState::default(),
             scroll_offset: 0,
+            using_runtime_data,
         }
     }
 
-    fn load_jobs() -> Vec<JobInfo> {
+    fn fallback_jobs() -> Vec<JobInfo> {
         vec![
             JobInfo {
                 name: "QINTER".to_string(),
                 user: "QSYS".to_string(),
                 type_: "INTERACT".to_string(),
                 status: "ACTIVE".to_string(),
-                subsystem: "QCTL".to_string(),
+                subsystem: "QINTER".to_string(),
             },
             JobInfo {
                 name: "QCMD".to_string(),
                 user: "QSYS".to_string(),
                 type_: "INTERACT".to_string(),
                 status: "ACTIVE".to_string(),
-                subsystem: "QCTL".to_string(),
+                subsystem: "QINTER".to_string(),
             },
             JobInfo {
                 name: "QP0ZSPWT".to_string(),
@@ -71,6 +74,35 @@ impl WorkManagement {
                 subsystem: "QBATCH".to_string(),
             },
         ]
+    }
+
+    fn load_jobs() -> (Vec<JobInfo>, bool) {
+        if let Ok(jobs) = list_jobs() {
+            if !jobs.is_empty() {
+                let mapped = jobs
+                    .into_iter()
+                    .map(|job| JobInfo {
+                        name: job.name,
+                        user: job.user,
+                        type_: match job.workload {
+                            l400::WorkloadType::Interactive => "INTERACT".to_string(),
+                            l400::WorkloadType::Batch => "BATCH".to_string(),
+                        },
+                        status: job.status,
+                        subsystem: job.subsystem,
+                    })
+                    .collect::<Vec<_>>();
+                return (mapped, true);
+            }
+        }
+
+        (Self::fallback_jobs(), false)
+    }
+
+    fn refresh(&mut self) {
+        let (jobs, using_runtime_data) = Self::load_jobs();
+        self.jobs = jobs;
+        self.using_runtime_data = using_runtime_data;
     }
 }
 
@@ -121,7 +153,7 @@ impl Screen for WorkManagement {
                 ScreenResult::none()
             }
             KeyCode::F(5) => {
-                self.jobs = Self::load_jobs();
+                self.refresh();
                 ScreenResult::none()
             }
             _ => ScreenResult::none(),
@@ -141,8 +173,13 @@ impl WorkManagement {
 
         frame.render_widget(block, area);
 
+        let source = if self.using_runtime_data {
+            "Runtime workloads"
+        } else {
+            "Bundled sample"
+        };
         let lines: Vec<Line> = vec![
-            Line::from(vec!["Type options, press Enter.  ".into()]),
+            Line::from(vec![format!("Source: {}. Type options, press Enter.", source).into()]),
             Line::from(vec![
                 "Opt  Job         User        Type      Status    Subsystem".into(),
             ]),
@@ -155,7 +192,7 @@ impl WorkManagement {
 
     fn render_jobs(&mut self, frame: &mut Frame, area: Rect) {
         let header = ["", "Job", "User", "Type", "Status", "Subsystem"];
-        let widths = [3u16, 12, 12, 8, 12, 12];
+        let widths = [3u16, 14, 12, 10, 14, 12];
 
         let rows: Vec<Row> = self
             .jobs

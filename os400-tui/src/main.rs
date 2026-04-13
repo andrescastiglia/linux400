@@ -3,7 +3,10 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use l400::{assign_to_workload, create_l400_slices, WorkloadType};
+use l400::{
+    assign_to_workload, create_l400_slices, register_current_job, remove_job, update_job_status,
+    WorkloadType,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
@@ -11,10 +14,14 @@ fn main() -> Result<()> {
     // La TUI es un workload interactivo, pero la falla en cgroups no debe impedir el login.
     let _ = create_l400_slices();
     let _ = assign_to_workload(std::process::id() as u64, WorkloadType::Interactive);
+    let _ = register_current_job("OS400-TUI", WorkloadType::Interactive, "ACTIVE", "os400-tui");
+    let pid = std::process::id() as u64;
 
     let mut terminal = setup_terminal()?;
     let result = run_app(&mut terminal);
     restore_terminal()?;
+    let _ = update_job_status(pid, "COMPLETED");
+    let _ = remove_job(pid);
     result
 }
 
