@@ -1,5 +1,5 @@
 use clap::Parser;
-use l400::zfs::set_objtype;
+use l400::catalog_object;
 use std::path::Path;
 use std::process::Command;
 
@@ -87,7 +87,7 @@ fn main() {
 
     // Paso 2: Catalogación estricta ZFS
     println!(">> (2) Integración Single-Level Storage (zfs xattr)...");
-    match set_objtype(output_path, "*PGM") {
+    match catalog_object(output_path, "*PGM", Some("C"), Some("C/400 compiled program")) {
         Ok(_) => {
             println!("   [OK] Tipificación ZFS completada (*PGM asignado).");
         }

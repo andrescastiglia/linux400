@@ -26,8 +26,11 @@ cat $TEST_FILE > /dev/null && echo "  -> Acceso a $TEST_FILE OK"
 cat $INVALID_FILE > /dev/null && echo "  -> Acceso a $INVALID_FILE OK"
 
 echo "[4] Iniciando BPF Loader en background..."
-# Asumimos que el binario fue construido previomente via setup_env.sh
-./l400-loader/target/release/l400-loader &
+if [[ ! -x ./target/release/l400-loader ]]; then
+    cargo build -p l400-loader --release
+fi
+
+./target/release/l400-loader &
 BPF_PID=$!
 
 echo "Esperando 2 segundos para montaje del hook BPF..."

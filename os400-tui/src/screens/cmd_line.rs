@@ -113,7 +113,7 @@ impl Screen for CommandLine {
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
         if self.show_output {
             match key.code {
-                KeyCode::F(3) | KeyCode::Char('3') => {
+                KeyCode::F(3) => {
                     return ScreenResult::goto(ScreenId::MainMenu)
                 }
                 KeyCode::Enter | KeyCode::Esc => {
@@ -125,7 +125,7 @@ impl Screen for CommandLine {
         }
 
         match key.code {
-            KeyCode::F(3) | KeyCode::Char('3') => ScreenResult::goto(ScreenId::MainMenu),
+            KeyCode::F(3) => ScreenResult::goto(ScreenId::MainMenu),
             KeyCode::F(12) => ScreenResult::goto(ScreenId::MainMenu),
             KeyCode::Enter => {
                 self.execute_command();

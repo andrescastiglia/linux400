@@ -92,7 +92,8 @@ impl Screen for WorkManagement {
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
         match key.code {
-            KeyCode::F(3) | KeyCode::Char('3') => ScreenResult::goto(ScreenId::MainMenu),
+            KeyCode::F(3) => ScreenResult::goto(ScreenId::MainMenu),
+            KeyCode::F(4) => ScreenResult::goto(ScreenId::CommandLine),
             KeyCode::F(12) | KeyCode::Char('q')
                 if key
                     .modifiers
@@ -191,6 +192,7 @@ impl WorkManagement {
     fn render_help(&self, frame: &mut Frame, area: Rect) {
         let help_text = Line::from(vec![
             "F3=Exit   ".into(),
+            "F4=Prompt   ".into(),
             "F5=Refresh   ".into(),
             "F12=Cancel   ".into(),
             "Enter=Select   ".into(),

@@ -18,8 +18,9 @@ pub use lam::{
     tag_pointer, untag_pointer, untag_pointer_mut, MemoryTaggingMode,
 };
 pub use object::{
-    copy_object, create_object, delete_object, list_objects, open_object_direct, L400Object,
-    ObjectError,
+    catalog_object, copy_object, create_library, create_object, create_object_with_metadata,
+    delete_object, describe_object, ensure_library, list_objects, lookup_object,
+    open_object_direct, resolve_l400_root, L400Object, ObjectError,
 };
 pub use util::AlignedBuffer;
 pub use zfs::{get_objtype, set_objtype, validate_objtype, ZfsError};

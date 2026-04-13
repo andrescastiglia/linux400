@@ -1,4 +1,5 @@
-use crate::zfs::{set_objtype, validate_objtype, ZfsError};
+use crate::object::{catalog_object, ObjectError};
+use crate::zfs::{get_objtype, validate_objtype, ZfsError};
 use sled::{Db, Tree};
 use std::path::Path;
 use thiserror::Error;
@@ -11,6 +12,8 @@ pub enum DtaqError {
     Sled(#[from] sled::Error),
     #[error("Invalid Object Type: {0}")]
     InvalidType(String),
+    #[error("Object Error: {0}")]
+    Object(#[from] ObjectError),
     #[error("Already Exists")]
     AlreadyExists,
     #[error("Timeout")]
@@ -26,6 +29,10 @@ pub struct DataQueue {
 }
 
 pub fn crtdtaq(lib_path: &Path, name: &str) -> Result<DataQueue, DtaqError> {
+    if get_objtype(lib_path)? != "*LIB" {
+        return Err(DtaqError::InvalidType("target library must be a *LIB".to_string()));
+    }
+
     let target = lib_path.join(name);
 
     if target.exists() {
@@ -39,7 +46,7 @@ pub fn crtdtaq(lib_path: &Path, name: &str) -> Result<DataQueue, DtaqError> {
     let db = sled::open(&target)?;
     let tree = db.open_tree("DTAQ")?;
 
-    set_objtype(&target, "*DTAQ")?;
+    catalog_object(&target, "*DTAQ", Some("DTAQ"), Some("Data queue"))?;
 
     Ok(DataQueue {
         name: name.to_string(),
@@ -89,5 +96,44 @@ impl DataQueue {
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+    }
+
+    pub fn read_all(&self) -> Result<Vec<(u64, Vec<u8>)>, DtaqError> {
+        let mut result = Vec::new();
+        for item in self.tree.iter() {
+            let (key, value) = item?;
+            let id = u64::from_be_bytes(
+                key.as_ref()
+                    .try_into()
+                    .map_err(|_| DtaqError::InvalidType("invalid DTAQ key".to_string()))?,
+            );
+            result.push((id, value.to_vec()));
+        }
+        Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::create_library;
+
+    #[test]
+    fn dtaq_round_trip_and_read_all() {
+        let root = tempfile::tempdir().expect("No se pudo crear directorio temporal");
+        let lib = create_library(root.path(), "QUSRSYS").expect("create_library falló");
+        let dtaq = crtdtaq(&lib, "QEZJOBLOG").expect("crtdtaq falló");
+
+        dtaq.snddtaq(b"MSG1").expect("snddtaq falló");
+        dtaq.snddtaq(b"MSG2").expect("snddtaq falló");
+
+        let messages = dtaq.read_all().expect("read_all falló");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].1, b"MSG1");
+        assert_eq!(messages[1].1, b"MSG2");
+
+        let received = dtaq.rcvdtaq(0).expect("rcvdtaq falló");
+        assert_eq!(received, b"MSG1");
+        assert_eq!(dtaq.read_all().expect("read_all falló").len(), 1);
     }
 }

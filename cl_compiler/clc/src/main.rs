@@ -4,7 +4,7 @@ pub mod compiler;
 pub mod parser;
 
 use clap::Parser;
-use l400::zfs::set_objtype;
+use l400::catalog_object;
 use std::path::Path;
 use std::process::Command;
 
@@ -86,7 +86,7 @@ fn main() {
                 println!("  [WARN] La ruta destino '{}' no está bajo /l400/. ZFS/LSM ignorará este binario.", args.output);
             }
 
-            match set_objtype(output_path, "*PGM") {
+            match catalog_object(output_path, "*PGM", Some("CL"), Some("CL compiled program")) {
                 Ok(_) => {
                     println!("✔ Objeto nativo L400 creado en '{}'", args.output);
                 }

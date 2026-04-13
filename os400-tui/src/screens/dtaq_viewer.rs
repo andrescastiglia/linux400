@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use l400::{resolve_l400_root, DataQueue};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
@@ -17,22 +18,28 @@ pub struct DtaqMessage {
 }
 
 pub struct DataQueueViewer {
+    current_library: String,
     current_dtaq: String,
     messages: Vec<DtaqMessage>,
     state: TableState,
+    using_runtime_data: bool,
 }
 
 impl DataQueueViewer {
     pub fn new() -> Self {
-        let messages = Self::load_messages("QUSRSYS", "QEZJOBLOG");
+        let current_library = "QUSRSYS".to_string();
+        let current_dtaq = "QEZJOBLOG".to_string();
+        let (messages, using_runtime_data) = Self::load_messages(&current_library, &current_dtaq);
         Self {
-            current_dtaq: "QEZJOBLOG".to_string(),
+            current_library,
+            current_dtaq,
             messages,
             state: TableState::default(),
+            using_runtime_data,
         }
     }
 
-    fn load_messages(_library: &str, _dtaq: &str) -> Vec<DtaqMessage> {
+    fn fallback_messages() -> Vec<DtaqMessage> {
         vec![
             DtaqMessage {
                 key: "00001".to_string(),
@@ -61,6 +68,37 @@ impl DataQueueViewer {
             },
         ]
     }
+
+    fn load_messages(library: &str, dtaq: &str) -> (Vec<DtaqMessage>, bool) {
+        let path = resolve_l400_root().join(library).join(dtaq);
+        if let Ok(queue) = DataQueue::open(&path) {
+            if let Ok(messages) = queue.read_all() {
+                let mapped = messages
+                    .into_iter()
+                    .map(|(id, data)| DtaqMessage {
+                        key: format!("{id:05}"),
+                        data: String::from_utf8_lossy(&data).to_string(),
+                        timestamp: "runtime".to_string(),
+                    })
+                    .collect::<Vec<_>>();
+                return (mapped, true);
+            }
+        }
+
+        (Self::fallback_messages(), false)
+    }
+
+    fn refresh(&mut self) {
+        let (messages, using_runtime_data) =
+            Self::load_messages(&self.current_library, &self.current_dtaq);
+        self.messages = messages;
+        self.using_runtime_data = using_runtime_data;
+        if self.messages.is_empty() {
+            self.state.select(None);
+        } else if self.state.selected().is_none() {
+            self.state.select(Some(0));
+        }
+    }
 }
 
 impl Screen for DataQueueViewer {
@@ -81,7 +119,8 @@ impl Screen for DataQueueViewer {
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
         match key.code {
-            KeyCode::F(3) | KeyCode::Char('3') => ScreenResult::goto(ScreenId::MainMenu),
+            KeyCode::F(3) => ScreenResult::goto(ScreenId::MainMenu),
+            KeyCode::F(4) => ScreenResult::goto(ScreenId::CommandLine),
             KeyCode::F(12) => ScreenResult::goto(ScreenId::MainMenu),
             KeyCode::Up => {
                 self.state
@@ -95,7 +134,7 @@ impl Screen for DataQueueViewer {
                 ScreenResult::none()
             }
             KeyCode::F(5) => {
-                self.messages = Self::load_messages(&self.current_dtaq, &self.current_dtaq);
+                self.refresh();
                 ScreenResult::none()
             }
             _ => ScreenResult::none(),
@@ -107,7 +146,7 @@ impl DataQueueViewer {
     fn render_header(&self, frame: &mut Frame, area: Rect) {
         let title = Line::from(vec![format!(
             " Data Queue Viewer  DTAQ: {}/{} ",
-            "QUSRSYS", self.current_dtaq
+            self.current_library, self.current_dtaq
         )
         .into()]);
 
@@ -119,8 +158,13 @@ impl DataQueueViewer {
 
         frame.render_widget(block, area);
 
+        let source_label = if self.using_runtime_data {
+            "Runtime queue"
+        } else {
+            "Bundled sample"
+        };
         let lines: Vec<Line> = vec![
-            Line::from(vec!["Type options, press Enter.  ".into()]),
+            Line::from(vec![format!("Source: {}. Type options, press Enter.", source_label).into()]),
             Line::from(vec!["Opt  Key      Data".into()]),
         ];
         let text = Text::from(lines);
@@ -166,6 +210,7 @@ impl DataQueueViewer {
     fn render_help(&self, frame: &mut Frame, area: Rect) {
         let help_text = Line::from(vec![
             "F3=Exit   ".into(),
+            "F4=Prompt   ".into(),
             "F5=Refresh   ".into(),
             "F12=Cancel   ".into(),
             "Enter=Display".into(),

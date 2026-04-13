@@ -1,4 +1,5 @@
-use crate::zfs::{set_objtype, validate_objtype, ZfsError};
+use crate::object::{catalog_object, ObjectError};
+use crate::zfs::{get_objtype, validate_objtype, ZfsError};
 use sled::{Db, Tree};
 use std::path::Path;
 use thiserror::Error;
@@ -17,6 +18,8 @@ pub enum DbError {
     Sled(#[from] sled::Error),
     #[error("Invalid Object Type: {0}")]
     InvalidType(String),
+    #[error("Object Error: {0}")]
+    Object(#[from] ObjectError),
     #[error("Already Exists")]
     AlreadyExists,
     #[error("Record out of bounds / Invalid Schema")]
@@ -35,6 +38,10 @@ pub struct PhysicalFile {
 }
 
 pub fn create_pf(lib_path: &Path, name: &str, _record_len: usize) -> Result<PhysicalFile, DbError> {
+    if get_objtype(lib_path)? != "*LIB" {
+        return Err(DbError::InvalidType("target library must be a *LIB".to_string()));
+    }
+
     let target = lib_path.join(name);
 
     if target.exists() {
@@ -47,7 +54,7 @@ pub fn create_pf(lib_path: &Path, name: &str, _record_len: usize) -> Result<Phys
 
     let db = sled::open(&target)?;
     let tree = db.open_tree("PF_MEMBER")?;
-    set_objtype(&target, "*FILE")?;
+    catalog_object(&target, "*FILE", Some("PF"), Some("Physical file"))?;
 
     Ok(PhysicalFile {
         name: name.to_string(),
@@ -126,6 +133,10 @@ pub fn create_lf(
     name: &str,
     over_pf: &PhysicalFile,
 ) -> Result<LogicalFile, DbError> {
+    if get_objtype(lib_path)? != "*LIB" {
+        return Err(DbError::InvalidType("target library must be a *LIB".to_string()));
+    }
+
     if !validate_objtype("*FILE") {
         return Err(DbError::InvalidType("*FILE".to_string()));
     }
@@ -150,7 +161,7 @@ pub fn create_lf(
     let index_tree_name = format!("LF_IDX_{}", name);
     let index = over_pf.db.open_tree(index_tree_name.as_bytes())?;
 
-    set_objtype(&lf_path, "*FILE")?;
+    catalog_object(&lf_path, "*FILE", Some("LF"), Some("Logical file"))?;
 
     Ok(LogicalFile {
         name: name.to_string(),
@@ -222,10 +233,15 @@ impl LogicalFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::create_library;
     use tempfile::TempDir;
 
     fn tmp_lib() -> TempDir {
         tempfile::tempdir().expect("No se pudo crear directorio temporal")
+    }
+
+    fn l400_library(root: &TempDir, name: &str) -> std::path::PathBuf {
+        create_library(root.path(), name).expect("No se pudo crear biblioteca L400")
     }
 
     // ── Physical File ──────────────────────────────────────────────────────────
@@ -233,7 +249,8 @@ mod tests {
     #[test]
     fn test_create_pf_and_round_trip() {
         let lib = tmp_lib();
-        let pf = create_pf(lib.path(), "CLIENTES", 100).expect("create_pf falló");
+        let lib_path = l400_library(&lib, "QGPL");
+        let pf = create_pf(&lib_path, "CLIENTES", 100).expect("create_pf falló");
 
         let key = b"CLIENTE001";
         let valor = b"Juan Perez,Buenos Aires,2000";
@@ -247,7 +264,8 @@ mod tests {
     #[test]
     fn test_pf_not_found() {
         let lib = tmp_lib();
-        let pf = create_pf(lib.path(), "PEDIDOS", 50).expect("create_pf falló");
+        let lib_path = l400_library(&lib, "QGPL");
+        let pf = create_pf(&lib_path, "PEDIDOS", 50).expect("create_pf falló");
         let result = pf.chain_rcd(b"INEXISTENTE");
         assert!(matches!(result, Err(DbError::NotFound)));
     }
@@ -255,7 +273,8 @@ mod tests {
     #[test]
     fn test_pf_delete_rcd() {
         let lib = tmp_lib();
-        let pf = create_pf(lib.path(), "VENTAS", 50).expect("create_pf falló");
+        let lib_path = l400_library(&lib, "QGPL");
+        let pf = create_pf(&lib_path, "VENTAS", 50).expect("create_pf falló");
         pf.write_rcd(b"V001", b"100.00").expect("write_rcd falló");
         pf.delete_rcd(b"V001").expect("delete_rcd falló");
         assert!(matches!(pf.chain_rcd(b"V001"), Err(DbError::NotFound)));
@@ -264,14 +283,15 @@ mod tests {
     #[test]
     fn test_create_lf_and_setll() {
         let lib = tmp_lib();
-        let pf = create_pf(lib.path(), "CLXPF", 100).expect("create_pf falló");
+        let lib_path = l400_library(&lib, "QGPL");
+        let pf = create_pf(&lib_path, "CLXPF", 100).expect("create_pf falló");
 
         // Escribir registros en PF
         pf.write_rcd(b"C001", b"Ana,CABA").unwrap();
         pf.write_rcd(b"C002", b"Luis,Rosario").unwrap();
 
         // Crear LF vinculado al PF
-        let lf = create_lf(lib.path(), "CLXLF", &pf).expect("create_lf falló");
+        let lf = create_lf(&lib_path, "CLXLF", &pf).expect("create_lf falló");
 
         lf.insert_idx(b"Ana", b"C001").unwrap();
         lf.insert_idx(b"Luis", b"C002").unwrap();
@@ -287,14 +307,15 @@ mod tests {
     #[test]
     fn test_logical_file_open() {
         let lib = tmp_lib();
-        let _pf_path = lib.path().join("BASEPF");
-        let lf_path = lib.path().join("EXTLF");
+        let lib_path = l400_library(&lib, "QGPL");
+        let _pf_path = lib_path.join("BASEPF");
+        let lf_path = lib_path.join("EXTLF");
 
         {
-            let pf = create_pf(lib.path(), "BASEPF", 100).unwrap();
+            let pf = create_pf(&lib_path, "BASEPF", 100).unwrap();
             pf.write_rcd(b"K1", b"Data1").unwrap();
 
-            let lf = create_lf(lib.path(), "EXTLF", &pf).unwrap();
+            let lf = create_lf(&lib_path, "EXTLF", &pf).unwrap();
             lf.insert_idx(b"S1", b"K1").unwrap();
             // pf y lf se droppean aquí, liberando el lock de sled
         }
@@ -308,11 +329,12 @@ mod tests {
     #[test]
     fn test_lf_read_all_idx_ordered() {
         let lib = tmp_lib();
-        let pf = create_pf(lib.path(), "ARTPF", 50).expect("create_pf falló");
+        let lib_path = l400_library(&lib, "QGPL");
+        let pf = create_pf(&lib_path, "ARTPF", 50).expect("create_pf falló");
         pf.write_rcd(b"P001", b"Teclado").unwrap();
         pf.write_rcd(b"P002", b"Monitor").unwrap();
 
-        let lf = create_lf(lib.path(), "ARTLF", &pf).expect("create_lf falló");
+        let lf = create_lf(&lib_path, "ARTLF", &pf).expect("create_lf falló");
 
         // Insertar en orden inverso (el índice debe ordenar lexicográficamente)
         lf.insert_idx(b"Monitor", b"P002").unwrap();
@@ -386,20 +408,22 @@ mod tests {
 
         let test_dir = pool_path.join("test_fase3_debt");
         std::fs::create_dir_all(&test_dir).ok();
+        let lib_path = create_library(&test_dir, "TESTLIB").expect("Fallo crear biblioteca L400");
 
         let pf_name = "E2EPF";
         let lf_name = "E2ELF";
 
-        let pf = create_pf(&test_dir, pf_name, 100).expect("Fallo crear PF en ZFS");
+        let pf = create_pf(&lib_path, pf_name, 100).expect("Fallo crear PF en ZFS");
         pf.write_rcd(b"KEY1", b"ZFS DATA").unwrap();
 
-        let lf = create_lf(&test_dir, lf_name, &pf).expect("Fallo crear LF en ZFS");
+        let lf = create_lf(&lib_path, lf_name, &pf).expect("Fallo crear LF en ZFS");
         lf.insert_idx(b"IDX1", b"KEY1").unwrap();
 
         // Verificar xattrs reales en ZFS
         use crate::zfs::get_objtype;
-        assert_eq!(get_objtype(&test_dir.join(pf_name)).unwrap(), "*FILE");
-        assert_eq!(get_objtype(&test_dir.join(lf_name)).unwrap(), "*FILE");
+        assert_eq!(get_objtype(&lib_path).unwrap(), "*LIB");
+        assert_eq!(get_objtype(&lib_path.join(pf_name)).unwrap(), "*FILE");
+        assert_eq!(get_objtype(&lib_path.join(lf_name)).unwrap(), "*FILE");
 
         // Limpiar
         std::fs::remove_dir_all(&test_dir).ok();

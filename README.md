@@ -42,3 +42,16 @@ cargo build --release
 # O prueba un parsing directo:
 ./target/release/clc --help
 ```
+
+### 4. Demo de objetos V1
+La v1 actual toma `sled` como backend operativo de `*FILE` y `*DTAQ`, manteniendo `user.l400.objtype` como frontera autoritativa de tipado para el runtime y el LSM.
+
+Puedes generar una demo local de bibliotecas, `*PGM`, PF/LF y `*DTAQ` con:
+```bash
+cargo run -p l400 --example objects_v1_demo -- /tmp/l400-demo
+```
+
+Y validar la salida esperada de esa demo con:
+```bash
+./scripts/test/test_objects_v1_demo.sh
+```
