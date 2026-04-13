@@ -14,7 +14,12 @@ fn main() -> Result<()> {
     // La TUI es un workload interactivo, pero la falla en cgroups no debe impedir el login.
     let _ = create_l400_slices();
     let _ = assign_to_workload(std::process::id() as u64, WorkloadType::Interactive);
-    let _ = register_current_job("OS400-TUI", WorkloadType::Interactive, "ACTIVE", "os400-tui");
+    let _ = register_current_job(
+        "OS400-TUI",
+        WorkloadType::Interactive,
+        "ACTIVE",
+        "os400-tui",
+    );
     let pid = std::process::id() as u64;
 
     let mut terminal = setup_terminal()?;

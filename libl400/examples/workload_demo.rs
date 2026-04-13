@@ -16,8 +16,12 @@ fn current_user() -> String {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = create_l400_slices();
     let _ = assign_to_workload(std::process::id() as u64, WorkloadType::Interactive);
-    let interactive_pid =
-        register_current_job("WORKLOADDEMO", WorkloadType::Interactive, "ACTIVE", "workload_demo")?;
+    let interactive_pid = register_current_job(
+        "WORKLOADDEMO",
+        WorkloadType::Interactive,
+        "ACTIVE",
+        "workload_demo",
+    )?;
 
     let child = Command::new("sh")
         .arg("-lc")

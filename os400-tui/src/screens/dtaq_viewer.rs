@@ -164,7 +164,11 @@ impl DataQueueViewer {
             "Bundled sample"
         };
         let lines: Vec<Line> = vec![
-            Line::from(vec![format!("Source: {}. Type options, press Enter.", source_label).into()]),
+            Line::from(vec![format!(
+                "Source: {}. Type options, press Enter.",
+                source_label
+            )
+            .into()]),
             Line::from(vec!["Opt  Key      Data".into()]),
         ];
         let text = Text::from(lines);

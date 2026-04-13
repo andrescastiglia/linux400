@@ -39,7 +39,9 @@ pub struct PhysicalFile {
 
 pub fn create_pf(lib_path: &Path, name: &str, _record_len: usize) -> Result<PhysicalFile, DbError> {
     if get_objtype(lib_path)? != "*LIB" {
-        return Err(DbError::InvalidType("target library must be a *LIB".to_string()));
+        return Err(DbError::InvalidType(
+            "target library must be a *LIB".to_string(),
+        ));
     }
 
     let target = lib_path.join(name);
@@ -134,7 +136,9 @@ pub fn create_lf(
     over_pf: &PhysicalFile,
 ) -> Result<LogicalFile, DbError> {
     if get_objtype(lib_path)? != "*LIB" {
-        return Err(DbError::InvalidType("target library must be a *LIB".to_string()));
+        return Err(DbError::InvalidType(
+            "target library must be a *LIB".to_string(),
+        ));
     }
 
     if !validate_objtype("*FILE") {

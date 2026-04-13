@@ -48,7 +48,9 @@ fn generate_stub_c(source_path: &str, ast: &crate::ast::Program) -> String {
             }
             other => body.push(format!(
                 "puts({});",
-                escape_c_string(&format!("[clc] Unsupported CL command in v1 subset: {other}"))
+                escape_c_string(&format!(
+                    "[clc] Unsupported CL command in v1 subset: {other}"
+                ))
             )),
         }
     }

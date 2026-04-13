@@ -1,5 +1,5 @@
 use l400::{
-    create_library, create_lf, create_object_with_metadata, create_pf, crtdtaq, list_objects,
+    create_lf, create_library, create_object_with_metadata, create_pf, crtdtaq, list_objects,
     resolve_l400_root,
 };
 use std::env;
@@ -78,7 +78,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Root: {}", root.display());
     for library in [&qsys, &qusrsys] {
         let objects = list_objects(library)?;
-        println!("Library {}:", library.file_name().unwrap_or_default().to_string_lossy());
+        println!(
+            "Library {}:",
+            library.file_name().unwrap_or_default().to_string_lossy()
+        );
         for object in objects {
             println!(
                 "  - {} {} {} {}",

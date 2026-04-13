@@ -327,14 +327,9 @@ mod tests {
     fn lookup_and_copy_preserve_metadata() {
         let root = temp_root();
         let lib = create_library(root.path(), "QGPL").expect("create_library falló");
-        let source = create_object_with_metadata(
-            &lib,
-            "SOURCE",
-            "*PGM",
-            Some("CL"),
-            Some("Programa CL"),
-        )
-        .expect("create_object_with_metadata falló");
+        let source =
+            create_object_with_metadata(&lib, "SOURCE", "*PGM", Some("CL"), Some("Programa CL"))
+                .expect("create_object_with_metadata falló");
 
         let dest = lib.join("COPY");
         copy_object(&source, &dest).expect("copy_object falló");
@@ -361,6 +356,9 @@ mod tests {
         fs::create_dir(&plain_dir).unwrap();
 
         let result = create_object(&plain_dir, "BADOBJ", "*PGM");
-        assert!(matches!(result, Err(ObjectError::Zfs(_) | ObjectError::InvalidLibrary(_))));
+        assert!(matches!(
+            result,
+            Err(ObjectError::Zfs(_) | ObjectError::InvalidLibrary(_))
+        ));
     }
 }

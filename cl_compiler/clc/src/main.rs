@@ -22,8 +22,7 @@ fn resolve_l400_lib_path() -> String {
         "target/debug",
     ] {
         let candidate_path = Path::new(candidate);
-        if candidate_path.join("libl400.a").exists() || candidate_path.join("libl400.so").exists()
-        {
+        if candidate_path.join("libl400.a").exists() || candidate_path.join("libl400.so").exists() {
             return candidate.to_string();
         }
     }

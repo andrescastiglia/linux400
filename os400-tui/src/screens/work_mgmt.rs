@@ -179,7 +179,11 @@ impl WorkManagement {
             "Bundled sample"
         };
         let lines: Vec<Line> = vec![
-            Line::from(vec![format!("Source: {}. Type options, press Enter.", source).into()]),
+            Line::from(vec![format!(
+                "Source: {}. Type options, press Enter.",
+                source
+            )
+            .into()]),
             Line::from(vec![
                 "Opt  Job         User        Type      Status    Subsystem".into(),
             ]),

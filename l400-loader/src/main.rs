@@ -99,9 +99,7 @@ fn print_mode_summary(runtime: &LoaderRuntime) {
             );
         }
         LoaderMode::Dev => {
-            info!(
-                "Modo dev: prioriza feedback de desarrollo y tolera assets/BTF/hooks ausentes."
-            );
+            info!("Modo dev: prioriza feedback de desarrollo y tolera assets/BTF/hooks ausentes.");
         }
     }
 }
@@ -154,7 +152,13 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
 
     let program: &mut Lsm = match bpf.program_mut("file_open") {
         Some(program) => program.try_into().context("Programa file_open inválido")?,
-        None => return soft_fail(mode, "No existe el programa file_open", anyhow::anyhow!("missing file_open")),
+        None => {
+            return soft_fail(
+                mode,
+                "No existe el programa file_open",
+                anyhow::anyhow!("missing file_open"),
+            )
+        }
     };
     if let Err(err) = program
         .load("file_open", &btf)
@@ -200,8 +204,10 @@ fn log_stats(runtime: &mut LoaderRuntime) -> Result<()> {
         .bpf
         .as_mut()
         .ok_or_else(|| anyhow::anyhow!("runtime inconsistente: no hay estado BPF"))?;
-    let stats_map: aya::maps::HashMap<_, u32, u64> =
-        aya::maps::HashMap::try_from(bpf.map_mut("L400_STATS").context("mapa L400_STATS ausente")?)?;
+    let stats_map: aya::maps::HashMap<_, u32, u64> = aya::maps::HashMap::try_from(
+        bpf.map_mut("L400_STATS")
+            .context("mapa L400_STATS ausente")?,
+    )?;
 
     let allowed = stats_map.get(&0, 0).unwrap_or(0);
     let denied = stats_map.get(&1, 0).unwrap_or(0);

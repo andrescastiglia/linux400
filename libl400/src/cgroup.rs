@@ -197,7 +197,8 @@ fn parse_job(content: &str) -> Result<WorkloadJob, CgroupError> {
         pid: pid.ok_or_else(|| CgroupError::InvalidJob("missing pid".to_string()))?,
         name: name.ok_or_else(|| CgroupError::InvalidJob("missing name".to_string()))?,
         user: user.ok_or_else(|| CgroupError::InvalidJob("missing user".to_string()))?,
-        workload: workload.ok_or_else(|| CgroupError::InvalidJob("missing workload".to_string()))?,
+        workload: workload
+            .ok_or_else(|| CgroupError::InvalidJob("missing workload".to_string()))?,
         status: status.ok_or_else(|| CgroupError::InvalidJob("missing status".to_string()))?,
         subsystem: subsystem.unwrap_or_else(|| "UNKNOWN".to_string()),
         command: command.unwrap_or_default(),

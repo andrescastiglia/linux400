@@ -102,9 +102,9 @@ impl MainMenu {
         if let Some(idx) = Self::option_index(&self.pending_option) {
             self.selected_index = idx;
 
-            let has_longer_match = Self::menu_items()
-                .iter()
-                .any(|(option, _, _)| option != &self.pending_option && option.starts_with(&self.pending_option));
+            let has_longer_match = Self::menu_items().iter().any(|(option, _, _)| {
+                option != &self.pending_option && option.starts_with(&self.pending_option)
+            });
             if !has_longer_match {
                 return self.execute_selected();
             }

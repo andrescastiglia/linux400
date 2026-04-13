@@ -30,7 +30,9 @@ pub struct DataQueue {
 
 pub fn crtdtaq(lib_path: &Path, name: &str) -> Result<DataQueue, DtaqError> {
     if get_objtype(lib_path)? != "*LIB" {
-        return Err(DtaqError::InvalidType("target library must be a *LIB".to_string()));
+        return Err(DtaqError::InvalidType(
+            "target library must be a *LIB".to_string(),
+        ));
     }
 
     let target = lib_path.join(name);
