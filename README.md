@@ -91,3 +91,21 @@ cargo run -p l400-loader -- --mode full --once
 cargo run -p l400-loader -- --mode degraded --once
 cargo run -p l400-loader -- --mode dev --once
 ```
+
+### 8. Release candidate v1
+La RC v1 queda descrita en:
+
+- `docs/RELEASE_V1_RC.md`
+- `docs/SUPPORT_MATRIX.md`
+- `docs/RELEASE_CHECKLIST.md`
+
+Build reproducible de RC:
+```bash
+./scripts/build/build_release_rc.sh
+```
+
+Smoke tests de RC:
+```bash
+./scripts/test/test_release_rc.sh
+RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh
+```
