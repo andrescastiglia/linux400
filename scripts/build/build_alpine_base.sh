@@ -13,6 +13,41 @@ RUNTIME_DIR="${L400_SRC_DIR}/scripts/runtime"
 MINIROOT="alpine-minirootfs-${ALPINE_VERSION}.0-${ARCH}.tar.gz"
 MINIROOT_URL="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/releases/${ARCH}/${MINIROOT}"
 
+copy_binary_with_runtime() {
+    local binary="$1"
+    local resolved=""
+    local dep=""
+
+    [ -e "${binary}" ] || return 0
+
+    resolved="$(readlink -f "${binary}" 2>/dev/null || printf '%s' "${binary}")"
+    [ -f "${resolved}" ] || return 0
+
+    mkdir -p "${ROOTFS_DIR}$(dirname "${resolved}")"
+    cp -L "${resolved}" "${ROOTFS_DIR}${resolved}"
+
+    if [ "${binary}" != "${resolved}" ]; then
+        mkdir -p "${ROOTFS_DIR}$(dirname "${binary}")"
+        ln -sf "${resolved}" "${ROOTFS_DIR}${binary}"
+    fi
+
+    while IFS= read -r dep; do
+        [ -n "${dep}" ] || continue
+        [ -f "${dep}" ] || continue
+        mkdir -p "${ROOTFS_DIR}$(dirname "${dep}")"
+        cp -L "${dep}" "${ROOTFS_DIR}${dep}"
+    done <<EOF
+$(ldd "${resolved}" 2>/dev/null | awk '
+    {
+        for (i = 1; i <= NF; ++i) {
+            if ($i ~ /^\//) {
+                print $i
+            }
+        }
+    }')
+EOF
+}
+
 download_minrootfs() {
     mkdir -p "${OUTPUT_DIR}"
 
@@ -65,37 +100,59 @@ EOF
 }
 
 install_host_disk_tools_fallback() {
-    local tool
+    local path_entry
     local tools=(
+        /usr/bin/mount
+        /usr/bin/umount
+        /usr/bin/findmnt
+        /usr/sbin/blkid
+        /usr/sbin/findfs
         /usr/sbin/sfdisk
         /usr/sbin/mkfs.ext4
+        /usr/sbin/mke2fs
         /usr/sbin/mkfs.fat
-    )
-    local libs=(
-        /lib64/ld-linux-x86-64.so.2
-        /lib/x86_64-linux-gnu/libblkid.so.1
-        /lib/x86_64-linux-gnu/libc.so.6
-        /lib/x86_64-linux-gnu/libcom_err.so.2
-        /lib/x86_64-linux-gnu/libe2p.so.2
-        /lib/x86_64-linux-gnu/libext2fs.so.2
-        /lib/x86_64-linux-gnu/libfdisk.so.1
-        /lib/x86_64-linux-gnu/libreadline.so.8
-        /lib/x86_64-linux-gnu/libsmartcols.so.1
-        /lib/x86_64-linux-gnu/libtinfo.so.6
-        /lib/x86_64-linux-gnu/libuuid.so.1
+        /usr/sbin/fsck.fat
+        /usr/sbin/mount.vfat
     )
 
-    mkdir -p "${ROOTFS_DIR}/usr/sbin" "${ROOTFS_DIR}/lib64" "${ROOTFS_DIR}/lib/x86_64-linux-gnu"
-
-    for tool in "${tools[@]}"; do
-        [ -x "${tool}" ] || continue
-        cp "${tool}" "${ROOTFS_DIR}${tool}"
+    for path_entry in "${tools[@]}"; do
+        copy_binary_with_runtime "${path_entry}"
     done
+}
 
-    for tool in "${libs[@]}"; do
-        [ -f "${tool}" ] || continue
-        cp "${tool}" "${ROOTFS_DIR}${tool}"
-    done
+install_host_mtools_fallback() {
+    local mtools_root="${OUTPUT_DIR}/host-tools/mtools/extracted"
+    local applet=""
+    local dep=""
+
+    if [ -x /usr/bin/mtools ]; then
+        for applet in /usr/bin/mtools /usr/bin/mcopy /usr/bin/mmd /usr/bin/mdir /usr/bin/mformat /usr/bin/mlabel; do
+            copy_binary_with_runtime "${applet}"
+        done
+    elif [ -x "${mtools_root}/usr/bin/mtools" ]; then
+        mkdir -p "${ROOTFS_DIR}/usr/bin"
+        cp -L "${mtools_root}/usr/bin/mtools" "${ROOTFS_DIR}/usr/bin/mtools"
+
+        for applet in mcopy mmd mdir mformat mlabel; do
+            ln -sf /usr/bin/mtools "${ROOTFS_DIR}/usr/bin/${applet}"
+        done
+
+        while IFS= read -r dep; do
+            [ -n "${dep}" ] || continue
+            [ -f "${dep}" ] || continue
+            mkdir -p "${ROOTFS_DIR}$(dirname "${dep}")"
+            cp -L "${dep}" "${ROOTFS_DIR}${dep}"
+        done <<EOF
+$(ldd "${mtools_root}/usr/bin/mtools" 2>/dev/null | awk '
+    {
+        for (i = 1; i <= NF; ++i) {
+            if ($i ~ /^\//) {
+                print $i
+            }
+        }
+    }')
+EOF
+    fi
 }
 
 ensure_user_l400() {
@@ -232,6 +289,7 @@ main() {
 
     maybe_install_extra_packages
     install_host_disk_tools_fallback
+    install_host_mtools_fallback
     ensure_user_l400
     install_userspace
     configure_shell_environment
