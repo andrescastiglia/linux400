@@ -142,6 +142,9 @@ stage_tree() {
 
     echo ">> Copiando kernel desde ${kernel_src}..."
     cp "${kernel_src}" "${BOOT_DIR}/vmlinuz"
+    if [ "${kernel_src}" != "${OUTPUT_DIR}/vmlinuz" ]; then
+        cp "${kernel_src}" "${OUTPUT_DIR}/vmlinuz"
+    fi
 
     echo ">> Copiando initramfs..."
     cp "${INITRAMFS_IMG}" "${BOOT_DIR}/initramfs.img"
@@ -156,17 +159,17 @@ set default=0
 set timeout=5
 
 menuentry "Linux/400 Live" {
-    linux /boot/vmlinuz quiet l400.live=1
+    linux /boot/vmlinuz quiet console=tty0 console=ttyS0,115200 l400.live=1
     initrd /boot/initramfs.img
 }
 
 menuentry "Linux/400 Install" {
-    linux /boot/vmlinuz quiet l400.install=1
+    linux /boot/vmlinuz quiet console=tty0 console=ttyS0,115200 l400.install=1
     initrd /boot/initramfs.img
 }
 
 menuentry "Linux/400 Rescue" {
-    linux /boot/vmlinuz l400.rescue=1
+    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 l400.rescue=1
     initrd /boot/initramfs.img
 }
 EOF
@@ -180,7 +183,7 @@ set default=0
 set timeout=3
 
 menuentry "Linux/400" {
-    linux /EFI/Linux400/vmlinuz root=LABEL=linux400-root rw quiet l400.installed=1
+    linux /EFI/Linux400/vmlinuz root=LABEL=linux400-root rw quiet console=tty0 console=ttyS0,115200 l400.installed=1
     initrd /EFI/Linux400/initramfs.img
 }
 EOF

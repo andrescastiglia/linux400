@@ -26,6 +26,7 @@ copy_busybox_applets() {
         mkdir
         mdev
         modprobe
+        insmod
         cat
         cut
         grep
@@ -39,6 +40,8 @@ copy_busybox_applets() {
         chown
         dmesg
         mountpoint
+        tty
+        zcat
     )
 
     for applet in "${applets[@]}"; do
@@ -55,8 +58,34 @@ prepare_tree() {
 copy_modules() {
     echo ">> Copiando módulos del kernel..."
     mkdir -p "${INITRAMFS_DIR}/lib"
+
+    decompress_module() {
+        local module_name="$1"
+        local module_src=""
+        local module_dst=""
+
+        module_src="$(modinfo -k "${KERNEL_VERSION}" -n "${module_name}" 2>/dev/null || true)"
+        [ -n "${module_src}" ] || return 0
+        [ -f "${module_src}" ] || return 0
+
+        case "${module_src}" in
+            *.zst)
+                if command -v zstd >/dev/null 2>&1; then
+                    module_dst="${INITRAMFS_DIR}${module_src%.zst}"
+                    mkdir -p "$(dirname "${module_dst}")"
+                    zstd -d -c "${module_src}" > "${module_dst}"
+                fi
+                ;;
+        esac
+    }
+
     if [ -d "/lib/modules/${KERNEL_VERSION}" ]; then
         cp -a "/lib/modules/${KERNEL_VERSION}" "${INITRAMFS_DIR}/lib/"
+        decompress_module overlay
+        decompress_module vfat
+        decompress_module fat
+        decompress_module nls_cp437
+        decompress_module nls_ascii
     else
         echo "WARNING: no se encontró /lib/modules/${KERNEL_VERSION}; se dependerá de módulos built-in."
     fi
@@ -128,7 +157,38 @@ mount_early_fs() {
 }
 
 load_kernel_modules() {
-    for module in loop squashfs overlay isofs udf; do
+    load_builtin_module() {
+        local module_name="$1"
+        local module_path=""
+
+        for module_path in $(find /lib/modules -name "${module_name}.ko" 2>/dev/null); do
+            [ -f "${module_path}" ] || continue
+            insmod "${module_path}" 2>/dev/null || true
+            return 0
+        done
+    }
+
+    local kernel_version=""
+    local overlay_module=""
+
+    kernel_version="$(uname -r 2>/dev/null || true)"
+    if [ -n "${kernel_version}" ] && [ -f "/lib/modules/${kernel_version}/kernel/fs/overlayfs/overlay.ko" ]; then
+        overlay_module="/lib/modules/${kernel_version}/kernel/fs/overlayfs/overlay.ko"
+    else
+        for overlay_module in $(find /lib/modules -name overlay.ko 2>/dev/null); do
+            [ -f "${overlay_module}" ] && break
+        done
+    fi
+
+    if [ -n "${overlay_module}" ] && [ -f "${overlay_module}" ]; then
+        insmod "${overlay_module}" 2>/dev/null || true
+    fi
+
+    for module in fat nls_cp437 nls_ascii vfat; do
+        load_builtin_module "${module}"
+    done
+
+    for module in loop squashfs overlay isofs udf fat nls_cp437 nls_ascii vfat; do
         modprobe "${module}" 2>/dev/null || true
     done
 }
@@ -237,6 +297,14 @@ mount_live_root() {
         log "Usando rootfs live embebido en initramfs."
         mount -t squashfs -o loop /live/rootfs.squashfs /mnt/root-ro || \
             panic_shell "No se pudo montar el rootfs embebido."
+
+        media_dev="$(find_live_media || true)"
+        if [ -n "${media_dev}" ]; then
+            log "Medio ISO detectado adicionalmente: ${media_dev}"
+            mount --move /mnt/media /run/l400/media
+        else
+            log "No se pudo montar el medio ISO; el instalador dependerá de assets locales."
+        fi
     else
         for attempt in 1 2 3 4 5 6 7 8 9 10; do
             media_dev="$(find_live_media || true)"

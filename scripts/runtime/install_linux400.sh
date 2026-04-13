@@ -6,7 +6,7 @@ set -eu
 TARGET_MNT="${TARGET_MNT:-/mnt/linux400-target}"
 EFI_SIZE_MIB="${EFI_SIZE_MIB:-512}"
 ROOT_LABEL="${ROOT_LABEL:-linux400-root}"
-EFI_LABEL="${EFI_LABEL:-LINUX400_EFI}"
+EFI_LABEL="${EFI_LABEL:-L400EFI}"
 INSTALL_MODE="${INSTALL_MODE:-uefi}"
 AUTO_PARTITION="${AUTO_PARTITION:-1}"
 
@@ -36,6 +36,28 @@ have_cmd() {
     command -v "$1" >/dev/null 2>&1
 }
 
+ensure_live_media_assets() {
+    local media_dir="/run/l400/media"
+    local dev=""
+
+    if [ -d "${media_dir}/boot" ] && [ -f "${media_dir}/live/BOOTX64.EFI" ]; then
+        return 0
+    fi
+
+    mkdir -p "${media_dir}"
+
+    for dev in /dev/sr0 /dev/cdrom /dev/vdb /dev/sdb; do
+        [ -b "${dev}" ] || continue
+        if mountpoint -q "${media_dir}" 2>/dev/null; then
+            break
+        fi
+        if mount -t iso9660 -o ro "${dev}" "${media_dir}" 2>/dev/null || \
+            mount -o ro "${dev}" "${media_dir}" 2>/dev/null; then
+            break
+        fi
+    done
+}
+
 require_device() {
     if [ ! -b "$1" ]; then
         echo "ERROR: dispositivo no válido: $1" >&2
@@ -49,11 +71,7 @@ partition_disk() {
     if have_cmd sfdisk; then
         cat <<EOF | sfdisk --wipe always "${disk}"
 label: gpt
-unit: MiB
-
-first-lba: 2048
-
-size=${EFI_SIZE_MIB}, type=U, name="LINUX400-EFI"
+size=${EFI_SIZE_MIB}MiB, type=U, name="LINUX400-EFI"
 type=L, name="LINUX400-ROOT"
 EOF
         return 0
@@ -104,10 +122,15 @@ format_parts() {
 }
 
 mount_target() {
+    modprobe vfat 2>/dev/null || true
+    modprobe fat 2>/dev/null || true
+    modprobe nls_cp437 2>/dev/null || true
+    modprobe nls_ascii 2>/dev/null || true
+
     mkdir -p "${TARGET_MNT}"
     mount "${ROOT_PART}" "${TARGET_MNT}"
     mkdir -p "${TARGET_MNT}/boot/efi"
-    mount "${EFI_PART}" "${TARGET_MNT}/boot/efi"
+    mount -t vfat "${EFI_PART}" "${TARGET_MNT}/boot/efi"
 }
 
 copy_rootfs() {
@@ -129,6 +152,8 @@ install_boot_assets() {
     local iso_boot_dir=""
     local efi_asset=""
     local candidate
+
+    ensure_live_media_assets
 
     for candidate in \
         "${L400_BOOT_ASSET_DIR:-}" \
@@ -175,7 +200,7 @@ set timeout=5
 set default=0
 
 menuentry "Linux/400" {
-    linux /EFI/Linux400/vmlinuz root=LABEL=linux400-root rw quiet l400.installed=1
+    linux /EFI/Linux400/vmlinuz root=LABEL=linux400-root rw quiet console=tty0 console=ttyS0,115200 l400.installed=1
     initrd /EFI/Linux400/initramfs.img
 }
 EOF
@@ -190,7 +215,23 @@ LABEL=${EFI_LABEL} /boot/efi vfat umask=0077 0 2
 EOF
 
     if [ -f "${TARGET_MNT}/etc/inittab" ]; then
-        sed -i 's#^tty1::respawn:.*#tty1::respawn:/sbin/getty 115200 tty1#' "${TARGET_MNT}/etc/inittab"
+        if grep -q '^tty1::respawn:' "${TARGET_MNT}/etc/inittab"; then
+            sed -i 's#^tty1::respawn:.*#tty1::respawn:/sbin/getty -n -l /usr/local/bin/l400-console-autologin 115200 tty1 linux#' \
+                "${TARGET_MNT}/etc/inittab"
+        else
+            cat >> "${TARGET_MNT}/etc/inittab" <<'EOF'
+tty1::respawn:/sbin/getty -n -l /usr/local/bin/l400-console-autologin 115200 tty1 linux
+EOF
+        fi
+
+        if grep -q '^ttyS0::respawn:' "${TARGET_MNT}/etc/inittab"; then
+            sed -i 's#^ttyS0::respawn:.*#ttyS0::respawn:/sbin/getty -L -n -l /usr/local/bin/l400-console-autologin 115200 ttyS0 vt100#' \
+                "${TARGET_MNT}/etc/inittab"
+        else
+            cat >> "${TARGET_MNT}/etc/inittab" <<'EOF'
+ttyS0::respawn:/sbin/getty -L -n -l /usr/local/bin/l400-console-autologin 115200 ttyS0 vt100
+EOF
+        fi
     fi
 
     mkdir -p "${TARGET_MNT}/home/l400"

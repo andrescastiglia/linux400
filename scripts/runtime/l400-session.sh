@@ -28,6 +28,13 @@ if [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
     exec "${fallback_shell}"
 fi
 
+current_tty="$(tty 2>/dev/null || true)"
+case "${current_tty}" in
+    /dev/ttyS*)
+        exec "${fallback_shell}"
+        ;;
+esac
+
 if [ "${TERM:-dumb}" = "dumb" ]; then
     exec "${fallback_shell}"
 fi
