@@ -105,6 +105,11 @@ mount_efi_partition() {
         return 0
     fi
 
+    if mount -t vfat -o codepage=850 "${EFI_PART}" "${TARGET_MNT}/boot/efi" >>/tmp/l400-mount-efi.log 2>&1; then
+        EFI_ACCESS_MODE="mount"
+        return 0
+    fi
+
     if mount "${EFI_PART}" "${TARGET_MNT}/boot/efi" >>/tmp/l400-mount-efi.log 2>&1; then
         EFI_ACCESS_MODE="mount"
         return 0
@@ -185,6 +190,7 @@ mount_target() {
     modprobe vfat 2>/dev/null || true
     modprobe fat 2>/dev/null || true
     modprobe nls_cp437 2>/dev/null || true
+    modprobe nls_cp850 2>/dev/null || true
     modprobe nls_ascii 2>/dev/null || true
     modprobe nls_utf8 2>/dev/null || true
 

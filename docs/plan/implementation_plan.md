@@ -181,6 +181,7 @@ Pasar del etiquetado básico a enforcement verificable de objetos Linux/400.
 - conectar loader, runtime y object manager para que el estado `full` sea trazable
 - validar casos permitidos y denegados reales
 - registrar causas de denegación útiles para diagnóstico
+- documentar la política efectiva en [object_policy.md](/home/user/Source/linux400/docs/object_policy.md:1)
 
 ### Entregables
 
@@ -377,6 +378,28 @@ Este plan se considera cumplido cuando:
 6. `*USRPRF` y autorizaciones funcionan como capa de operación del sistema.
 7. Existe diseño cerrado e implementación inicial realista del modelo de memoria etiquetada.
 
-## Nota final
+## Nota de ejecución
 
-La decisión central de este plan es priorizar primero la convergencia de storage, enforcement y ejecución, y tratar `DAX` y `sched_ext` como capacidades posteriores. Eso es lo más conveniente porque respeta la arquitectura de `PROJECT.md`, pero evita bloquear el proyecto por features de kernel que `KERNEL.md` presenta como deseables o avanzadas, no todas igualmente necesarias para cerrar la primera implementación seria de Linux/400.
+Pendiente real después de esta ejecución:
+
+- Fase 4:
+  - definir e implementar formato soportado de `*PGM`
+  - eliminar el camino soportado basado en `stub` dentro de `clc`
+- Fase 5:
+  - implementar jobs y batch reales más allá de demos y registros locales
+  - dejar `QINTER`/`QBATCH` operando como subsistemas reales del runtime
+- Fase 6:
+  - modelar `*USRPRF` como objeto operativo real
+  - implementar autorizaciones por biblioteca, objeto y comando
+- Fase 7:
+  - definir e implementar `LAM`/`TBI` con `mmap` determinista por objeto
+  - evaluar integración real de DAX como perfil avanzado
+
+Notas sobre lo pendiente:
+
+- la validación E2E live -> install -> reboot -> boot instalado en QEMU UEFI ya quedó resuelta
+- la clasificación de plataforma (`full`/`degraded`/`dev`) ya existe; el contrato de enforcement de Fase 3 ahora también queda validado por `support-profile` contra hooks y versión de política, y la ejecución live de `full` depende de una plataforma con `BPF LSM`, BTF y capacidad real de adjuntar mapas/hooks
+- en Fase 2 ya existe capa de storage explícita, backend Berkeley DB real integrado, PF/LF/DTAQ operando por defecto sobre Berkeley DB y compatibilidad transitoria con `sled`
+- en este corte queda consolidada la creación de bibliotecas sobre datasets ZFS como camino por defecto cuando el root vive sobre ZFS o se define `L400_ZFS_DATASET_PREFIX`; `L400_ZFS_CREATE_DATASETS` queda como opt-out explícito
+- en este corte Fase 3 queda cerrada a nivel de implementación con política documentada, hook de ejecución real y trazabilidad adicional en `loader-status`
+- el mayor faltante pasa a ser la convergencia de formato `*PGM`, ejecución soportada sin `stub` y subsistemas reales

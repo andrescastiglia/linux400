@@ -263,6 +263,24 @@ expect {
     }
 }
 
+send -- "test -x /usr/local/bin/l400-support-report && printf '__SUPPORT_REPORT_OK__\\n' || printf '__SUPPORT_REPORT_MISSING__\\n'\r"
+expect {
+    -re {__SUPPORT_REPORT_OK__} {}
+    timeout {
+        send_user "ERROR: l400-support-report no está disponible en el sistema instalado\n"
+        exit 1
+    }
+}
+
+send -- "mkdir -p /run && l400-support-report --write >/run/l400-support.out && grep -q '^effective_mode=' /run/l400/support-profile && printf '__SUPPORT_PROFILE_OK__\\n' || printf '__SUPPORT_PROFILE_FAIL__\\n'\r"
+expect {
+    -re {__SUPPORT_PROFILE_OK__} {}
+    timeout {
+        send_user "ERROR: no se pudo generar support-profile en el sistema instalado\n"
+        exit 1
+    }
+}
+
 send -- "poweroff -f || halt -f\r"
 expect {
     eof {}

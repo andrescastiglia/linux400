@@ -205,6 +205,7 @@ install_userspace() {
 
     cp "${RUNTIME_DIR}/l400-session.sh" "${ROOTFS_DIR}/usr/local/bin/l400-session"
     cp "${RUNTIME_DIR}/l400-console-autologin.sh" "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin"
+    cp "${RUNTIME_DIR}/l400-support-report.sh" "${ROOTFS_DIR}/usr/local/bin/l400-support-report"
     cp "${RUNTIME_DIR}/install_linux400.sh" "${ROOTFS_DIR}/usr/local/sbin/install-linux400"
 
     cp -r "${L400_SRC_DIR}/scripts/"* "${ROOTFS_DIR}/opt/l400/scripts/" 2>/dev/null || true
@@ -212,6 +213,7 @@ install_userspace() {
     chmod +x \
         "${ROOTFS_DIR}/usr/local/bin/l400-session" \
         "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin" \
+        "${ROOTFS_DIR}/usr/local/bin/l400-support-report" \
         "${ROOTFS_DIR}/usr/local/sbin/install-linux400"
 
     ln -sf /opt/l400/bin/os400-tui "${ROOTFS_DIR}/usr/local/bin/os400-tui"

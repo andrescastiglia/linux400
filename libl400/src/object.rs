@@ -1,4 +1,7 @@
-use crate::zfs::{get_objtype, set_objtype, validate_objtype, ZfsError};
+use crate::zfs::{
+    create_dataset, get_objtype, set_objtype, validate_objtype, zfs_command_available,
+    zfs_dataset_for_path, ZfsError,
+};
 use std::env;
 use std::fs;
 use std::os::unix::fs::OpenOptionsExt;
@@ -104,6 +107,45 @@ fn create_path_for_type(path: &Path, objtype: &str) -> Result<(), ObjectError> {
     Ok(())
 }
 
+fn create_library_with_zfs_dataset(
+    root_path: &Path,
+    name: &str,
+) -> Result<Option<PathBuf>, ObjectError> {
+    if env::var("L400_ZFS_CREATE_DATASETS")
+        .ok()
+        .map(|value| matches!(value.trim(), "0" | "false" | "FALSE" | "off" | "OFF"))
+        .unwrap_or(false)
+    {
+        return Ok(None);
+    }
+
+    if !zfs_command_available() {
+        return Ok(None);
+    }
+
+    let dataset_prefix = match env::var("L400_ZFS_DATASET_PREFIX") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => match zfs_dataset_for_path(root_path) {
+            Some(dataset) => dataset,
+            None => return Ok(None),
+        },
+    };
+
+    let target = root_path.join(name);
+    let dataset_name = format!("{dataset_prefix}/{name}");
+    if create_dataset(&dataset_name).is_err() {
+        return Ok(None);
+    }
+    if target.exists() {
+        return Ok(Some(target));
+    }
+
+    Err(ObjectError::NotFound(format!(
+        "ZFS dataset created but mountpoint missing: {}",
+        target.display()
+    )))
+}
+
 fn validate_library_path(lib_path: &Path) -> Result<(), ObjectError> {
     if !lib_path.exists() {
         return Err(ObjectError::NotFound(lib_path.display().to_string()));
@@ -164,6 +206,17 @@ pub fn create_library(root_path: &Path, name: &str) -> Result<PathBuf, ObjectErr
     if target.exists() {
         return Err(ObjectError::AlreadyExists);
     }
+
+    if let Some(dataset_path) = create_library_with_zfs_dataset(root_path, name)? {
+        catalog_object(
+            &dataset_path,
+            "*LIB",
+            Some("LIB"),
+            Some("Linux/400 library"),
+        )?;
+        return Ok(dataset_path);
+    }
+
     create_path_for_type(&target, "*LIB")?;
     catalog_object(&target, "*LIB", Some("LIB"), Some("Linux/400 library"))?;
     Ok(target)
@@ -301,10 +354,48 @@ pub fn validate_alignment(buffer: &[u8], alignment: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use tempfile::TempDir;
 
     fn temp_root() -> TempDir {
         tempfile::tempdir().expect("No se pudo crear root temporal")
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let original = env::var_os(key);
+            // Tests need process-wide env changes to exercise fallback policy.
+            unsafe {
+                env::set_var(key, value);
+            }
+            Self { key, original }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let original = env::var_os(key);
+            unsafe {
+                env::remove_var(key);
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(value) => unsafe {
+                    env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    env::remove_var(self.key);
+                },
+            }
+        }
     }
 
     #[test]
@@ -360,5 +451,31 @@ mod tests {
             result,
             Err(ObjectError::Zfs(_) | ObjectError::InvalidLibrary(_))
         ));
+    }
+
+    #[test]
+    fn create_library_ignores_blank_dataset_prefix() {
+        let _prefix = EnvGuard::set("L400_ZFS_DATASET_PREFIX", "   ");
+        let _toggle = EnvGuard::remove("L400_ZFS_CREATE_DATASETS");
+
+        let root = temp_root();
+        let lib = create_library(root.path(), "QSYS").expect("create_library falló");
+
+        assert_eq!(lib, root.path().join("QSYS"));
+        assert!(lib.exists());
+        assert_eq!(get_objtype(&lib).unwrap(), "*LIB");
+    }
+
+    #[test]
+    fn create_library_respects_explicit_dataset_disable() {
+        let _toggle = EnvGuard::set("L400_ZFS_CREATE_DATASETS", "0");
+        let _prefix = EnvGuard::set("L400_ZFS_DATASET_PREFIX", "pool/linux400");
+
+        let root = temp_root();
+        let lib = create_library(root.path(), "QGPL").expect("create_library falló");
+
+        assert_eq!(lib, root.path().join("QGPL"));
+        assert!(lib.exists());
+        assert_eq!(get_objtype(&lib).unwrap(), "*LIB");
     }
 }

@@ -28,6 +28,7 @@ struct LoaderRuntime {
     protection_active: bool,
     bpf: Option<Ebpf>,
     bpf_path: Option<PathBuf>,
+    attached_hooks: &'static str,
 }
 
 impl LoaderMode {
@@ -46,6 +47,10 @@ fn persist_status(runtime: &LoaderRuntime, phase: &str, last_error: Option<&str>
         .bpf_path
         .as_ref()
         .map(|path| path.display().to_string());
+    if runtime.protection_active {
+        status.attached_hooks = Some(runtime.attached_hooks.to_string());
+        status.policy_version = Some(l400_ebpf_common::L400_POLICY_VERSION.to_string());
+    }
     status.last_error = last_error.map(|err| err.to_string());
     if let Err(err) = write_loader_status(&status) {
         warn!("No se pudo persistir loader-status: {}", err);
@@ -91,6 +96,7 @@ fn soft_fail(mode: LoaderMode, context: &str, err: anyhow::Error) -> Result<Load
                 protection_active: false,
                 bpf: None,
                 bpf_path: None,
+                attached_hooks: "",
             };
             persist_status(&runtime, "fallback", Some(&format!("{context}: {err}")));
             Ok(runtime)
@@ -102,6 +108,7 @@ fn soft_fail(mode: LoaderMode, context: &str, err: anyhow::Error) -> Result<Load
                 protection_active: false,
                 bpf: None,
                 bpf_path: None,
+                attached_hooks: "",
             };
             persist_status(&runtime, "fallback", Some(&format!("{context}: {err}")));
             Ok(runtime)
@@ -132,10 +139,16 @@ fn print_mode_summary(runtime: &LoaderRuntime) {
             info!("Modo dev: prioriza feedback de desarrollo y tolera assets/BTF/hooks ausentes.");
         }
     }
+    if runtime.protection_active {
+        info!(
+            "Policy version: {}   Hooks: {}",
+            l400_ebpf_common::L400_POLICY_VERSION,
+            runtime.attached_hooks
+        );
+    }
 }
 
 fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
-    // Limpieza de límites de memoria (memlock rlimit) necesario para BPF en kernels previos.
     let rlim = libc::rlimit {
         rlim_cur: libc::RLIM_INFINITY,
         rlim_max: libc::RLIM_INFINITY,
@@ -180,7 +193,7 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
         Err(err) => return soft_fail(mode, "No se pudo leer BTF del sistema", err.into()),
     };
 
-    let program: &mut Lsm = match bpf.program_mut("file_open") {
+    let file_open: &mut Lsm = match bpf.program_mut("file_open") {
         Some(program) => program.try_into().context("Programa file_open inválido")?,
         None => {
             return soft_fail(
@@ -190,14 +203,33 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
             )
         }
     };
-    if let Err(err) = program
+    if let Err(err) = file_open
         .load("file_open", &btf)
-        .and_then(|_| program.attach())
+        .and_then(|_| file_open.attach())
     {
         return soft_fail(mode, "No se pudo adjuntar file_open", err.into());
     }
 
-    let program2: &mut Lsm = match bpf.program_mut("bprm_check_security") {
+    let bprm_creds_from_file: &mut Lsm = match bpf.program_mut("bprm_creds_from_file") {
+        Some(program) => program
+            .try_into()
+            .context("Programa bprm_creds_from_file inválido")?,
+        None => {
+            return soft_fail(
+                mode,
+                "No existe el programa bprm_creds_from_file",
+                anyhow::anyhow!("missing bprm_creds_from_file"),
+            )
+        }
+    };
+    if let Err(err) = bprm_creds_from_file
+        .load("bprm_creds_from_file", &btf)
+        .and_then(|_| bprm_creds_from_file.attach())
+    {
+        return soft_fail(mode, "No se pudo adjuntar bprm_creds_from_file", err.into());
+    }
+
+    let bprm_check_security: &mut Lsm = match bpf.program_mut("bprm_check_security") {
         Some(program) => program
             .try_into()
             .context("Programa bprm_check_security inválido")?,
@@ -209,19 +241,21 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
             )
         }
     };
-    if let Err(err) = program2
+    if let Err(err) = bprm_check_security
         .load("bprm_check_security", &btf)
-        .and_then(|_| program2.attach())
+        .and_then(|_| bprm_check_security.attach())
     {
         return soft_fail(mode, "No se pudo adjuntar bprm_check_security", err.into());
     }
 
-    info!("LSM Hooks 'file_open' y 'bprm_check_security' ensamblados y activados.");
+    let attached_hooks = "file_open,bprm_creds_from_file,bprm_check_security";
+    info!("LSM Hooks '{}' ensamblados y activados.", attached_hooks);
     let runtime = LoaderRuntime {
         mode,
         protection_active: true,
         bpf: Some(bpf),
         bpf_path: Some(bpf_path),
+        attached_hooks,
     };
     persist_status(&runtime, "active", None);
     Ok(runtime)
@@ -242,15 +276,45 @@ fn log_stats(runtime: &mut LoaderRuntime) -> Result<()> {
             .context("mapa L400_STATS ausente")?,
     )?;
 
-    let allowed = stats_map.get(&0, 0).unwrap_or(0);
-    let denied = stats_map.get(&1, 0).unwrap_or(0);
+    let allowed = stats_map
+        .get(&l400_ebpf_common::STAT_OPEN_ALLOWED, 0)
+        .unwrap_or(0);
+    let denied = stats_map
+        .get(&l400_ebpf_common::STAT_DENIED_INVALID_TAG, 0)
+        .unwrap_or(0);
+    let exec_native = stats_map
+        .get(&l400_ebpf_common::STAT_EXEC_ALLOWED_NATIVE, 0)
+        .unwrap_or(0);
+    let exec_pgm = stats_map
+        .get(&l400_ebpf_common::STAT_EXEC_ALLOWED_PGM, 0)
+        .unwrap_or(0);
+    let exec_wrong_type = stats_map
+        .get(&l400_ebpf_common::STAT_EXEC_DENIED_WRONG_TYPE, 0)
+        .unwrap_or(0);
+    let exec_missing = stats_map
+        .get(&l400_ebpf_common::STAT_EXEC_DECISION_MISSING, 0)
+        .unwrap_or(0);
+    let exec_check_allowed = stats_map
+        .get(&l400_ebpf_common::STAT_EXEC_CHECK_ALLOWED, 0)
+        .unwrap_or(0);
+    let exec_check_denied = stats_map
+        .get(&l400_ebpf_common::STAT_EXEC_CHECK_DENIED, 0)
+        .unwrap_or(0);
 
     info!("--- Estadísticas de L400 ---");
-    info!("Accesos Permitidos : {}", allowed);
-    info!("Accesos Denegados  : {}", denied);
+    info!("Accesos Permitidos        : {}", allowed);
+    info!("Accesos Denegados         : {}", denied);
+    info!("Exec nativo permitido     : {}", exec_native);
+    info!("Exec *PGM permitido       : {}", exec_pgm);
+    info!("Exec denegado por tipo    : {}", exec_wrong_type);
+    info!("Exec sin decisión previa  : {}", exec_missing);
+    info!("Exec confirmados en bprm  : {}", exec_check_allowed);
+    info!("Exec denegados en bprm    : {}", exec_check_denied);
 
     for (i, obj) in l400_ebpf_common::VALID_OBJ_TYPES.iter().enumerate() {
-        let count = stats_map.get(&(i as u32 + 2), 0).unwrap_or(0);
+        let count = stats_map
+            .get(&(l400_ebpf_common::STAT_OBJTYPE_BASE + i as u32), 0)
+            .unwrap_or(0);
         if count > 0 {
             info!("  -> {} accesos a {}", count, obj.name);
         }
@@ -269,6 +333,7 @@ async fn main() -> Result<()> {
         protection_active: false,
         bpf: None,
         bpf_path: None,
+        attached_hooks: "",
     };
     persist_status(&bootstrap, "starting", None);
 

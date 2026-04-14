@@ -1,9 +1,11 @@
+mod bdb_native;
 pub mod cgroup;
 pub mod db;
 pub mod dtaq;
 pub mod lam;
 pub mod object;
 pub mod runtime;
+pub mod storage;
 pub mod util;
 pub mod zfs;
 
@@ -28,8 +30,16 @@ pub use runtime::{
     l400_run_dir, loader_status_path, read_loader_status, write_loader_status, LoaderStatus,
     RuntimeStatusError,
 };
+pub use storage::{
+    default_storage_backend, read_storage_backend, read_string_attr, read_u32_attr,
+    write_storage_backend, write_string_attr, write_u32_attr, StorageBackend, StorageError,
+    L400_BASE_PF_ATTR, L400_RECORD_LEN_ATTR, L400_STORAGE_BACKEND_ATTR,
+};
 pub use util::AlignedBuffer;
-pub use zfs::{get_objtype, set_objtype, validate_objtype, ZfsError};
+pub use zfs::{
+    get_objtype, path_is_on_zfs, set_objtype, validate_objtype, zfs_dataset_for_path,
+    zfs_xattr_mode, ZfsError,
+};
 
 #[no_mangle]
 pub extern "C" fn init() {

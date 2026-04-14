@@ -10,16 +10,23 @@ fi
 
 TEST_FILE="/tmp/myfile.obj"
 INVALID_FILE="/tmp/invalid.obj"
+EXEC_OK="/tmp/l400_exec_ok"
+EXEC_BAD="/tmp/l400_exec_bad"
 
 echo "[1] Creando archivos dummy..."
 touch $TEST_FILE
 touch $INVALID_FILE
+cp /bin/true "$EXEC_OK"
+cp /bin/true "$EXEC_BAD"
+chmod +x "$EXEC_OK" "$EXEC_BAD"
 
 echo "[2] Asignando atributos extendidos (Tipificacion L400/ZFS)..."
 # Valido
 setfattr -n user.l400.objtype -v "*PGM" $TEST_FILE
 # Invalido
 setfattr -n user.l400.objtype -v "*MAL" $INVALID_FILE
+setfattr -n user.l400.objtype -v "*PGM" $EXEC_OK
+setfattr -n user.l400.objtype -v "*FILE" $EXEC_BAD
 
 echo "[3] Probando acceso SIN el BPF hook habilitado..."
 cat $TEST_FILE > /dev/null && echo "  -> Acceso a $TEST_FILE OK"
@@ -49,8 +56,21 @@ else
     echo "  -> [EXCELENTE] Acceso a $INVALID_FILE DENEGADO (-EACCES disparado por BPF LSM)"
 fi
 
-echo "[6] Limpiando entorno..."
+echo "[6] Probando ejecución CON el BPF hook habilitado..."
+if "$EXEC_OK" >/dev/null 2>&1; then
+    echo "  -> [EXCELENTE] Ejecución de $EXEC_OK permitida como *PGM"
+else
+    echo "  -> [ERROR] Fallo inesperado al ejecutar $EXEC_OK"
+fi
+
+if "$EXEC_BAD" >/dev/null 2>&1; then
+    echo "  -> [ERROR] BPF fallo en denegar ejecución de objeto no *PGM!"
+else
+    echo "  -> [EXCELENTE] Ejecución de $EXEC_BAD DENEGADA por política de *PGM"
+fi
+
+echo "[7] Limpiando entorno..."
 kill -SIGINT $BPF_PID
-rm -f $TEST_FILE $INVALID_FILE
+rm -f $TEST_FILE $INVALID_FILE $EXEC_OK $EXEC_BAD
 
 echo "=== Pruebas E2E BPF completadas exitosamente ==="

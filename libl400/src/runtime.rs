@@ -20,6 +20,8 @@ pub struct LoaderStatus {
     pub protection_active: bool,
     pub phase: String,
     pub bpf_path: Option<String>,
+    pub attached_hooks: Option<String>,
+    pub policy_version: Option<String>,
     pub last_error: Option<String>,
 }
 
@@ -30,6 +32,8 @@ impl LoaderStatus {
             protection_active,
             phase: phase.into(),
             bpf_path: None,
+            attached_hooks: None,
+            policy_version: None,
             last_error: None,
         }
     }
@@ -45,6 +49,12 @@ impl LoaderStatus {
         ];
         if let Some(path) = &self.bpf_path {
             lines.push(format!("bpf_path={path}"));
+        }
+        if let Some(hooks) = &self.attached_hooks {
+            lines.push(format!("attached_hooks={hooks}"));
+        }
+        if let Some(version) = &self.policy_version {
+            lines.push(format!("policy_version={version}"));
         }
         if let Some(err) = &self.last_error {
             lines.push(format!("last_error={err}"));
@@ -82,6 +92,8 @@ impl LoaderStatus {
             protection_active,
             phase,
             bpf_path: map.get("bpf_path").cloned(),
+            attached_hooks: map.get("attached_hooks").cloned(),
+            policy_version: map.get("policy_version").cloned(),
             last_error: map.get("last_error").cloned(),
         })
     }
@@ -127,6 +139,8 @@ mod tests {
 
         let mut status = LoaderStatus::new("degraded", false, "fallback");
         status.bpf_path = Some("/opt/l400/hooks/l400-ebpf".to_string());
+        status.attached_hooks = Some("file_open,bprm_creds_from_file,bprm_check_security".into());
+        status.policy_version = Some("phase3-v1".into());
         status.last_error = Some("missing btf".to_string());
         write_loader_status(&status).unwrap();
 

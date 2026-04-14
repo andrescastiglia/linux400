@@ -88,6 +88,7 @@ copy_modules() {
         decompress_module vfat
         decompress_module fat
         decompress_module nls_cp437
+        decompress_module nls_cp850
         decompress_module nls_ascii
         decompress_module nls_utf8
     else
@@ -210,11 +211,11 @@ load_kernel_modules() {
         insmod "${overlay_module}" 2>/dev/null || true
     fi
 
-    for module in fat nls_cp437 nls_ascii nls_utf8 vfat; do
+    for module in fat nls_cp437 nls_cp850 nls_ascii nls_utf8 vfat; do
         load_builtin_module "${module}"
     done
 
-    for module in loop squashfs overlay isofs udf fat nls_cp437 nls_ascii nls_utf8 vfat; do
+    for module in loop squashfs overlay isofs udf fat nls_cp437 nls_cp850 nls_ascii nls_utf8 vfat; do
         modprobe "${module}" 2>/dev/null || true
     done
 }

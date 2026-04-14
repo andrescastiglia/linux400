@@ -271,6 +271,10 @@ fn loader_status_line() -> String {
                 line.push_str("   Last error: ");
                 line.push_str(&truncate_status_field(&error, 48));
             }
+            if let Some(policy_version) = status.policy_version {
+                line.push_str("   Policy: ");
+                line.push_str(&policy_version);
+            }
             line
         }
         Err(_) => "Protection: UNKNOWN   Loader mode: unavailable".to_string(),

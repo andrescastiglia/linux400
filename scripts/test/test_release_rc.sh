@@ -10,6 +10,7 @@ echo "=== Linux/400 RC smoke tests ==="
 "${L400_SRC_DIR}/scripts/test/test_toolchain_v1_demo.sh"
 "${L400_SRC_DIR}/scripts/test/test_workload_demo.sh"
 "${L400_SRC_DIR}/scripts/test/test_loader_modes.sh"
+bash "${L400_SRC_DIR}/scripts/test/test_support_profile.sh"
 
 if [[ "${RUN_E2E_INSTALL}" == "1" ]]; then
     echo "=== Running QEMU install smoke test ==="

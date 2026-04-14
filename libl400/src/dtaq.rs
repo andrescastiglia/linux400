@@ -1,4 +1,9 @@
+use crate::bdb_native::{BdbError, BdbHandle};
 use crate::object::{catalog_object, ObjectError};
+use crate::storage::{
+    default_storage_backend, read_storage_backend, write_storage_backend, StorageBackend,
+    StorageError,
+};
 use crate::zfs::{get_objtype, validate_objtype, ZfsError};
 use sled::{Db, Tree};
 use std::path::Path;
@@ -10,6 +15,8 @@ pub enum DtaqError {
     Zfs(#[from] ZfsError),
     #[error("Sled Error: {0}")]
     Sled(#[from] sled::Error),
+    #[error("Berkeley DB Error: {0}")]
+    Bdb(#[from] BdbError),
     #[error("Invalid Object Type: {0}")]
     InvalidType(String),
     #[error("Object Error: {0}")]
@@ -20,12 +27,36 @@ pub enum DtaqError {
     Timeout,
     #[error("Queue Empty")]
     Empty,
+    #[error("Storage Error: {0}")]
+    Storage(#[from] StorageError),
+}
+
+enum DataQueueStorage {
+    Sled { db: Db, tree: Tree },
+    BerkeleyDb { db: BdbHandle },
 }
 
 pub struct DataQueue {
     pub name: String,
-    db: Db,
-    tree: Tree,
+    pub backend: StorageBackend,
+    storage: DataQueueStorage,
+}
+
+fn open_sled_dtaq(path: &Path) -> Result<DataQueueStorage, DtaqError> {
+    let db = sled::open(path)?;
+    let tree = db.open_tree("DTAQ")?;
+    Ok(DataQueueStorage::Sled { db, tree })
+}
+
+fn open_bdb_dtaq(path: &Path, create: bool) -> Result<DataQueueStorage, DtaqError> {
+    let db = BdbHandle::open(path, create)?;
+    Ok(DataQueueStorage::BerkeleyDb { db })
+}
+
+fn decode_queue_key(raw: &[u8]) -> Result<u64, DtaqError> {
+    Ok(u64::from_be_bytes(raw.try_into().map_err(|_| {
+        DtaqError::InvalidType("invalid DTAQ key".to_string())
+    })?))
 }
 
 pub fn crtdtaq(lib_path: &Path, name: &str) -> Result<DataQueue, DtaqError> {
@@ -36,7 +67,6 @@ pub fn crtdtaq(lib_path: &Path, name: &str) -> Result<DataQueue, DtaqError> {
     }
 
     let target = lib_path.join(name);
-
     if target.exists() {
         return Err(DtaqError::AlreadyExists);
     }
@@ -45,22 +75,29 @@ pub fn crtdtaq(lib_path: &Path, name: &str) -> Result<DataQueue, DtaqError> {
         return Err(DtaqError::InvalidType("*DTAQ".to_string()));
     }
 
-    let db = sled::open(&target)?;
-    let tree = db.open_tree("DTAQ")?;
+    let backend = default_storage_backend();
+    let storage = match backend {
+        StorageBackend::Sled => open_sled_dtaq(&target)?,
+        StorageBackend::BerkeleyDb => open_bdb_dtaq(&target, true)?,
+    };
 
     catalog_object(&target, "*DTAQ", Some("DTAQ"), Some("Data queue"))?;
+    write_storage_backend(&target, backend)?;
 
     Ok(DataQueue {
         name: name.to_string(),
-        db,
-        tree,
+        backend,
+        storage,
     })
 }
 
 impl DataQueue {
     pub fn open(path: &Path) -> Result<Self, DtaqError> {
-        let db = sled::open(path)?;
-        let tree = db.open_tree("DTAQ")?;
+        let backend = read_storage_backend(path)?.unwrap_or(default_storage_backend());
+        let storage = match backend {
+            StorageBackend::Sled => open_sled_dtaq(path)?,
+            StorageBackend::BerkeleyDb => open_bdb_dtaq(path, false)?,
+        };
 
         Ok(DataQueue {
             name: path
@@ -68,30 +105,40 @@ impl DataQueue {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string(),
-            db,
-            tree,
+            backend,
+            storage,
         })
     }
 
     pub fn snddtaq(&self, buffer: &[u8]) -> Result<(), DtaqError> {
-        let id = self.db.generate_id()?;
-        self.tree.insert(id.to_be_bytes(), buffer)?;
-        self.db.flush()?;
+        match &self.storage {
+            DataQueueStorage::Sled { db, tree } => {
+                let id = db.generate_id()?;
+                tree.insert(id.to_be_bytes(), buffer)?;
+                db.flush()?;
+            }
+            DataQueueStorage::BerkeleyDb { db } => {
+                let next_id = match db.last_key()? {
+                    Some(raw) => decode_queue_key(&raw)? + 1,
+                    None => 1,
+                };
+                db.put(&next_id.to_be_bytes(), buffer)?;
+            }
+        }
         Ok(())
     }
 
     pub fn rcvdtaq(&self, wait_time: i32) -> Result<Vec<u8>, DtaqError> {
         if wait_time == 0 {
-            return match self.tree.pop_min()? {
-                Some((_k, v)) => Ok(v.to_vec()),
-                None => Err(DtaqError::Empty),
-            };
+            return self.try_pop_min();
         }
 
         let end_time = std::time::Instant::now() + std::time::Duration::from_secs(wait_time as u64);
         loop {
-            if let Some((_k, v)) = self.tree.pop_min()? {
-                return Ok(v.to_vec());
+            match self.try_pop_min() {
+                Ok(value) => return Ok(value),
+                Err(DtaqError::Empty) => {}
+                Err(other) => return Err(other),
             }
             if std::time::Instant::now() >= end_time {
                 return Err(DtaqError::Timeout);
@@ -100,18 +147,47 @@ impl DataQueue {
         }
     }
 
-    pub fn read_all(&self) -> Result<Vec<(u64, Vec<u8>)>, DtaqError> {
-        let mut result = Vec::new();
-        for item in self.tree.iter() {
-            let (key, value) = item?;
-            let id = u64::from_be_bytes(
-                key.as_ref()
-                    .try_into()
-                    .map_err(|_| DtaqError::InvalidType("invalid DTAQ key".to_string()))?,
-            );
-            result.push((id, value.to_vec()));
+    fn try_pop_min(&self) -> Result<Vec<u8>, DtaqError> {
+        match &self.storage {
+            DataQueueStorage::Sled { tree, .. } => match tree.pop_min()? {
+                Some((_k, v)) => Ok(v.to_vec()),
+                None => Err(DtaqError::Empty),
+            },
+            DataQueueStorage::BerkeleyDb { db } => {
+                let mut records = db.read_all()?;
+                if records.is_empty() {
+                    return Err(DtaqError::Empty);
+                }
+                let (key, value) = records.remove(0);
+                db.delete(&key).map_err(|err| match err {
+                    BdbError::NotFound => DtaqError::Empty,
+                    other => DtaqError::Bdb(other),
+                })?;
+                Ok(value)
+            }
         }
-        Ok(result)
+    }
+
+    pub fn read_all(&self) -> Result<Vec<(u64, Vec<u8>)>, DtaqError> {
+        match &self.storage {
+            DataQueueStorage::Sled { tree, .. } => {
+                let mut result = Vec::new();
+                for item in tree.iter() {
+                    let (key, value) = item?;
+                    let id = decode_queue_key(key.as_ref())?;
+                    result.push((id, value.to_vec()));
+                }
+                Ok(result)
+            }
+            DataQueueStorage::BerkeleyDb { db } => {
+                let rows = db.read_all()?;
+                let mut result = Vec::with_capacity(rows.len());
+                for (key, value) in rows {
+                    result.push((decode_queue_key(&key)?, value));
+                }
+                Ok(result)
+            }
+        }
     }
 }
 
