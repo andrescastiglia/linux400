@@ -1,3 +1,4 @@
+use crate::runtime::l400_run_dir;
 use std::env;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -85,16 +86,8 @@ impl CgroupParams {
 const L400_CGROUP_ROOT: &str = "/sys/fs/cgroup/l400.slice";
 const QINTER_SLICE: &str = "l400.qinter";
 const QBATCH_SLICE: &str = "l400.qbatch";
-const DEFAULT_L400_RUN_DIR: &str = "/run/l400";
-
 fn l400_root() -> PathBuf {
     PathBuf::from(L400_CGROUP_ROOT)
-}
-
-fn l400_run_dir() -> PathBuf {
-    env::var_os("L400_RUN_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_L400_RUN_DIR))
 }
 
 fn job_registry_path(base: &Path) -> PathBuf {

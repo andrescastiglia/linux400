@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use l400::read_loader_status;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Text},
@@ -119,7 +120,7 @@ impl Screen for MainMenu {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),
+                Constraint::Length(4),
                 Constraint::Min(0),
                 Constraint::Length(3),
             ])
@@ -181,16 +182,20 @@ impl MainMenu {
 
         frame.render_widget(block, area);
 
-        let text = Text::from(vec![Line::from(vec![
-            "System: ".into(),
-            "L400   ".into(),
-            "Library: ".into(),
-            "QSYS   ".into(),
-            "Selection: ".into(),
-            self.pending_option.clone().into(),
-        ])]);
+        let status = loader_status_line();
+        let text = Text::from(vec![
+            Line::from(vec![
+                "System: ".into(),
+                "L400   ".into(),
+                "Library: ".into(),
+                "QSYS   ".into(),
+                "Selection: ".into(),
+                self.pending_option.clone().into(),
+            ]),
+            Line::from(vec![status.into()]),
+        ]);
 
-        let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
+        let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 2);
         frame.render_widget(Paragraph::new(text).style(STYLE_NORMAL), inner);
     }
 
@@ -248,6 +253,37 @@ impl Default for MainMenu {
     }
 }
 
+fn loader_status_line() -> String {
+    match read_loader_status() {
+        Ok(status) => {
+            let protection = if status.protection_active {
+                "ACTIVE"
+            } else {
+                "INACTIVE"
+            };
+            let mut line = format!(
+                "Protection: {}   Loader mode: {}   Phase: {}",
+                protection,
+                status.mode.to_uppercase(),
+                status.phase
+            );
+            if let Some(error) = status.last_error {
+                line.push_str("   Last error: ");
+                line.push_str(&truncate_status_field(&error, 48));
+            }
+            line
+        }
+        Err(_) => "Protection: UNKNOWN   Loader mode: unavailable".to_string(),
+    }
+}
+
+fn truncate_status_field(value: &str, max_len: usize) -> String {
+    if value.chars().count() <= max_len {
+        return value.to_string();
+    }
+    value.chars().take(max_len).collect::<String>() + "..."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +291,12 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn truncates_status_field_when_needed() {
+        let truncated = truncate_status_field("abcdefghijklmnopqrstuvwxyz", 10);
+        assert_eq!(truncated, "abcdefghij...");
     }
 
     #[test]

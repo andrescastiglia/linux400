@@ -1,130 +1,382 @@
-# Roadmap V1 de Linux/400
+# Plan de Implementación Pendiente de Linux/400
 
-Este documento reemplaza el plan anterior de `docs/plan/` y redefine el trabajo hacia una **v1 operable** de Linux/400, usando como visión de producto [PROJECT.md](/home/user/Source/linux400/docs/PROJECT.md:1) y como restricción el estado real del repositorio y del pipeline live/install.
+Este documento reemplaza el plan actual y toma como base únicamente lo que quedó **sin implementar** en la nota de ejecución anterior. El objetivo ya no es describir todo Linux/400, sino ordenar el trabajo pendiente de la forma más conveniente según la arquitectura objetivo de [PROJECT.md](/home/user/Source/linux400/docs/PROJECT.md:1) y las restricciones técnicas de [KERNEL.md](/home/user/Source/linux400/docs/KERNEL.md:1).
 
-## Definición de V1
+## Alcance de este plan
 
-La v1 de Linux/400 queda definida como:
+Este plan cubre sólo lo pendiente:
 
-- Una distribución **live e instalable** que bootea en QEMU UEFI y en entorno controlado.
-- Un sistema que arranca al flujo Linux/400, con **TUI como experiencia principal**.
-- Una base de runtime que integra `libl400`, `os400-tui`, `clc`, `c400c`, `l400-loader` y el hook BPF.
-- Un modelo de objetos usable con `*LIB`, `*PGM`, `*FILE`, `*DTAQ`, `*USRPRF`.
-- Un backend de storage funcional para v1, con enforcement básico y subsistemas interactivo/lote observables.
+- cierre del baseline soportado y validación E2E real
+- migración de storage desde `sled` hacia ZFS + Berkeley DB
+- enforcement real del object model en modo `full`
+- modelo de memoria con LAM/TBI, `mmap` determinista y evaluación de DAX
+- toolchain Linux/400 no basado en `stub`
+- subsistemas y jobs reales más allá de demos
+- perfiles, autorizaciones y administración real del sistema
 
-No forma parte obligatoria de v1:
+No cubre lo ya implementado y validado recientemente:
 
-- fidelidad completa a SLS/TIMI
-- soporte amplio de hardware fuera de QEMU/lab
-- enforcement universal sobre todas las syscalls
-- implementación definitiva de todas las ideas teóricas de `PROJECT.md`
+- persistencia de `loader-status`
+- exposición del estado del loader al userspace
+- visualización del estado del loader en la TUI
 
-## Principios de Planificación
+## Análisis de conveniencia
 
-1. Primero se estabiliza el **sistema booteable e instalable**.
-2. Después se consolida la **experiencia Linux/400 visible al usuario**.
-3. Luego se endurecen **runtime, objetos, storage y enforcement**.
-4. Finalmente se empaqueta una **release candidate v1 reproducible**.
+### 1. Qué exige `PROJECT.md`
 
-## Estado Actual Relevante
+`PROJECT.md` hace cuatro apuestas arquitectónicas fuertes:
 
-Hoy el repositorio ya tiene avances importantes:
+1. ZFS como frontera real del sistema de objetos.
+2. Berkeley DB como backend integrado para `*FILE`, PF/LF y `*DTAQ`.
+3. Enforcement del object model mediante metadata + runtime + kernel hooks.
+4. Toolchain y ejecución de `*PGM` como artefactos nativos Linux/400.
 
-- ISO live/install, initramfs, rootfs y scripts de build.
-- TUI funcional y autologin para flujo Linux/400.
-- Toolchain `clc` y `c400c`.
-- `libl400`, `l400-loader`, `l400-ebpf`, `l400-ebpf-common`.
-- Gestión de workloads con cgroups v2.
-- Harness E2E de instalación UEFI sobre QEMU+qcow2.
+Eso significa que `sled`, los `stub` del compilador CL y el enforcement parcial actual sólo pueden seguir existiendo como mecanismos de transición.
 
-Bloqueadores detectados en el relevamiento reciente:
+### 2. Qué restringe `KERNEL.md`
 
-- La instalación UEFI todavía no completa porque el live no logra montar la partición EFI VFAT dentro del entorno instalado.
-- El pipeline compila el hook eBPF con fallback, pero no hay validación robusta de runtime del loader/hook en el sistema instalado.
-- El modelo de objetos y storage existe, pero todavía no está cerrado como flujo v1 de punta a punta dentro del sistema instalado.
+`KERNEL.md` no describe sólo optimizaciones; describe dependencias reales del diseño:
 
-## Milestones
+- `BPF LSM` es requisito para tipificación fuerte en kernel.
+- `LAM`/`TBI` son requisito para el modelo de punteros etiquetados.
+- `cgroups v2` es requisito para `QINTER`/`QBATCH`.
+- `DAX` es deseable para aproximarse a SLS, pero depende fuertemente de la plataforma.
+- `sched_ext` aparece como capacidad interesante, pero no es requisito mínimo para cerrar el sistema.
 
-### M1. Sistema Base Cerrado
+La consecuencia práctica es que el plan no debe avanzar como si todas esas capacidades estuvieran disponibles siempre. Hace falta separar:
 
-Objetivo:
+- lo que es arquitectura objetivo
+- lo que es baseline soportado
+- lo que queda como aceleración o perfil avanzado
 
-- ISO live estable
-- instalador UEFI funcionando
-- reboot desde disco validado en QEMU
+### 3. Decisiones de implementación
 
-Salida esperada:
+A partir de ese cruce entre `PROJECT.md` y `KERNEL.md`, este plan toma estas decisiones:
 
-- `scripts/test/test_e2e_install_qemu.sh` pasa de punta a punta
-- el sistema instalado arranca desde qcow2 sin intervención
+1. ZFS + xattrs dejan de ser “metadata opcional” y pasan a ser la representación primaria del sistema de objetos.
+2. Berkeley DB pasa a ser el backend objetivo de `*FILE` y `*DTAQ`; `sled` queda sólo como backend transitorio de test/desarrollo.
+3. El enforcement del kernel se implementa antes de ampliar CL o sumar más UX, porque `PROJECT.md` supone objetos seguros, no sólo objetos catalogados.
+4. `sched_ext` se difiere: primero se cierra `cgroups v2` y el modelo de jobs; luego se evalúa scheduler BPF.
+5. `DAX` no se toma como prerequisito de la primera convergencia arquitectónica. Primero se diseña y cierra el ABI de punteros etiquetados y el mapeo determinista; después se agrega una ruta acelerada con DAX para plataformas soportadas.
+6. `clc` deja de crecer por cantidad de comandos hasta que exista formato de `*PGM` verificable y runtime real de ejecución.
+7. `*USRPRF` y autorizaciones se implementan después de storage + object manager + enforcement, porque dependen de esas capas para no quedar en simples archivos decorados.
 
-### M2. Experiencia Linux/400 Operable
+## Orden recomendado
 
-Objetivo:
+El orden más conveniente para completar lo pendiente es:
 
-- arranque normal a TUI
-- consola de recovery separada
-- sesión Linux/400 consistente en live e instalado
+1. Baseline soportado y validación E2E.
+2. Storage objetivo y representación real de objetos.
+3. Enforcement real del object manager.
+4. Formato de `*PGM` y toolchain sin `stub`.
+5. Subsistemas y jobs reales.
+6. Perfiles y autorizaciones.
+7. Memoria etiquetada avanzada y DAX como cierre de convergencia, con parte de diseño comenzando antes.
 
-Salida esperada:
+La razón de este orden es simple:
 
-- `tty1` entra a `l400-session`
-- `os400-tui` se convierte en flujo principal de operación
+- sin baseline soportado no hay manera seria de validar kernel/BPF/ZFS
+- sin storage real no tiene sentido cerrar enforcement ni toolchain
+- sin enforcement no tiene sentido llamar “Linux/400” al runtime de ejecución
+- sin `*PGM` real no conviene expandir CL
+- sin jobs reales no conviene sofisticar la TUI
+- sin object manager completo no conviene cerrar autorizaciones
 
-### M3. Runtime Integrado
+## Fase 1. Baseline Soportado y Validación E2E
 
-Objetivo:
+### Objetivo
 
-- toolchain y runtime funcionando dentro del sistema
-- carga de componentes del proyecto validada en entorno real
+Cerrar el perfil mínimo soportado donde Linux/400 pueda ser validado de punta a punta.
 
-Salida esperada:
+### Decisiones
 
-- compilar y ejecutar programas desde el sistema Linux/400
+- QEMU UEFI pasa a ser la plataforma de validación obligatoria.
+- El modo `full` sólo se declara soportado cuando BPF LSM, BTF, ZFS y cgroups v2 estén realmente operativos en esa plataforma.
+- Los modos `degraded` y `dev` siguen existiendo, pero documentados como transición y no como objetivo final.
 
-### M4. Objetos + Storage + Enforcement V1
+### Trabajo
 
-Objetivo:
+- revalidar `scripts/test/test_e2e_install_qemu.sh`
+- verificar live, instalación, reboot y boot desde disco
+- documentar el perfil de kernel mínimo realmente usado por Linux/400
+- documentar qué falla exactamente cuando el sistema cae a `degraded`
+- crear una matriz corta de soporte basada en features reales:
+  - `BPF LSM`
+  - `BTF`
+  - `ZFS xattr=sa`
+  - `cgroups v2`
+  - `LAM` o `TBI`
 
-- objetos tipados utilizables
-- backend de storage v1 definido y documentado
-- enforcement básico verificable
+### Entregables
 
-Salida esperada:
+- criterio formal para `full`, `degraded` y `dev`
+- validación E2E reproducible en QEMU UEFI
+- documentación de plataforma soportada
 
-- demo funcional con `*LIB`, `*PGM`, `*FILE`, `*DTAQ`
+### Criterio de aceptación
 
-### M5. Release Candidate V1
+- instalación y boot instalado pasan en QEMU
+- el sistema puede identificar con precisión cuándo está en `full`
 
-Objetivo:
+## Fase 2. Storage Objetivo: ZFS + Berkeley DB
 
-- documentación, matriz de soporte, demo y criterios de aceptación cerrados
+### Objetivo
 
-Salida esperada:
+Reemplazar la arquitectura transitoria actual por la arquitectura de datos definida en `PROJECT.md`.
 
-- release candidate reproducible en QEMU y entorno controlado
+### Decisiones
 
-## Fases del Plan
+- `sled` queda encapsulado detrás de una abstracción de storage y deja de ser el camino principal.
+- ZFS pasa a representar bibliotecas y objetos como estructura primaria del sistema.
+- Berkeley DB se usa como backend para PF/LF y `*DTAQ`.
+- Los miembros de PF y los índices de LF se modelan con las primitivas nativas de BDB, no con convenciones locales sobre `sled`.
 
-- [fase_1_base_sistema.md](/home/user/Source/linux400/docs/plan/fase_1_base_sistema.md)
-- [fase_2_experiencia_runtime.md](/home/user/Source/linux400/docs/plan/fase_2_experiencia_runtime.md)
-- [fase_3_objetos_storage.md](/home/user/Source/linux400/docs/plan/fase_3_objetos_storage.md)
-- [fase_4_toolchain_workloads.md](/home/user/Source/linux400/docs/plan/fase_4_toolchain_workloads.md)
-- [fase_5_release_v1.md](/home/user/Source/linux400/docs/plan/fase_5_release_v1.md)
+### Trabajo
 
-## Riesgos Principales
+- introducir una capa `storage` en `libl400`
+- mover PF/LF/DTAQ a una interfaz backend-agnostic
+- implementar backend `sled` transitorio
+- implementar backend Berkeley DB objetivo
+- mapear:
+  - PF a primary database
+  - LF a secondary database
+  - members a subdatabases
+  - `*DTAQ` a queue o estructura equivalente compatible
+- convertir las bibliotecas `*LIB` en representación soportada sobre ZFS
+- documentar layout físico y xattrs por tipo
 
-- Dependencia de kernel/módulos para `overlay`, `vfat`, `zfs`, `bpf`.
-- Entorno Alpine mínimo sin `apk` en host, lo que obliga a empaquetado híbrido.
-- Diferencia entre “compila” y “funciona en runtime” para loader/eBPF.
-- Riesgo de perseguir fidelidad teórica antes de cerrar una base operable.
+### Entregables
 
-## Criterio de Cierre de V1
+- API de storage desacoplada
+- backend Berkeley DB funcional
+- reglas de layout ZFS documentadas
 
-La v1 se considera alcanzada cuando:
+### Criterio de aceptación
 
-1. La ISO live bootea en QEMU UEFI.
-2. La instalación a disco completa y reinicia al sistema instalado.
-3. El sistema entra al flujo Linux/400 con TUI.
-4. `clc`, `c400c`, `libl400` y `os400-tui` funcionan dentro del sistema.
-5. Existe una demo reproducible con objetos tipados y storage v1.
+- `*FILE` PF/LF y `*DTAQ` funcionan en backend Berkeley DB
+- `sled` ya no es obligatorio para el runtime soportado
+
+## Fase 3. Object Manager y Enforcement Real
+
+### Objetivo
+
+Pasar del etiquetado básico a enforcement verificable de objetos Linux/400.
+
+### Decisiones
+
+- `file_open` no alcanza; el enforcement soportado debe cubrir al menos acceso y ejecución.
+- `bprm_check_security` deja de ser stub y pasa a validar `*PGM`.
+- la política se define desde el modelo de objetos, no desde casos sueltos del loader.
+
+### Trabajo
+
+- definir matriz de políticas por tipo:
+  - `*LIB`
+  - `*PGM`
+  - `*FILE`
+  - `*DTAQ`
+  - `*USRPRF`
+  - `*CMD`
+- completar hooks eBPF/LSM necesarios
+- conectar loader, runtime y object manager para que el estado `full` sea trazable
+- validar casos permitidos y denegados reales
+- registrar causas de denegación útiles para diagnóstico
+
+### Entregables
+
+- política de objetos documentada
+- loader `full` verificable
+- pruebas E2E de enforcement
+
+### Criterio de aceptación
+
+- existe al menos un flujo real donde el kernel permita y deniegue según tipo de objeto
+- `*PGM` sólo ejecuta cuando cumple la política definida
+
+## Fase 4. Formato de `*PGM` y Toolchain Real
+
+### Objetivo
+
+Cerrar la ejecución de programas Linux/400 como artefactos soportados y no como ELF genéricos catalogados.
+
+### Decisiones
+
+- antes de crecer en CL, se define un formato lógico de `*PGM`.
+- `clc` deja de depender del `stub` como camino soportado.
+- `c400c` y `clc` convergen en el mismo contrato de `*PGM`.
+
+### Trabajo
+
+- definir metadata obligatoria de `*PGM`
+- definir cómo se marca origen de toolchain y validez del binario
+- integrar esa metadata con xattrs y/o cabecera propia
+- adaptar loader y runtime para validar el contrato de `*PGM`
+- migrar `clc` desde generación `stub` a backend real con subset explícito
+- mantener un subset CL corto pero verdadero:
+  - resolución de objetos
+  - mensajes
+  - operaciones básicas del runtime
+
+### Entregables
+
+- especificación de `*PGM`
+- `clc` sin flujo soportado basado en `stub`
+- validación de carga de `*PGM`
+
+### Criterio de aceptación
+
+- `clc` y `c400c` generan `*PGM` aceptados por el runtime soportado
+- el kernel/runtime pueden distinguir un ELF Linux genérico de un `*PGM` Linux/400 válido
+
+## Fase 5. Subsistemas y Jobs Reales
+
+### Objetivo
+
+Reemplazar demos/fallbacks por operación real de `QINTER` y `QBATCH`.
+
+### Decisiones
+
+- `cgroups v2` se toma como mecanismo obligatorio.
+- `sched_ext` queda fuera del camino crítico.
+- primero se cierra observabilidad y control de jobs; luego se evalúa scheduler BPF.
+
+### Trabajo
+
+- formalizar el job registry persistente
+- implementar cola mínima de batch o equivalente a `SBMJOB`
+- asegurar que la TUI muestre jobs reales por defecto
+- definir estados de job consistentes
+- validar herencia de recursos entre sesiones interactivas y batch
+- alinear parámetros con la intención de `PROJECT.md`:
+  - prioridad de `QINTER`
+  - límites de memoria
+  - pesos de CPU e I/O
+
+### Entregables
+
+- jobs interactivos y batch reales
+- TUI sin dependencia primaria de datos simulados
+- política de subsistemas documentada
+
+### Criterio de aceptación
+
+- puede enviarse y observarse un job batch real
+- la separación `QINTER`/`QBATCH` es visible y medible
+
+## Fase 6. `*USRPRF`, Autorizaciones y Administración
+
+### Objetivo
+
+Agregar la capa operativa que convierte el sistema de objetos en una personalidad OS/400 usable.
+
+### Decisiones
+
+- `*USRPRF` no se implementa como simple archivo decorado; debe vincularse con identidad Linux y permisos Linux/400.
+- las autorizaciones se definen sobre bibliotecas, objetos y comandos, no sólo sobre archivos del host.
+
+### Trabajo
+
+- modelar `*USRPRF` con metadata y representación soportada
+- definir sincronización o mapping con `/etc/passwd`
+- implementar autorizaciones por:
+  - biblioteca
+  - objeto
+  - comando
+- exponer operaciones mínimas de administración en TUI y/o CL
+
+### Entregables
+
+- perfiles utilizables
+- autorizaciones básicas operativas
+- administración mínima del sistema
+
+### Criterio de aceptación
+
+- un usuario Linux/400 puede tener permisos diferenciados sobre bibliotecas y objetos
+- la TUI y el runtime respetan esas autorizaciones
+
+## Fase 7. Memoria Etiquetada y Persistencia de Referencias
+
+### Objetivo
+
+Cerrar la convergencia con la parte más ambiciosa de `PROJECT.md` sin bloquear antes las capas fundamentales.
+
+### Decisiones
+
+- esta fase se divide en diseño obligatorio e implementación progresiva.
+- `LAM`/`TBI` sí forman parte de la arquitectura objetivo.
+- `DAX` se trata como aceleración avanzada y no como requisito de la primera convergencia.
+
+### Trabajo
+
+#### Etapa A. Diseño y ABI
+
+- definir ABI de tagging para x86_64 y arm64
+- definir qué bits se usan y cómo interactúan con el runtime
+- definir contrato entre pointer tagging y tipos de objeto
+- definir esquema de mapeo determinista por UUID/identidad de objeto
+
+#### Etapa B. Runtime básico
+
+- activar `LAM` o `TBI` por proceso donde el kernel lo soporte
+- introducir primitivas de `mmap` determinista
+- validar round-trip de referencias persistidas
+
+#### Etapa C. Perfil avanzado
+
+- evaluar DAX sobre plataformas y storage soportados
+- definir si DAX entra como perfil “advanced/full+” o como requisito futuro de una v2 arquitectónica
+
+### Entregables
+
+- diseño formal del ABI de memoria
+- runtime mínimo de tagging y mapping
+- evaluación técnica de DAX
+
+### Criterio de aceptación
+
+- existe una implementación funcional de punteros etiquetados en plataformas soportadas
+- el sistema puede re-mapear objetos de forma determinista con contrato estable
+
+## Dependencias entre fases
+
+- Fase 1 habilita validación seria de Fases 2 a 7.
+- Fase 2 es prerequisito de Fases 3, 4 y 6.
+- Fase 3 es prerequisito de Fase 4.
+- Fase 4 y Fase 5 pueden avanzar parcialmente en paralelo una vez cerradas Fases 2 y 3.
+- Fase 6 depende de Fases 2 y 3.
+- Fase 7 puede iniciar por diseño desde el principio, pero su implementación fuerte no debe interrumpir el cierre de Fases 2 a 6.
+
+## Priorización resumida
+
+Prioridad alta:
+
+- Fase 1
+- Fase 2
+- Fase 3
+- Fase 4
+
+Prioridad media:
+
+- Fase 5
+- Fase 6
+
+Prioridad estratégica, no bloqueante al inicio:
+
+- Fase 7
+
+## Criterio de cierre de este plan
+
+Este plan se considera cumplido cuando:
+
+1. Linux/400 tiene plataforma soportada y validación E2E reproducible.
+2. Los objetos viven sobre ZFS con backend Berkeley DB para PF/LF y `*DTAQ`.
+3. El object manager tiene enforcement real en modo `full`.
+4. `clc` y `c400c` generan `*PGM` válidos para Linux/400.
+5. `QINTER` y `QBATCH` son subsistemas reales, no sólo demos.
+6. `*USRPRF` y autorizaciones funcionan como capa de operación del sistema.
+7. Existe diseño cerrado e implementación inicial realista del modelo de memoria etiquetada.
+
+## Nota final
+
+La decisión central de este plan es priorizar primero la convergencia de storage, enforcement y ejecución, y tratar `DAX` y `sched_ext` como capacidades posteriores. Eso es lo más conveniente porque respeta la arquitectura de `PROJECT.md`, pero evita bloquear el proyecto por features de kernel que `KERNEL.md` presenta como deseables o avanzadas, no todas igualmente necesarias para cerrar la primera implementación seria de Linux/400.

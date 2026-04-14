@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use aya::{programs::Lsm, Ebpf};
 use clap::{Parser, ValueEnum};
+use l400::{write_loader_status, LoaderStatus};
 use log::{info, warn};
 use std::fs;
 use std::path::PathBuf;
@@ -26,6 +27,29 @@ struct LoaderRuntime {
     mode: LoaderMode,
     protection_active: bool,
     bpf: Option<Ebpf>,
+    bpf_path: Option<PathBuf>,
+}
+
+impl LoaderMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            LoaderMode::Full => "full",
+            LoaderMode::Degraded => "degraded",
+            LoaderMode::Dev => "dev",
+        }
+    }
+}
+
+fn persist_status(runtime: &LoaderRuntime, phase: &str, last_error: Option<&str>) {
+    let mut status = LoaderStatus::new(runtime.mode.as_str(), runtime.protection_active, phase);
+    status.bpf_path = runtime
+        .bpf_path
+        .as_ref()
+        .map(|path| path.display().to_string());
+    status.last_error = last_error.map(|err| err.to_string());
+    if let Err(err) = write_loader_status(&status) {
+        warn!("No se pudo persistir loader-status: {}", err);
+    }
 }
 
 fn resolve_bpf_path() -> Result<PathBuf> {
@@ -62,19 +86,25 @@ fn soft_fail(mode: LoaderMode, context: &str, err: anyhow::Error) -> Result<Load
         LoaderMode::Full => Err(err.context(context.to_string())),
         LoaderMode::Degraded => {
             warn!("{context}: {err}. Continuando en modo degradado sin protección activa.");
-            Ok(LoaderRuntime {
+            let runtime = LoaderRuntime {
                 mode,
                 protection_active: false,
                 bpf: None,
-            })
+                bpf_path: None,
+            };
+            persist_status(&runtime, "fallback", Some(&format!("{context}: {err}")));
+            Ok(runtime)
         }
         LoaderMode::Dev => {
             info!("{context}: {err}. Continuando en modo dev sin protección activa.");
-            Ok(LoaderRuntime {
+            let runtime = LoaderRuntime {
                 mode,
                 protection_active: false,
                 bpf: None,
-            })
+                bpf_path: None,
+            };
+            persist_status(&runtime, "fallback", Some(&format!("{context}: {err}")));
+            Ok(runtime)
         }
     }
 }
@@ -187,11 +217,14 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
     }
 
     info!("LSM Hooks 'file_open' y 'bprm_check_security' ensamblados y activados.");
-    Ok(LoaderRuntime {
+    let runtime = LoaderRuntime {
         mode,
         protection_active: true,
         bpf: Some(bpf),
-    })
+        bpf_path: Some(bpf_path),
+    };
+    persist_status(&runtime, "active", None);
+    Ok(runtime)
 }
 
 fn log_stats(runtime: &mut LoaderRuntime) -> Result<()> {
@@ -231,6 +264,13 @@ async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
     info!("Iniciando Linux/400 BPF Loader...");
+    let bootstrap = LoaderRuntime {
+        mode: args.mode,
+        protection_active: false,
+        bpf: None,
+        bpf_path: None,
+    };
+    persist_status(&bootstrap, "starting", None);
 
     let mut runtime = init_loader(args.mode)?;
     print_mode_summary(&runtime);
@@ -249,6 +289,7 @@ async fn main() -> Result<()> {
             }
             _ = signal::ctrl_c() => {
                 info!("Señal capturada. Desprendiendo hooks BPF y saliendo...");
+                persist_status(&runtime, "stopped", None);
                 break;
             }
         }

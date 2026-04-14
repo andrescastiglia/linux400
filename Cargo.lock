@@ -739,6 +739,7 @@ dependencies = [
  "aya-log",
  "clap",
  "env_logger",
+ "l400",
  "l400-ebpf-common",
  "libc",
  "log",
