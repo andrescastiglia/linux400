@@ -24,7 +24,7 @@ static EXEC_GUARD: HashMap<u32, u32> = HashMap::with_max_entries(1024, 0);
 
 #[inline(always)]
 fn inc_stat(key: u32) {
-    if let Some(val) = unsafe { STATS.get_ptr_mut(&key) } {
+    if let Some(val) = STATS.get_ptr_mut(&key) {
         unsafe { *val += 1 };
     } else {
         let _ = STATS.insert(&key, &1, 0);
@@ -234,7 +234,7 @@ fn try_bprm_creds_from_file(ctx: LsmContext) -> Result<i32, i32> {
         return Ok(0);
     }
 
-    let pid = unsafe { bpf_get_current_pid_tgid() as u32 };
+    let pid = bpf_get_current_pid_tgid() as u32;
     let decision = match lookup_file_objtype(file) {
         ObjTypeLookup::Untagged => {
             inc_stat(STAT_EXEC_ALLOWED_NATIVE);
@@ -305,7 +305,7 @@ fn try_bprm_creds_from_file(ctx: LsmContext) -> Result<i32, i32> {
 
 #[lsm(hook = "bprm_check_security")]
 pub fn bprm_check_security(ctx: LsmContext) -> i32 {
-    let pid = unsafe { bpf_get_current_pid_tgid() as u32 };
+    let pid = bpf_get_current_pid_tgid() as u32;
     let decision = unsafe { EXEC_GUARD.get(&pid).copied() };
 
     if let Some(decision) = decision {

@@ -154,7 +154,7 @@ impl Screen for StrSeu {
                 Constraint::Length(2),
                 Constraint::Length(3),
             ])
-            .split(frame.size());
+            .split(frame.area());
 
         self.render_header(frame, chunks[0]);
         self.adjust_scroll(chunks[1].height.saturating_sub(2) as usize);
@@ -304,7 +304,7 @@ impl StrSeu {
         let cursor_x = inner.x + 8 + self.cursor_col as u16;
         let cursor_y = inner.y + self.cursor_row.saturating_sub(self.scroll_offset) as u16;
         if cursor_x < inner.x + inner.width && cursor_y < inner.y + inner.height {
-            frame.set_cursor(cursor_x, cursor_y);
+            frame.set_cursor_position((cursor_x, cursor_y));
         }
     }
 

@@ -90,7 +90,7 @@ impl Screen for PdmBrowser {
                 Constraint::Min(0),
                 Constraint::Length(3),
             ])
-            .split(frame.size());
+            .split(frame.area());
 
         self.render_header(frame, chunks[0]);
         self.render_list(frame, chunks[1]);

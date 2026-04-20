@@ -197,7 +197,7 @@ impl Screen for CommandLine {
                 Constraint::Min(0),
                 Constraint::Length(3),
             ])
-            .split(frame.size());
+            .split(frame.area());
 
         self.render_command_line(frame, chunks[0]);
         if self.show_output {
@@ -325,7 +325,7 @@ impl CommandLine {
 
         let cursor_x = self.cursor_position + 2;
         if cursor_x < area.width as usize - 1 {
-            frame.set_cursor(area.x + cursor_x as u16, area.y);
+            frame.set_cursor_position((area.x + cursor_x as u16, area.y));
         }
     }
 

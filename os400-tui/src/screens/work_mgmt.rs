@@ -67,7 +67,7 @@ impl Screen for WorkManagement {
                 Constraint::Min(0),
                 Constraint::Length(3),
             ])
-            .split(frame.size());
+            .split(frame.area());
 
         self.render_header(frame, chunks[0]);
         self.render_jobs(frame, chunks[1]);
@@ -173,7 +173,7 @@ impl WorkManagement {
                     .border_style(STYLE_BORDER),
             )
             .style(STYLE_NORMAL)
-            .highlight_style(STYLE_SELECTION);
+            .row_highlight_style(STYLE_SELECTION);
 
         frame.render_stateful_widget(table, area, &mut self.state);
     }

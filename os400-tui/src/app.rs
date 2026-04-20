@@ -33,7 +33,11 @@ impl App {
         }
     }
 
-    pub fn run<T: ratatui::backend::Backend>(&mut self, terminal: &mut Terminal<T>) -> Result<()> {
+    pub fn run<T>(&mut self, terminal: &mut Terminal<T>) -> Result<()>
+    where
+        T: ratatui::backend::Backend,
+        T::Error: std::error::Error + Send + Sync + 'static,
+    {
         loop {
             if self.should_exit {
                 break;

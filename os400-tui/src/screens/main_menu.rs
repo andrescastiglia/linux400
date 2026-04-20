@@ -132,7 +132,7 @@ impl Screen for MainMenu {
                 Constraint::Min(0),
                 Constraint::Length(3),
             ])
-            .split(frame.size());
+            .split(frame.area());
 
         self.render_header(frame, chunks[0]);
         self.render_menu(frame, chunks[1]);

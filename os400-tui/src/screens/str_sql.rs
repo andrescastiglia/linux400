@@ -117,7 +117,7 @@ impl Screen for StrSql {
                 Constraint::Length(3),
                 Constraint::Length(3),
             ])
-            .split(frame.size());
+            .split(frame.area());
 
         self.render_header(frame, chunks[0]);
         self.render_results(frame, chunks[1]);
@@ -265,7 +265,7 @@ impl StrSql {
             )
             .block(block)
             .style(STYLE_NORMAL)
-            .highlight_style(STYLE_SELECTION);
+            .row_highlight_style(STYLE_SELECTION);
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
@@ -283,7 +283,7 @@ impl StrSql {
 
         let cursor_x = inner.x + 5 + self.cursor as u16;
         if cursor_x < inner.x + inner.width {
-            frame.set_cursor(cursor_x, inner.y);
+            frame.set_cursor_position((cursor_x, inner.y));
         }
     }
 
