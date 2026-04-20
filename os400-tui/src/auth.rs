@@ -55,8 +55,7 @@ type PamStartFn = unsafe extern "C" fn(
 type PamEndFn = unsafe extern "C" fn(pamh: *mut PamHandle, pam_status: c_int) -> c_int;
 type PamAuthenticateFn = unsafe extern "C" fn(pamh: *mut PamHandle, flags: c_int) -> c_int;
 type PamAcctMgmtFn = unsafe extern "C" fn(pamh: *mut PamHandle, flags: c_int) -> c_int;
-type PamStrerrorFn =
-    unsafe extern "C" fn(pamh: *mut PamHandle, errnum: c_int) -> *const c_char;
+type PamStrerrorFn = unsafe extern "C" fn(pamh: *mut PamHandle, errnum: c_int) -> *const c_char;
 
 struct PamFns {
     _handle: *mut c_void,
@@ -93,9 +92,8 @@ pub fn authenticate_linux_user(username: &str, password: &str) -> Result<(), Str
     };
     let service = CString::new("login")
         .map_err(|_| "Unable to initialize Linux authentication.".to_string())?;
-    let pam = load_pam().map_err(|_| {
-        "Linux authentication is not available in this build/runtime.".to_string()
-    })?;
+    let pam = load_pam()
+        .map_err(|_| "Linux authentication is not available in this build/runtime.".to_string())?;
 
     let conversation = PamConv {
         conv: Some(pam_conversation),
