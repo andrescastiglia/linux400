@@ -173,10 +173,25 @@ resolve_parts() {
 }
 
 format_parts() {
+    local mkfs_fat_log="/tmp/l400-mkfs-fat.log"
+
     if have_cmd mkfs.fat; then
-        mkfs.fat -F 32 -n "${EFI_LABEL}" "${EFI_PART}"
+        if ! mkfs.fat -F 32 -n "${EFI_LABEL}" "${EFI_PART}" >"${mkfs_fat_log}" 2>&1; then
+            cat "${mkfs_fat_log}" >&2 || true
+            echo "ERROR: mkfs.fat falló sobre ${EFI_PART}" >&2
+            exit 1
+        fi
     else
-        mkdosfs -F 32 -n "${EFI_LABEL}" "${EFI_PART}"
+        if ! mkdosfs -F 32 -n "${EFI_LABEL}" "${EFI_PART}" >"${mkfs_fat_log}" 2>&1; then
+            cat "${mkfs_fat_log}" >&2 || true
+            echo "ERROR: mkdosfs falló sobre ${EFI_PART}" >&2
+            exit 1
+        fi
+    fi
+
+    if [ -s "${mkfs_fat_log}" ]; then
+        grep -v 'cannot initialize conversion from codepage .* invalid argument' \
+            "${mkfs_fat_log}" >&2 || true
     fi
 
     if have_cmd mkfs.ext4; then
