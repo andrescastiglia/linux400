@@ -154,6 +154,57 @@ fn current_user_name() -> String {
         .unwrap_or_else(|| "l400".to_string())
 }
 
+fn encode_job_value(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'%' | b'=' | b'\n' | b'\r' => {
+                encoded.push('%');
+                encoded.push_str(&format!("{byte:02X}"));
+            }
+            _ => encoded.push(byte as char),
+        }
+    }
+    encoded
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn decode_job_value(value: &str) -> Result<String, CgroupError> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                return Err(CgroupError::InvalidJob(
+                    "job field contains truncated escape sequence".to_string(),
+                ));
+            }
+            let high = hex_value(bytes[index + 1]).ok_or_else(|| {
+                CgroupError::InvalidJob("job field contains invalid escape sequence".to_string())
+            })?;
+            let low = hex_value(bytes[index + 2]).ok_or_else(|| {
+                CgroupError::InvalidJob("job field contains invalid escape sequence".to_string())
+            })?;
+            decoded.push((high << 4) | low);
+            index += 3;
+            continue;
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8(decoded)
+        .map_err(|_| CgroupError::InvalidJob("job field is not valid UTF-8".to_string()))
+}
+
 fn write_job_at(
     base: &Path,
     pid: u64,
@@ -165,10 +216,13 @@ fn write_job_at(
 ) -> Result<(), CgroupError> {
     let registry = job_registry_path(base);
     std::fs::create_dir_all(&registry)?;
+    let encoded_name = encode_job_value(name);
+    let encoded_user = encode_job_value(user);
+    let subsystem = workload_name(workload);
+    let encoded_subsystem = encode_job_value(subsystem);
+    let encoded_command = encode_job_value(command);
     let payload = format!(
-        "pid={pid}\nname={name}\nuser={user}\nworkload={}\nstatus={status}\nsubsystem={}\ncommand={command}\n",
-        workload_name(workload),
-        workload_name(workload)
+        "pid={pid}\nname={encoded_name}\nuser={encoded_user}\nworkload={subsystem}\nstatus={status}\nsubsystem={encoded_subsystem}\ncommand={encoded_command}\n"
     );
     std::fs::write(job_file(base, pid), payload)?;
     Ok(())
@@ -211,12 +265,12 @@ fn parse_job(content: &str) -> Result<WorkloadJob, CgroupError> {
         if let Some((key, value)) = line.split_once('=') {
             match key {
                 "pid" => pid = value.parse::<u64>().ok(),
-                "name" => name = Some(value.to_string()),
-                "user" => user = Some(value.to_string()),
+                "name" => name = Some(decode_job_value(value)?),
+                "user" => user = Some(decode_job_value(value)?),
                 "workload" => workload = Some(workload_from_name(value)?),
                 "status" => status = value.parse().ok(),
-                "subsystem" => subsystem = Some(value.to_string()),
-                "command" => command = Some(value.to_string()),
+                "subsystem" => subsystem = Some(decode_job_value(value)?),
+                "command" => command = Some(decode_job_value(value)?),
                 _ => {}
             }
         }
@@ -568,5 +622,27 @@ mod tests {
         update_job_status_at(root.path(), pid, JobStatus::Completed).unwrap();
         let jobs = list_jobs_at(root.path()).unwrap();
         assert_eq!(jobs[0].status, JobStatus::Completed);
+    }
+
+    #[test]
+    fn test_job_registry_escapes_special_characters() {
+        let root = tempdir().unwrap();
+        let pid = std::process::id() as u64 + 1;
+        write_job_at(
+            root.path(),
+            pid,
+            "BATCH=DEMO",
+            "l400\nops",
+            WorkloadType::Batch,
+            JobStatus::Active,
+            "printf 'a=b\n'",
+        )
+        .unwrap();
+
+        let jobs = list_jobs_at(root.path()).unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].name, "BATCH=DEMO");
+        assert_eq!(jobs[0].user, "l400\nops");
+        assert_eq!(jobs[0].command, "printf 'a=b\n'");
     }
 }

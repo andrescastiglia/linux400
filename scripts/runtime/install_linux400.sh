@@ -229,6 +229,7 @@ install_boot_assets() {
     local iso_boot_dir=""
     local efi_asset=""
     local candidate
+    local efi_vendor_dir="LINUX400"
 
     ensure_live_media_assets
 
@@ -260,7 +261,7 @@ install_boot_assets() {
         exit 1
     fi
 
-    mkdir -p "${TARGET_MNT}/boot" "${TARGET_MNT}/boot/efi/EFI/BOOT" "${TARGET_MNT}/boot/efi/EFI/Linux400"
+    mkdir -p "${TARGET_MNT}/boot" "${TARGET_MNT}/boot/efi/EFI/BOOT" "${TARGET_MNT}/boot/efi/EFI/${efi_vendor_dir}"
 
     cp "${iso_boot_dir}/vmlinuz" "${TARGET_MNT}/boot/vmlinuz"
     cp "${iso_boot_dir}/initramfs.img" "${TARGET_MNT}/boot/initramfs.img"
@@ -283,16 +284,16 @@ EOF
 
     case "${EFI_ACCESS_MODE}" in
         mount)
-            mkdir -p "${TARGET_MNT}/boot/efi/EFI/BOOT" "${TARGET_MNT}/boot/efi/EFI/LINUX400"
-            cp "${iso_boot_dir}/vmlinuz" "${TARGET_MNT}/boot/efi/EFI/LINUX400/VMLINUZ"
-            cp "${iso_boot_dir}/initramfs.img" "${TARGET_MNT}/boot/efi/EFI/LINUX400/INITRD.IMG"
+            mkdir -p "${TARGET_MNT}/boot/efi/EFI/BOOT" "${TARGET_MNT}/boot/efi/EFI/${efi_vendor_dir}"
+            cp "${iso_boot_dir}/vmlinuz" "${TARGET_MNT}/boot/efi/EFI/${efi_vendor_dir}/VMLINUZ"
+            cp "${iso_boot_dir}/initramfs.img" "${TARGET_MNT}/boot/efi/EFI/${efi_vendor_dir}/INITRD.IMG"
             cp "${efi_asset}" "${TARGET_MNT}/boot/efi/EFI/BOOT/BOOTX64.EFI"
             cp /tmp/l400-grub.cfg "${TARGET_MNT}/boot/efi/EFI/BOOT/grub.cfg"
             ;;
         mtools)
-            mmd -D o -i "${EFI_PART}" ::/EFI ::/EFI/BOOT ::/EFI/LINUX400 >/dev/null 2>&1 || true
-            mcopy -D o -n -i "${EFI_PART}" "${iso_boot_dir}/vmlinuz" ::/EFI/LINUX400/VMLINUZ
-            mcopy -D o -n -i "${EFI_PART}" "${iso_boot_dir}/initramfs.img" ::/EFI/LINUX400/INITRD.IMG
+            mmd -D o -i "${EFI_PART}" ::/EFI ::/EFI/BOOT "::/EFI/${efi_vendor_dir}" >/dev/null 2>&1 || true
+            mcopy -D o -n -i "${EFI_PART}" "${iso_boot_dir}/vmlinuz" "::/EFI/${efi_vendor_dir}/VMLINUZ"
+            mcopy -D o -n -i "${EFI_PART}" "${iso_boot_dir}/initramfs.img" "::/EFI/${efi_vendor_dir}/INITRD.IMG"
             mcopy -D o -n -i "${EFI_PART}" "${efi_asset}" ::/EFI/BOOT/BOOTX64.EFI
             mcopy -D o -n -i "${EFI_PART}" /tmp/l400-grub.cfg ::/EFI/BOOT/grub.cfg
             ;;

@@ -3,6 +3,9 @@ set -e
 
 echo "=== Linux/400 - E2E LSM Hook Test ==="
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BPF_ARTIFACT_DEFAULT="${REPO_ROOT}/l400-ebpf/target/bpfel-unknown-none/release/l400-ebpf"
+
 if [ "$EUID" -ne 0 ]; then
   echo "[-] Por favor ejecute este script con privilegios root (sudo ./test_e2e_bpf.sh)"
   exit 1
@@ -33,11 +36,27 @@ cat $TEST_FILE > /dev/null && echo "  -> Acceso a $TEST_FILE OK"
 cat $INVALID_FILE > /dev/null && echo "  -> Acceso a $INVALID_FILE OK"
 
 echo "[4] Iniciando BPF Loader en background..."
-if [[ ! -x ./target/release/l400-loader ]]; then
+if [[ ! -x "${REPO_ROOT}/target/release/l400-loader" ]]; then
     cargo build -p l400-loader --release
 fi
 
-./target/release/l400-loader &
+BPF_ARTIFACT_PATH="${L400_BPF_PATH:-${BPF_ARTIFACT_DEFAULT}}"
+if [[ ! -f "${BPF_ARTIFACT_PATH}" ]]; then
+    echo "[4.1] Binario eBPF no encontrado en ${BPF_ARTIFACT_PATH}, compilando l400-ebpf..."
+    (
+        cd "${REPO_ROOT}/l400-ebpf"
+        cargo build --target bpfel-unknown-none --release
+    )
+    BPF_ARTIFACT_PATH="${BPF_ARTIFACT_DEFAULT}"
+fi
+
+if [[ ! -f "${BPF_ARTIFACT_PATH}" ]]; then
+    echo "[-] No se encontró el artefacto eBPF en ${BPF_ARTIFACT_PATH}."
+    echo "[-] Configure L400_BPF_PATH o compile l400-ebpf antes de correr esta prueba."
+    exit 1
+fi
+
+L400_BPF_PATH="${BPF_ARTIFACT_PATH}" "${REPO_ROOT}/target/release/l400-loader" &
 BPF_PID=$!
 
 echo "Esperando 2 segundos para montaje del hook BPF..."
