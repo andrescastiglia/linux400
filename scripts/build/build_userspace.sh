@@ -11,9 +11,10 @@ USERSPACE_DIR="${OUTPUT_DIR}/userspace"
 BIN_DIR="${USERSPACE_DIR}/bin"
 LIB_DIR="${USERSPACE_DIR}/lib"
 HOOKS_DIR="${USERSPACE_DIR}/hooks"
+LOG_DIR="${USERSPACE_DIR}/logs"
 ENABLE_CLC_LLVM="${ENABLE_CLC_LLVM:-0}"
 
-mkdir -p "${BIN_DIR}" "${LIB_DIR}" "${HOOKS_DIR}"
+mkdir -p "${BIN_DIR}" "${LIB_DIR}" "${HOOKS_DIR}" "${LOG_DIR}"
 
 COMMAND_BINARIES=(
     WRKSYSSTS
@@ -113,6 +114,17 @@ find_artifact() {
     return 1
 }
 
+run_ebpf_build() {
+    local log_file="$1"
+    shift
+
+    if "$@" >"${log_file}" 2>&1; then
+        return 0
+    fi
+
+    return 1
+}
+
 copy_required "${TARGET_DIR}/os400-tui" "${BIN_DIR}/os400-tui"
 copy_required "${TARGET_DIR}/l400-loader" "${BIN_DIR}/l400-loader"
 copy_required "${TARGET_DIR}/c400c" "${BIN_DIR}/c400c"
@@ -128,20 +140,27 @@ for command_name in "${COMMAND_BINARIES[@]}"; do
 done
 
 echo ">> Compilando bytecode eBPF..."
-if cargo build --manifest-path "${L400_SRC_DIR}/l400-ebpf/Cargo.toml" \
+EBPF_STABLE_LOG="${LOG_DIR}/l400-ebpf-stable.log"
+EBPF_NIGHTLY_LOG="${LOG_DIR}/l400-ebpf-nightly.log"
+if run_ebpf_build "${EBPF_STABLE_LOG}" \
+    cargo build --manifest-path "${L400_SRC_DIR}/l400-ebpf/Cargo.toml" \
     --target bpfel-unknown-none --release; then
     copy_optional \
         "${L400_SRC_DIR}/target/bpfel-unknown-none/release/l400-ebpf" \
         "${HOOKS_DIR}/l400-ebpf"
+    echo "   eBPF compilado con toolchain estable."
 elif rustup component add rust-src --toolchain nightly >/dev/null 2>&1 && \
-    cargo +nightly build -Z build-std=core \
-        --manifest-path "${L400_SRC_DIR}/l400-ebpf/Cargo.toml" \
-        --target bpfel-unknown-none --release; then
+    run_ebpf_build "${EBPF_NIGHTLY_LOG}" \
+        cargo +nightly build -Z build-std=core \
+            --manifest-path "${L400_SRC_DIR}/l400-ebpf/Cargo.toml" \
+            --target bpfel-unknown-none --release; then
     copy_optional \
         "${L400_SRC_DIR}/target/bpfel-unknown-none/release/l400-ebpf" \
         "${HOOKS_DIR}/l400-ebpf"
+    echo "   eBPF compilado con nightly + build-std=core."
 else
     echo "WARNING: no se pudo compilar l400-ebpf; la ISO seguirá sin hook cargable."
+    echo "         Ver logs: ${EBPF_STABLE_LOG} ${EBPF_NIGHTLY_LOG}"
 fi
 
 echo "=== Userspace listo ==="
