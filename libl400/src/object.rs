@@ -41,6 +41,14 @@ pub struct L400Object {
     pub public_auth: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMemberInfo {
+    pub file_name: String,
+    pub name: String,
+    pub type_: String,
+    pub text: String,
+}
+
 pub fn resolve_l400_root() -> PathBuf {
     env::var_os("L400_ROOT")
         .map(PathBuf::from)
@@ -178,6 +186,31 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), ObjectError> {
     Ok(())
 }
 
+fn member_info_from_path(path: &Path) -> Option<SourceMemberInfo> {
+    if !path.is_file() {
+        return None;
+    }
+
+    let file_name = path.file_name()?.to_string_lossy().to_uppercase();
+    let stem = path
+        .file_stem()
+        .map(|value| value.to_string_lossy().to_uppercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| file_name.clone());
+    let type_ = path
+        .extension()
+        .map(|value| value.to_string_lossy().to_uppercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "SRC".to_string());
+
+    Some(SourceMemberInfo {
+        file_name,
+        name: stem,
+        type_,
+        text: String::new(),
+    })
+}
+
 pub fn catalog_object(
     path: &Path,
     objtype: &str,
@@ -304,6 +337,29 @@ pub fn describe_object(path: &Path) -> Result<L400Object, ObjectError> {
     })
 }
 
+pub fn list_libraries(root_path: &Path) -> Result<Vec<String>, ObjectError> {
+    if !root_path.exists() {
+        return Err(ObjectError::NotFound(root_path.display().to_string()));
+    }
+    if !root_path.is_dir() {
+        return Err(ObjectError::InvalidLibrary(root_path.display().to_string()));
+    }
+
+    let mut libraries = Vec::new();
+    for entry in fs::read_dir(root_path)? {
+        let entry = entry?;
+        let path = entry.path();
+        if let Ok(object) = describe_object(&path) {
+            if object.objtype == "*LIB" {
+                libraries.push(object.name);
+            }
+        }
+    }
+
+    libraries.sort();
+    Ok(libraries)
+}
+
 pub fn delete_object(path: &Path) -> Result<(), ObjectError> {
     let _ = get_objtype(path)?;
     if path.is_dir() {
@@ -347,6 +403,66 @@ pub fn list_objects(lib_path: &Path) -> Result<Vec<L400Object>, ObjectError> {
     }
     objects.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(objects)
+}
+
+pub fn list_members(lib_path: &Path, file: &str) -> Result<Vec<SourceMemberInfo>, ObjectError> {
+    validate_library_path(lib_path)?;
+
+    let source_file = lib_path.join(file);
+    if !source_file.exists() {
+        return Err(ObjectError::NotFound(source_file.display().to_string()));
+    }
+    if !source_file.is_dir() {
+        return Err(ObjectError::InvalidType(format!(
+            "source file {} is not a directory",
+            source_file.display()
+        )));
+    }
+
+    let mut members = Vec::new();
+    for entry in fs::read_dir(&source_file)? {
+        let entry = entry?;
+        if let Some(member) = member_info_from_path(&entry.path()) {
+            members.push(member);
+        }
+    }
+
+    members.sort_by(|left, right| left.file_name.cmp(&right.file_name));
+    Ok(members)
+}
+
+pub fn member_path(lib_path: &Path, file: &str, member: &str) -> Result<PathBuf, ObjectError> {
+    validate_library_path(lib_path)?;
+
+    let source_file = lib_path.join(file);
+    if !source_file.exists() {
+        return Err(ObjectError::NotFound(source_file.display().to_string()));
+    }
+    if !source_file.is_dir() {
+        return Err(ObjectError::InvalidType(format!(
+            "source file {} is not a directory",
+            source_file.display()
+        )));
+    }
+
+    Ok(source_file.join(member))
+}
+
+pub fn create_source_member(
+    lib_path: &Path,
+    file: &str,
+    member: &str,
+) -> Result<PathBuf, ObjectError> {
+    let path = member_path(lib_path, file, member)?;
+    if path.exists() {
+        return Err(ObjectError::AlreadyExists);
+    }
+
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)?;
+    Ok(path)
 }
 
 pub fn open_object_direct(path: &Path) -> Result<fs::File, ObjectError> {
@@ -492,5 +608,46 @@ mod tests {
         assert_eq!(lib, root.path().join("QGPL"));
         assert!(lib.exists());
         assert_eq!(get_objtype(&lib).unwrap(), "*LIB");
+    }
+
+    #[test]
+    fn list_libraries_filters_non_libraries() {
+        let root = temp_root();
+        let qsys = create_library(root.path(), "QSYS").expect("create_library falló");
+        create_library(root.path(), "QGPL").expect("create_library falló");
+        create_object_with_metadata(&qsys, "HELLO", "*PGM", Some("CL"), None)
+            .expect("create_object_with_metadata falló");
+
+        let libraries = list_libraries(root.path()).expect("list_libraries falló");
+        assert_eq!(libraries, vec!["QGPL".to_string(), "QSYS".to_string()]);
+    }
+
+    #[test]
+    fn create_and_list_source_members() {
+        let root = temp_root();
+        let lib = create_library(root.path(), "QGPL").expect("create_library falló");
+        let source_file = lib.join("QCLSRC");
+        fs::create_dir(&source_file).expect("No se pudo crear source file");
+        catalog_object(
+            &source_file,
+            "*FILE",
+            Some("SRC"),
+            Some("Source physical file"),
+        )
+        .expect("catalog_object falló");
+
+        create_source_member(&lib, "QCLSRC", "HELLO.CLP").expect("create_source_member falló");
+        create_source_member(&lib, "QCLSRC", "DEMO.RPGLE").expect("create_source_member falló");
+
+        let members = list_members(&lib, "QCLSRC").expect("list_members falló");
+        assert_eq!(members.len(), 2);
+        assert_eq!(members[0].file_name, "DEMO.RPGLE");
+        assert_eq!(members[0].name, "DEMO");
+        assert_eq!(members[0].type_, "RPGLE");
+        assert_eq!(members[1].file_name, "HELLO.CLP");
+        assert_eq!(
+            member_path(&lib, "QCLSRC", "HELLO.CLP").unwrap(),
+            source_file.join("HELLO.CLP")
+        );
     }
 }

@@ -1,161 +1,293 @@
-# Plan de Implementación: Comandos CL del Cheatsheet
+# Plan de Implementación: STRPDM, STRSEU, STRSQL y WRKMBRPDM
 
 ## Objetivo
 
-Implementar los comandos del cheatsheet de OS/400 (`docs/cheetsheet.md`) como programas CL reales (`*.clp`), compilables con `clc` y ejecutables como objetos `*PGM` de Linux/400.
+Implementar los cuatro entornos interactivos del cheatsheet como pantallas TUI reales dentro de `os400-tui`, siguiendo el patrón existente (`Screen` trait + `ScreenId`):
 
-Esto implica extender el compilador CL en tres frentes:
+- **STRPDM** — Programming Development Manager: navegador de objetos de desarrollo (bibliotecas → archivos fuente → miembros).
+- **STRSEU** — Source Entry Utility: editor de texto minimalista para miembros de archivos fuente.
+- **STRSQL** — Interactive SQL: intérprete de sentencias SQL sobre archivos `*FILE` PF/LF del runtime.
+- **WRKMBRPDM** — Work with Members in PDM: lista y gestiona miembros dentro de un archivo fuente específico.
 
-1. **Gramática y AST**: soportar la sintaxis completa de los comandos del cheatsheet.
-2. **Codegen C**: generar código C real por cada comando (en lugar de emitir `l400_sndpgmmsg` genérico de fallback).
-3. **Runtime `libl400`**: exponer las funciones C que implementan la semántica de cada comando.
-
----
-
-## Análisis del estado actual
-
-El compilador `clc` ya:
-- Parsea un subset básico de CL con gramática Pest.
-- Genera código C vía backend (`generate_c_backend`).
-- Sólo reconoce `PGM`, `ENDPGM` y `SNDPGMMSG` con semántica real. Todo lo demás emite un fallback de warning.
-- Enlaza contra `libl400` y estampa el binario resultante como `*PGM` en ZFS.
-
-**El gap principal** es que los comandos del cheatsheet no tienen representación en `codegen.rs` ni en `libl400`.
+Estos cuatro comandos también deben emitir código real en el codegen de `clc` (en lugar del mensaje de "no disponible en modo batch").
 
 ---
 
-## Comandos a implementar
+## Análisis del patrón existente
 
-| Comando       | Categoría              | Acción                                               |
-|---------------|------------------------|------------------------------------------------------|
-| `WRKSYSSTS`   | Gestión de sistema     | Muestra CPU, ASP y jobs activos                      |
-| `WRKACTJOB`   | Gestión de jobs        | Lista jobs activos del job registry                  |
-| `WRKSYSVAL`   | Valores de sistema     | Muestra/modifica valores de configuración            |
-| `DSPLOG`      | Logs                   | Muestra mensajes del log del sistema                 |
-| `WRKUSRPRF`   | Perfiles               | Gestiona `*USRPRF` (listar, crear, eliminar)         |
-| `PWRDWNSYS`   | Control sistema        | Apaga o reinicia el sistema                          |
-| `WRKOBJ`      | Objetos                | Busca y lista objetos del catálogo                   |
-| `CRTLIB`      | Bibliotecas            | Crea una biblioteca (`*LIB`)                         |
-| `DLTLIB`      | Bibliotecas            | Elimina una biblioteca                               |
-| `ADDLIBLE`    | Library list           | Añade biblioteca a la lista de búsqueda del usuario  |
-| `CHGCURLIB`   | Library list           | Cambia la biblioteca actual de trabajo               |
-| `RNMOBJ`      | Objetos                | Renombra un objeto                                   |
-| `CRTPGM`      | Programación           | Crea/registra un objeto `*PGM`                       |
-| `GO`          | Navegación             | Navega a un menú (ej. `GO MAIN`)                     |
-| `SIGNOFF`     | Sesión                 | Cierra la sesión activa                              |
+Cada pantalla sigue este contrato:
+
+```
+os400-tui/src/screens/
+  ├── mod.rs           ← ScreenId enum + Screen trait
+  ├── main_menu.rs     ← ejemplo de pantalla con estado + navegación
+  ├── object_browser.rs ← ejemplo de tabla con TableState
+  └── work_mgmt.rs     ← ejemplo de datos en vivo del runtime
+```
+
+**Para agregar una pantalla nueva se necesita:**
+1. Crear `os400-tui/src/screens/<nombre>.rs` implementando `Screen`.
+2. Agregar la variante en `ScreenId`.
+3. Registrar el módulo en `mod.rs`.
+4. Agregar la construcción en `main.rs` (switch de pantallas activas).
+5. Conectar la navegación desde donde corresponda (menú, `CommandLine`, etc.).
 
 ---
 
-## Orden de implementación
+## Propuesta de flujo de navegación
 
-### Fase A — Fundaciones del codegen (prerequisito)
+```
+MainMenu
+  └─ [7] STRPDM ──→ PdmBrowser (lista bibliotecas)
+                        └─ Enter sobre lib ──→ WrkMbrPdm (lista archivos fuente)
+                                                   └─ F15/Enter ──→ Strseu (editor de miembro)
+                                                   └─ F16       ──→ Strsql (SQL interactivo)
+CommandLine
+  ├─ STRPDM  ──→ PdmBrowser
+  ├─ STRSEU  ──→ Strseu  (requiere parámetro FILE/MBR)
+  ├─ STRSQL  ──→ Strsql
+  └─ WRKMBRPDM → WrkMbrPdm (requiere FILE)
+```
 
-Sin esto los demás comandos no pueden generarse correctamente.
+---
 
-#### [MODIFY] `cl_compiler/clc/src/grammar.pest`
+## Trabajo por componente
 
-La gramática actual no soporta:
-- Parámetros con múltiples valores anidados (`ADDLIBLE LIB(*LIBL)`)
-- Comandos en dos palabras con espacio (`GO MAIN`)
-- Comentarios (`/* ... */`)
+---
 
-Cambios:
-- Agregar soporte para `/* comentarios */` ignorados.
-- Extender `command` para aceptar `GO MAIN` como caso de dos tokens.
+### Componente 1 — Routing y ScreenId
 
-#### [MODIFY] `cl_compiler/clc/src/ast.rs`
+#### [MODIFY] `os400-tui/src/screens/mod.rs`
 
-Agregar variante `GoCommand { target: String }` o simplemente normalizar `GO MAIN` como un comando de nombre `GO` con parámetro posicional `MAIN`.
+Agregar variantes al enum `ScreenId`:
+
+```rust
+PdmBrowser,    // STRPDM
+WrkMbrPdm,     // WRKMBRPDM
+StrSeu,        // STRSEU
+StrSql,        // STRSQL
+```
+
+#### [MODIFY] `os400-tui/src/main.rs`
+
+Instanciar las nuevas pantallas en el dispatcher de `ScreenId`.
+
+#### [MODIFY] `os400-tui/src/screens/main_menu.rs`
+
+- Agregar opción `7` al menú principal: `"Programming Development Manager"` → `STRPDM`.
+- Conectar `handle_option("7")` → `ScreenId::PdmBrowser`.
+
+#### [MODIFY] `os400-tui/src/screens/cmd_line.rs`
+
+Reconocer los nuevos comandos en la línea de comandos: `STRPDM`, `STRSEU`, `STRSQL`, `WRKMBRPDM`.
+
+---
+
+### Componente 2 — STRPDM (`pdm_browser.rs`)
+
+#### [NEW] `os400-tui/src/screens/pdm_browser.rs`
+
+**Descripción:** Lista las bibliotecas catalogadas en el root de L400. Permite al usuario seleccionar una para navegar sus archivos fuente con `WRKMBRPDM`.
+
+**Estado interno:**
+```rust
+pub struct PdmBrowser {
+    libraries: Vec<String>,
+    state: ListState,
+}
+```
+
+**Comportamiento:**
+- Al cargar: llama `list_objects(resolve_l400_root())` y filtra tipo `*LIB`.
+- `Enter` sobre una biblioteca → `ScreenResult::goto(ScreenId::WrkMbrPdm)` pasando el nombre de la lib en `data`.
+- `F5` refresca la lista.
+- `F3`/`F12` → `ScreenId::MainMenu`.
+
+**Layout:**
+```
+╔═ STRPDM - Programming Development Manager ══════════════╗
+║  Select library and press Enter. F5=Refresh              ║
+╠══════════════════════════════════════════════════════════╣
+║  > QGPL                                                  ║
+║    MYLIB                                                  ║
+║    QSYS                                                   ║
+╠══════════════════════════════════════════════════════════╣
+║ F3=Exit  F5=Refresh  F12=Cancel  Enter=Select            ║
+╚══════════════════════════════════════════════════════════╝
+```
+
+---
+
+### Componente 3 — WRKMBRPDM (`wrk_mbr_pdm.rs`)
+
+#### [NEW] `os400-tui/src/screens/wrk_mbr_pdm.rs`
+
+**Descripción:** Lista los miembros de un archivo fuente específico dentro de una biblioteca. Permite editar un miembro con SEU (F15) o entrar a SQL (F16).
+
+**Estado interno:**
+```rust
+pub struct WrkMbrPdm {
+    library: String,
+    file: String,
+    members: Vec<MemberInfo>,
+    state: TableState,
+}
+
+pub struct MemberInfo {
+    pub name: String,
+    pub type_: String,     // CLP, RPGLE, SQLRPGLE, etc.
+    pub text: String,
+}
+```
+
+**Comportamiento:**
+- Al cargar: llama `list_members(lib_path, file_name)` (nueva función en `libl400/src/db.rs` o `object.rs`).
+- `Enter`/`F15` sobre un miembro → `ScreenId::StrSeu` con `data = "LIB/FILE/MBR"`.
+- `F16` → `ScreenId::StrSql`.
+- `F3`/`F12` → `ScreenId::PdmBrowser`.
+- `F6` → crear nuevo miembro (interacción con prompt inline o mediante `CommandLine`).
+
+**Layout:**
+```
+╔═ WRKMBRPDM - Work with Members ═══════════════════════════╗
+║  File: QGPL/QCLSRC    F5=Refresh  F6=Create  F16=STRSQL   ║
+╠═══════════════════════════════════════════════════════════╣
+║  Mbr         Type      Text                               ║
+║  ──────────────────────────────────────────────────────   ║
+║  HELLO       CLP       Hello world program                ║
+║  DEMO        CLP       Demo CL program                    ║
+╠═══════════════════════════════════════════════════════════╣
+║ F3=Exit  F5=Refresh  F6=Create  F15=Edit  F16=STRSQL      ║
+╚═══════════════════════════════════════════════════════════╝
+```
+
+**Nueva función en libl400:** `list_members(lib: &Path, file: &str) -> Result<Vec<MemberInfo>, ObjectError>` — escanea el sub-directorio o la sled/BDB database correspondiente al archivo fuente.
+
+---
+
+### Componente 4 — STRSEU (`str_seu.rs`)
+
+#### [NEW] `os400-tui/src/screens/str_seu.rs`
+
+**Descripción:** Editor de texto minimalista estilo SEU para miembros CLP/RPGLE. Soporta edición básica de líneas, guardado con `F3`, y resalta números de línea al estilo OS/400.
+
+**Estado interno:**
+```rust
+pub struct StrSeu {
+    member_path: PathBuf,
+    lines: Vec<String>,
+    cursor_row: usize,
+    cursor_col: usize,
+    scroll_offset: usize,
+    modified: bool,
+}
+```
+
+**Comportamiento:**
+- Al cargar: lee el contenido del miembro desde disco (o crea vacío si es nuevo).
+- Edición de texto con teclas de movimiento y escritura.
+- `F3` → guarda y vuelve a `ScreenId::WrkMbrPdm`.
+- `F12` → descarta cambios y vuelve.
+- `F5` → recarga desde disco.
+- Números de línea al margen izquierdo (formato OS/400: `0001.00`).
+
+**Layout:**
+```
+╔═ STRSEU - Source Entry Utility ══ QGPL/QCLSRC/HELLO.CLP ╗
+║  Columns 1-72        Browse/Copy Mode  F3=Save  F12=Exit  ║
+╠═══════════════════════════════════════════════════════════╣
+║ 0001.00 PGM                                               ║
+║ 0002.00     SNDPGMMSG MSG('Hello from L400!')             ║
+║ 0003.00 ENDPGM                                            ║
+║_                                                          ║
+╠═══════════════════════════════════════════════════════════╣
+║ F3=Save  F5=Reload  F12=Cancel                            ║
+╚═══════════════════════════════════════════════════════════╝
+```
+
+---
+
+### Componente 5 — STRSQL (`str_sql.rs`)
+
+#### [NEW] `os400-tui/src/screens/str_sql.rs`
+
+**Descripción:** Intérprete SQL interactivo que ejecuta sentencias sobre los archivos PF/LF catalogados en `libl400`. Usa el backend Berkeley DB existente.
+
+**Estado interno:**
+```rust
+pub struct StrSql {
+    input: String,
+    history: Vec<String>,
+    results: Vec<Vec<String>>,
+    columns: Vec<String>,
+    error: Option<String>,
+    scroll: usize,
+}
+```
+
+**Comportamiento:**
+- El usuario escribe una sentencia SQL en el área de entrada inferior.
+- `Enter` ejecuta la consulta contra `libl400::db`.
+- Los resultados se muestran en una tabla ratatui con `TableState`.
+- `F3`/`F12` → vuelve al origen (PdmBrowser o MainMenu).
+- `F5` limpia los resultados.
+- Soporta inicialmente: `SELECT * FROM <file>`, `SELECT <cols> FROM <file> WHERE <cond>`.
+
+**Layout:**
+```
+╔═ STRSQL - Interactive SQL ════════════════════════════════╗
+║  Type SQL statement and press Enter.                       ║
+╠═══════════════════════════════════════════════════════════╣
+║  COL1       COL2       COL3                               ║
+║  ──────────────────────────────────────────────────────   ║
+║  AAAAA      00001      Lorem ipsum                        ║
+║  BBBBB      00002      Dolor sit amet                     ║
+╠═══════════════════════════════════════════════════════════╣
+║ SQL> SELECT * FROM QGPL/MYFILE_                           ║
+╠═══════════════════════════════════════════════════════════╣
+║ F3=Exit  F5=Clear  F12=Cancel                             ║
+╚═══════════════════════════════════════════════════════════╝
+```
+
+**Parseo SQL mínimo:** regex o split básico para `SELECT`, `FROM`, `WHERE`. No se requiere un parser SQL completo; el backend real de consultas ya está en `libl400::db::PhysicalFile::read_all / LogicalFile`.
+
+---
+
+### Componente 6 — codegen `clc` para los nuevos comandos
 
 #### [MODIFY] `cl_compiler/clc/src/compiler.rs`
 
-Extender `generate_c_backend` para que en lugar del fallback genérico emita llamadas a funciones específicas por comando:
+Reemplazar el bloque de fallback "no disponible en modo batch" por llamadas reales:
 
 ```c
-l400_wrkactjob();
-l400_wrksyssts();
-l400_crtlib("MYLIB");
-l400_dltlib("MYLIB");
-// etc.
+"STRPDM"    → l400_strpdm();
+"STRSEU"    → l400_strseu(FILE, MBR);
+"STRSQL"    → l400_strsql();
+"WRKMBRPDM" → l400_wrkmbrpdm(FILE);
 ```
 
----
+#### [MODIFY] `libl400/src/ffi_commands.rs`
 
-### Fase B — Runtime `libl400`: funciones C públicas
-
-#### [NEW] `libl400/src/ffi_commands.rs`
-
-Módulo que expone como `extern "C"` las funciones que el código C generado por `clc` puede invocar:
-
-```rust
-#[no_mangle]
-pub extern "C" fn l400_wrksyssts() { ... }
-
-#[no_mangle]
-pub extern "C" fn l400_wrkactjob() { ... }
-
-#[no_mangle]
-pub extern "C" fn l400_crtlib(name: *const c_char) { ... }
-// etc.
-```
-
-Internamente cada función delegará a los módulos ya existentes en `libl400`:
-- `l400_wrkactjob` → `cgroup::list_jobs_at`
-- `l400_crtlib` → `object::create_library`
-- `l400_dltlib` → `object::delete_object`
-- `l400_wrkusrprf` → `usrprf::create_user_profile` / lista
-- `l400_wrkobj` → `object::list_objects`
-- `l400_rnmobj` → `fs::rename` + restablece xattrs
-- `l400_crtpgm` → `object::catalog_object`
-- `l400_signoff` → `std::process::exit(0)`
-- `l400_pwrdwnsys` → `Command::new("shutdown")...`
-- `l400_go_main` → emite un mensaje especial / no-op en runtime sin TUI
-
-#### [MODIFY] `libl400/src/lib.rs`
-- Exportar `pub mod ffi_commands`.
-
----
-
-### Fase C — Programas CL de ejemplo (`.clp`)
-
-Crear los programas CL que ejerciten cada comando del cheatsheet. Irán en un directorio dedicado.
-
-#### [NEW] `examples/cl/` (directorio)
-
-| Archivo                    | Contenido CL                    |
-|----------------------------|---------------------------------|
-| `wrkactjob.clp`            | `PGM` / `WRKACTJOB` / `ENDPGM` |
-| `wrksyssts.clp`            | `PGM` / `WRKSYSSTS` / `ENDPGM` |
-| `crtlib_demo.clp`          | `PGM` / `CRTLIB LIB(MYLIB)` / `ENDPGM` |
-| `dltlib_demo.clp`          | `PGM` / `DLTLIB LIB(MYLIB)` / `ENDPGM` |
-| `wrkobj_demo.clp`          | `PGM` / `WRKOBJ OBJ(*ALL)` / `ENDPGM` |
-| `wrkusrprf_demo.clp`       | `PGM` / `WRKUSRPRF USRPRF(*ALL)` / `ENDPGM` |
-| `signoff_demo.clp`         | `PGM` / `SIGNOFF` / `ENDPGM` |
-
----
-
-### Fase D — Script de compilación end-to-end
-
-#### [NEW] `scripts/compile_cheatsheet.sh`
-
-Script que itera sobre `examples/cl/*.clp` y:
-1. Invoca `clc -i <archivo>.clp -o /tmp/l400/<nombre>`
-2. Verifica que el binario fue catalogado como `*PGM`
-3. Reporta éxito o error por comando
+Agregar:
+- `l400_strpdm()` → imprime lista de bibliotecas (modo batch).
+- `l400_strseu(file, mbr)` → imprime contenido del miembro.
+- `l400_strsql()` → modo batch: acepta SQL de stdin.
+- `l400_wrkmbrpdm(file)` → lista miembros del archivo.
 
 ---
 
 ## Criterio de aceptación
 
-- `clc` compila cada `.clp` del directorio `examples/cl/` sin error.
-- El binario resultante tiene el xattr `user.l400.objtype=*PGM` estampado.
-- Ejecutar el binario produce la salida correcta (ej. listar jobs, crear biblioteca).
-- Los tests de `cargo test -p clc` cubren el codegen de los nuevos comandos.
+- Las cuatro pantallas TUI se navegan desde el menú principal (`7=STRPDM`) y desde `CommandLine`.
+- `STRSEU` permite editar y guardar un miembro `.clp` que luego puede compilarse con `clc`.
+- `STRSQL` ejecuta `SELECT * FROM <file>` y muestra resultados en tabla.
+- `WRKMBRPDM` lista miembros y permite abrir `STRSEU` sobre ellos.
+- Los tests de `cargo test -p os400-tui` y `cargo test -p clc` pasan.
 
 ---
 
-## Notas arquitectónicas
+## Notas
 
-- Los comandos interactivos (`WRKSYSSTS`, `WRKACTJOB`, `STRPDM`, etc.) que en OS/400 real abren una pantalla TUI, en esta iteración **imprimirán la información en stdout** (modo batch/non-interactive). La integración TUI viene después.
-- `GO MAIN`, `F4`, `F10`, `F11` son comandos de sesión interactiva que **no tienen representación en CL compilado**; no se incluirán en el codegen, sino que se manejarán a nivel de la TUI directamente.
-- `STRPDM`, `STRSEU`, `STRSQL`, `WRKMBRPDM` son entornos completos (editores/SQL); en esta fase sólo se registran como comandos reconocidos que emiten un mensaje de "no disponible en modo batch".
+- `STRSEU` no necesita ser un editor vi/emacs. Con soporte de `Insert`/`Delete` char, cursor libre y guardado F3 es suficiente para la primera iteración.
+- `STRSQL` inicialmente sólo soporta `SELECT`. `INSERT`/`UPDATE`/`DELETE` vienen en una iteración posterior.
+- Los miembros de archivos fuente se almacenan como archivos planos dentro del directorio del objeto `*FILE` (o como entradas nombradas en la sled/BDB del PF). El naming convention es `<MEMBER>` dentro de `<LIB>/<FILE>/`.

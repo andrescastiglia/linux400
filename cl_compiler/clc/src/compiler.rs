@@ -35,6 +35,17 @@ fn first_positional(command: &crate::ast::Command) -> Option<String> {
     None
 }
 
+fn positional(command: &crate::ast::Command, index: usize) -> Option<String> {
+    command
+        .parameters
+        .iter()
+        .filter_map(|parameter| match parameter {
+            crate::ast::Parameter::Positional(value) => Some(value_to_string(value)),
+            crate::ast::Parameter::Named(_, _) => None,
+        })
+        .nth(index)
+}
+
 fn generate_command_call(command: &crate::ast::Command) -> String {
     match command.name.as_str() {
         "PGM" | "ENDPGM" => String::new(),
@@ -51,7 +62,7 @@ fn generate_command_call(command: &crate::ast::Command) -> String {
         "WRKSYSSTS" => "l400_wrksyssts();".to_string(),
         "WRKACTJOB" => "l400_wrkactjob();".to_string(),
         "WRKSYSVAL" => "l400_wrksysval();".to_string(),
-        "DSPLOG"    => "l400_dsplog();".to_string(),
+        "DSPLOG" => "l400_dsplog();".to_string(),
         "WRKUSRPRF" => {
             let profile = named_param(command, "USRPRF")
                 .map(value_to_string)
@@ -111,7 +122,11 @@ fn generate_command_call(command: &crate::ast::Command) -> String {
             let newname = named_param(command, "NEWOBJ")
                 .map(value_to_string)
                 .unwrap_or_else(|| "RENAMED".to_string());
-            format!("l400_rnmobj({}, {});", escape_c_string(&obj), escape_c_string(&newname))
+            format!(
+                "l400_rnmobj({}, {});",
+                escape_c_string(&obj),
+                escape_c_string(&newname)
+            )
         }
 
         // --- Programación ---
@@ -125,18 +140,34 @@ fn generate_command_call(command: &crate::ast::Command) -> String {
 
         // --- Navegación / sesión ---
         "GO" => {
-            let target = first_positional(command)
-                .unwrap_or_else(|| "MAIN".to_string());
+            let target = first_positional(command).unwrap_or_else(|| "MAIN".to_string());
             format!("l400_go({});", escape_c_string(&target))
         }
         "SIGNOFF" => "l400_signoff();".to_string(),
 
-        // Entornos interactivos — no disponibles en modo batch
-        "STRPDM" | "STRSEU" | "STRSQL" | "WRKMBRPDM" => {
+        "STRPDM" => "l400_strpdm();".to_string(),
+        "STRSEU" => {
+            let file = named_param(command, "FILE")
+                .map(value_to_string)
+                .or_else(|| positional(command, 0))
+                .unwrap_or_else(|| "QGPL/QCLSRC".to_string());
+            let member = named_param(command, "MBR")
+                .map(value_to_string)
+                .or_else(|| positional(command, 1))
+                .unwrap_or_else(|| "MAIN.CLP".to_string());
             format!(
-                "l400_sndpgmmsg({});",
-                escape_c_string(&format!("[clc] {} no disponible en modo batch", command.name))
+                "l400_strseu({}, {});",
+                escape_c_string(&file),
+                escape_c_string(&member)
             )
+        }
+        "STRSQL" => "l400_strsql();".to_string(),
+        "WRKMBRPDM" => {
+            let file = named_param(command, "FILE")
+                .map(value_to_string)
+                .or_else(|| positional(command, 0))
+                .unwrap_or_else(|| "QGPL/QCLSRC".to_string());
+            format!("l400_wrkmbrpdm({});", escape_c_string(&file))
         }
 
         other => format!(
@@ -178,6 +209,10 @@ fn generate_c_backend(source_path: &str, ast: &crate::ast::Program) -> String {
          extern void l400_crtpgm(const char*);\n\
          extern void l400_go(const char*);\n\
          extern void l400_signoff(void);\n\
+         extern void l400_strpdm(void);\n\
+         extern void l400_strseu(const char*, const char*);\n\
+         extern void l400_strsql(void);\n\
+         extern void l400_wrkmbrpdm(const char*);\n\
          \n\
          int main(void) {{\n    {}\n    return 0;\n}}\n",
         body.join("\n    ")
@@ -217,8 +252,8 @@ impl Compiler {
             use std::io::Write;
             let c_code = generate_c_backend(source_path, &ast);
             let c_file = format!("{}.tmp.c", output_path);
-            let mut f =
-                fs::File::create(&c_file).map_err(|e| format!("Error creando archivo C temporal: {}", e))?;
+            let mut f = fs::File::create(&c_file)
+                .map_err(|e| format!("Error creando archivo C temporal: {}", e))?;
             f.write_all(c_code.as_bytes())
                 .map_err(|e| format!("Error escribiendo archivo C: {}", e))?;
 
@@ -260,14 +295,20 @@ mod tests {
     fn generate_c_backend_emits_sndpgmmsg_output() {
         let program = Program {
             commands: vec![
-                Command { name: "PGM".to_string(), parameters: vec![] },
+                Command {
+                    name: "PGM".to_string(),
+                    parameters: vec![],
+                },
                 Command {
                     name: "SNDPGMMSG".to_string(),
                     parameters: vec![Parameter::Positional(Value::StringLiteral(
                         "Hola desde CL".to_string(),
                     ))],
                 },
-                Command { name: "ENDPGM".to_string(), parameters: vec![] },
+                Command {
+                    name: "ENDPGM".to_string(),
+                    parameters: vec![],
+                },
             ],
         };
 
@@ -309,7 +350,10 @@ mod tests {
     #[test]
     fn generate_wrkactjob_call() {
         let program = Program {
-            commands: vec![Command { name: "WRKACTJOB".to_string(), parameters: vec![] }],
+            commands: vec![Command {
+                name: "WRKACTJOB".to_string(),
+                parameters: vec![],
+            }],
         };
         let code = generate_c_backend("demo.clp", &program);
         assert!(code.contains("l400_wrkactjob()"));
@@ -318,20 +362,53 @@ mod tests {
     #[test]
     fn generate_signoff_call() {
         let program = Program {
-            commands: vec![Command { name: "SIGNOFF".to_string(), parameters: vec![] }],
+            commands: vec![Command {
+                name: "SIGNOFF".to_string(),
+                parameters: vec![],
+            }],
         };
         let code = generate_c_backend("demo.clp", &program);
         assert!(code.contains("l400_signoff()"));
     }
 
     #[test]
-    fn batch_only_commands_emit_warning() {
-        for cmd in ["STRPDM", "STRSEU", "STRSQL", "WRKMBRPDM"] {
-            let program = Program {
-                commands: vec![Command { name: cmd.to_string(), parameters: vec![] }],
-            };
-            let code = generate_c_backend("demo.clp", &program);
-            assert!(code.contains("no disponible en modo batch"), "Failed for {cmd}");
-        }
+    fn interactive_commands_emit_real_calls() {
+        let program = Program {
+            commands: vec![
+                Command {
+                    name: "STRPDM".to_string(),
+                    parameters: vec![],
+                },
+                Command {
+                    name: "STRSEU".to_string(),
+                    parameters: vec![
+                        Parameter::Named(
+                            "FILE".to_string(),
+                            Value::Identifier("QGPL/QCLSRC".to_string()),
+                        ),
+                        Parameter::Named(
+                            "MBR".to_string(),
+                            Value::Identifier("HELLO.CLP".to_string()),
+                        ),
+                    ],
+                },
+                Command {
+                    name: "STRSQL".to_string(),
+                    parameters: vec![],
+                },
+                Command {
+                    name: "WRKMBRPDM".to_string(),
+                    parameters: vec![Parameter::Named(
+                        "FILE".to_string(),
+                        Value::Identifier("QGPL/QCLSRC".to_string()),
+                    )],
+                },
+            ],
+        };
+        let code = generate_c_backend("demo.clp", &program);
+        assert!(code.contains("l400_strpdm();"));
+        assert!(code.contains("l400_strseu(\"QGPL/QCLSRC\", \"HELLO.CLP\");"));
+        assert!(code.contains("l400_strsql();"));
+        assert!(code.contains("l400_wrkmbrpdm(\"QGPL/QCLSRC\");"));
     }
 }

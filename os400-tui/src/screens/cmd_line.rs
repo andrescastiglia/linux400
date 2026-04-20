@@ -35,17 +35,27 @@ impl CommandLine {
         }
     }
 
-    fn execute_command(&mut self) {
-        let cmd = self.command.trim();
+    fn execute_command(&mut self) -> ScreenResult {
+        let cmd = self.command.trim().to_string();
         if cmd.is_empty() {
-            return;
+            return ScreenResult::none();
+        }
+
+        if let Some(route) = self.route_interactive_command(&cmd) {
+            if !self.history.iter().any(|h| h == &cmd) {
+                self.history.insert(0, cmd.clone());
+            }
+            self.command.clear();
+            self.cursor_position = 0;
+            self.history_index = 0;
+            return route;
         }
 
         self.output.clear();
         self.output.push(format!("CMD: {}", cmd));
         self.output.push("".to_string());
 
-        match cmd {
+        match cmd.as_str() {
             "WRKACTJOB" => {
                 self.output.push("Display Job Activity".to_string());
                 self.output.push("Use option 4 to select a job".to_string());
@@ -72,6 +82,14 @@ impl CommandLine {
                     .push("  WRKOBJ    - Work with objects".to_string());
                 self.output
                     .push("  DSPDTAQ   - Display data queue".to_string());
+                self.output
+                    .push("  STRPDM    - Programming Development Manager".to_string());
+                self.output
+                    .push("  WRKMBRPDM - Work with source members".to_string());
+                self.output
+                    .push("  STRSEU    - Edit a source member".to_string());
+                self.output
+                    .push("  STRSQL    - Interactive SQL".to_string());
                 self.output.push("  CALL PGM   - Call program".to_string());
                 self.output
                     .push("  DSPSYSVAL - Display system value".to_string());
@@ -82,13 +100,78 @@ impl CommandLine {
             }
         }
 
-        if !self.history.iter().any(|h| h == cmd) {
-            self.history.insert(0, cmd.to_string());
+        if !self.history.iter().any(|h| h == &cmd) {
+            self.history.insert(0, cmd.clone());
         }
 
         self.show_output = true;
         self.command.clear();
         self.cursor_position = 0;
+        self.history_index = 0;
+        ScreenResult::none()
+    }
+
+    fn route_interactive_command(&mut self, command: &str) -> Option<ScreenResult> {
+        let tokens = command.split_whitespace().collect::<Vec<_>>();
+        let action = tokens.first()?.to_uppercase();
+
+        match action.as_str() {
+            "STRPDM" => Some(ScreenResult::goto(ScreenId::PdmBrowser)),
+            "STRSQL" => Some(ScreenResult::goto(ScreenId::StrSql)),
+            "WRKMBRPDM" => {
+                let file = extract_command_arg(&tokens[1..], "FILE").or_else(|| {
+                    tokens
+                        .get(1)
+                        .filter(|token| !token.contains('('))
+                        .map(|value| value.to_string())
+                });
+                match file.filter(|value| !value.trim().is_empty()) {
+                    Some(file) => Some(ScreenResult::with_data(
+                        ScreenId::WrkMbrPdm,
+                        normalize_file_spec(&file),
+                    )),
+                    None => {
+                        self.show_usage_error("Usage: WRKMBRPDM FILE(QGPL/QCLSRC)");
+                        Some(ScreenResult::none())
+                    }
+                }
+            }
+            "STRSEU" => {
+                let file = extract_command_arg(&tokens[1..], "FILE").or_else(|| {
+                    tokens
+                        .get(1)
+                        .filter(|token| !token.contains('('))
+                        .map(|value| value.to_string())
+                });
+                let member = extract_command_arg(&tokens[1..], "MBR").or_else(|| {
+                    tokens
+                        .get(2)
+                        .filter(|token| !token.contains('('))
+                        .map(|value| value.to_string())
+                });
+                match (file, member) {
+                    (Some(file), Some(member)) => Some(ScreenResult::with_data(
+                        ScreenId::StrSeu,
+                        format!(
+                            "{}/{}",
+                            normalize_file_spec(&file),
+                            member.trim().to_uppercase()
+                        ),
+                    )),
+                    _ => {
+                        self.show_usage_error("Usage: STRSEU FILE(QGPL/QCLSRC) MBR(HELLO.CLP)");
+                        Some(ScreenResult::none())
+                    }
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn show_usage_error(&mut self, message: &str) {
+        self.output.clear();
+        self.output.push(message.to_string());
+        self.show_output = true;
     }
 }
 
@@ -125,10 +208,7 @@ impl Screen for CommandLine {
         match key.code {
             KeyCode::F(3) => ScreenResult::goto(ScreenId::MainMenu),
             KeyCode::F(12) => ScreenResult::goto(ScreenId::MainMenu),
-            KeyCode::Enter => {
-                self.execute_command();
-                ScreenResult::none()
-            }
+            KeyCode::Enter => self.execute_command(),
             KeyCode::Backspace => {
                 if self.cursor_position > 0 {
                     self.cursor_position -= 1;
@@ -189,6 +269,29 @@ impl Screen for CommandLine {
             }
             _ => ScreenResult::none(),
         }
+    }
+}
+
+fn extract_command_arg(tokens: &[&str], key: &str) -> Option<String> {
+    tokens.iter().find_map(|token| {
+        let token = token.trim();
+        if !token.to_uppercase().starts_with(&format!("{key}(")) || !token.ends_with(')') {
+            return None;
+        }
+        Some(token[key.len() + 1..token.len() - 1].trim().to_string())
+    })
+}
+
+fn normalize_file_spec(spec: &str) -> String {
+    let spec = spec.trim();
+    if let Some((library, file)) = spec.split_once('/') {
+        format!(
+            "{}/{}",
+            library.trim().to_uppercase(),
+            file.trim().to_uppercase()
+        )
+    } else {
+        format!("QSYS/{}", spec.to_uppercase())
     }
 }
 

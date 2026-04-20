@@ -36,6 +36,8 @@ pub enum DbError {
     NotFound,
     #[error("Storage Error: {0}")]
     Storage(#[from] StorageError),
+    #[error("Invalid Query: {0}")]
+    InvalidQuery(String),
 }
 
 enum PhysicalFileStorage {
@@ -196,6 +198,26 @@ pub struct LogicalFile {
     storage: LogicalFileStorage,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryResult {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct QueryFilter {
+    column: String,
+    value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SelectQuery {
+    library: Option<String>,
+    file: String,
+    columns: Vec<String>,
+    filter: Option<QueryFilter>,
+}
+
 fn open_sled_lf_from_db(name: &str, db: Db) -> Result<LogicalFileStorage, DbError> {
     let index_tree_name = format!("LF_IDX_{name}");
     let index = db.open_tree(index_tree_name.as_bytes())?;
@@ -345,6 +367,201 @@ impl LogicalFile {
         }
         Ok(())
     }
+}
+
+fn parse_select_query(statement: &str) -> Result<SelectQuery, DbError> {
+    let statement = statement.trim().trim_end_matches(';').trim();
+    if statement.is_empty() {
+        return Err(DbError::InvalidQuery("statement is empty".to_string()));
+    }
+
+    let upper = statement.to_uppercase();
+    if !upper.starts_with("SELECT ") {
+        return Err(DbError::InvalidQuery(
+            "only SELECT statements are supported".to_string(),
+        ));
+    }
+
+    let from_pos = upper.find(" FROM ").ok_or_else(|| {
+        DbError::InvalidQuery("expected FROM clause: SELECT <cols> FROM <file>".to_string())
+    })?;
+    let select_part = statement[7..from_pos].trim();
+    if select_part.is_empty() {
+        return Err(DbError::InvalidQuery(
+            "SELECT clause must include at least one column".to_string(),
+        ));
+    }
+
+    let remainder = &statement[from_pos + 6..];
+    let remainder_upper = remainder.to_uppercase();
+    let (from_part, where_part) = if let Some(where_pos) = remainder_upper.find(" WHERE ") {
+        (
+            &remainder[..where_pos],
+            Some(remainder[where_pos + 7..].trim()),
+        )
+    } else {
+        (remainder, None)
+    };
+
+    let table_token = from_part.trim();
+    if table_token.is_empty() {
+        return Err(DbError::InvalidQuery(
+            "FROM clause must include a file name".to_string(),
+        ));
+    }
+
+    let (library, file) = if let Some((library, file)) = table_token.split_once('/') {
+        (
+            Some(library.trim().to_uppercase()),
+            file.trim().to_uppercase(),
+        )
+    } else {
+        (None, table_token.to_uppercase())
+    };
+
+    if file.is_empty() {
+        return Err(DbError::InvalidQuery(
+            "FROM clause must include a file name".to_string(),
+        ));
+    }
+
+    let columns = select_part
+        .split(',')
+        .map(|column| column.trim().to_uppercase())
+        .filter(|column| !column.is_empty())
+        .collect::<Vec<_>>();
+    if columns.is_empty() {
+        return Err(DbError::InvalidQuery(
+            "SELECT clause must include at least one column".to_string(),
+        ));
+    }
+
+    let filter = where_part
+        .map(|where_part| -> Result<QueryFilter, DbError> {
+            let (column, value) = where_part.split_once('=').ok_or_else(|| {
+                DbError::InvalidQuery("WHERE only supports <column> = <value>".to_string())
+            })?;
+            Ok(QueryFilter {
+                column: column.trim().to_uppercase(),
+                value: value
+                    .trim()
+                    .trim_matches('\'')
+                    .trim_matches('"')
+                    .to_string(),
+            })
+        })
+        .transpose()?;
+
+    Ok(SelectQuery {
+        library,
+        file,
+        columns,
+        filter,
+    })
+}
+
+fn project_row(
+    all_columns: &[String],
+    row: &[String],
+    requested_columns: &[String],
+) -> Result<Vec<String>, DbError> {
+    requested_columns
+        .iter()
+        .map(|requested| {
+            let index = all_columns
+                .iter()
+                .position(|column| column == requested)
+                .ok_or_else(|| DbError::InvalidQuery(format!("unknown column {requested}")))?;
+            Ok(row[index].clone())
+        })
+        .collect()
+}
+
+pub fn run_select_query(
+    statement: &str,
+    default_library: Option<&str>,
+) -> Result<QueryResult, DbError> {
+    let query = parse_select_query(statement)?;
+    let library = query.library.unwrap_or_else(|| {
+        default_library
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().to_uppercase())
+            .or_else(|| {
+                std::env::var("L400_CURLIB")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| value.trim().to_uppercase())
+            })
+            .unwrap_or_else(|| "QGPL".to_string())
+    });
+
+    let path = crate::object::resolve_l400_root()
+        .join(&library)
+        .join(&query.file);
+    let object = crate::object::describe_object(&path)?;
+    let (all_columns, all_rows) = if object.attribute.as_deref() == Some("LF") {
+        let file = LogicalFile::open(&path)?;
+        let rows = file
+            .read_all_idx()?
+            .into_iter()
+            .map(|(secondary_key, primary_key)| {
+                vec![
+                    String::from_utf8_lossy(&secondary_key).to_string(),
+                    String::from_utf8_lossy(&primary_key).to_string(),
+                ]
+            })
+            .collect::<Vec<_>>();
+        (vec!["KEY".to_string(), "PRIMARY_KEY".to_string()], rows)
+    } else {
+        let file = PhysicalFile::open(&path)?;
+        let rows = file
+            .read_all()?
+            .into_iter()
+            .map(|(key, data)| {
+                vec![
+                    String::from_utf8_lossy(&key).to_string(),
+                    String::from_utf8_lossy(&data).to_string(),
+                ]
+            })
+            .collect::<Vec<_>>();
+        (vec!["KEY".to_string(), "DATA".to_string()], rows)
+    };
+
+    let filtered_rows = if let Some(filter) = &query.filter {
+        let filter_index = all_columns
+            .iter()
+            .position(|column| column == &filter.column)
+            .ok_or_else(|| DbError::InvalidQuery(format!("unknown column {}", filter.column)))?;
+        all_rows
+            .into_iter()
+            .filter(|row| {
+                row.get(filter_index)
+                    .is_some_and(|value| value == &filter.value)
+            })
+            .collect::<Vec<_>>()
+    } else {
+        all_rows
+    };
+
+    let requested_columns = if query.columns.len() == 1 && query.columns[0] == "*" {
+        all_columns.clone()
+    } else {
+        query.columns.clone()
+    };
+    for column in &requested_columns {
+        if !all_columns.iter().any(|candidate| candidate == column) {
+            return Err(DbError::InvalidQuery(format!("unknown column {column}")));
+        }
+    }
+    let projected_rows = filtered_rows
+        .iter()
+        .map(|row| project_row(&all_columns, row, &requested_columns))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(QueryResult {
+        columns: requested_columns,
+        rows: projected_rows,
+    })
 }
 
 // ─── Unit Tests ───────────────────────────────────────────────────────────────
@@ -525,5 +742,66 @@ mod tests {
         assert_eq!(get_objtype(&lib_path.join(lf_name)).unwrap(), "*FILE");
 
         std::fs::remove_dir_all(&test_dir).ok();
+    }
+
+    #[test]
+    fn test_run_select_query_for_pf() {
+        let lib = tmp_lib();
+        let lib_path = l400_library(&lib, "QGPL");
+        let pf = create_pf(&lib_path, "CLIENTES", 100).expect("create_pf falló");
+        pf.write_rcd(b"C001", b"Ana").expect("write_rcd falló");
+        pf.write_rcd(b"C002", b"Luis").expect("write_rcd falló");
+        drop(pf);
+
+        let original = std::env::var_os("L400_ROOT");
+        unsafe {
+            std::env::set_var("L400_ROOT", lib.path());
+        }
+
+        let result = run_select_query("SELECT * FROM CLIENTES WHERE KEY='C002'", Some("QGPL"))
+            .expect("run_select_query falló");
+
+        match original {
+            Some(value) => unsafe {
+                std::env::set_var("L400_ROOT", value);
+            },
+            None => unsafe {
+                std::env::remove_var("L400_ROOT");
+            },
+        }
+
+        assert_eq!(result.columns, vec!["KEY".to_string(), "DATA".to_string()]);
+        assert_eq!(
+            result.rows,
+            vec![vec!["C002".to_string(), "Luis".to_string()]]
+        );
+    }
+
+    #[test]
+    fn test_run_select_query_rejects_unknown_columns() {
+        let lib = tmp_lib();
+        let lib_path = l400_library(&lib, "QGPL");
+        let pf = create_pf(&lib_path, "CLIENTES", 100).expect("create_pf falló");
+        pf.write_rcd(b"C001", b"Ana").expect("write_rcd falló");
+        drop(pf);
+
+        let original = std::env::var_os("L400_ROOT");
+        unsafe {
+            std::env::set_var("L400_ROOT", lib.path());
+        }
+
+        let error = run_select_query("SELECT FOO FROM CLIENTES", Some("QGPL"))
+            .expect_err("run_select_query debía fallar");
+
+        match original {
+            Some(value) => unsafe {
+                std::env::set_var("L400_ROOT", value);
+            },
+            None => unsafe {
+                std::env::remove_var("L400_ROOT");
+            },
+        }
+
+        assert!(matches!(error, DbError::InvalidQuery(_)));
     }
 }

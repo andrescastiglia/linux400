@@ -31,6 +31,7 @@ impl MainMenu {
             ("4", "Work with jobs . . . . . . . . . . . .", "WRKACTJOB"),
             ("5", "Data queues  . . . . . . . . . . . . .", "DSPDTAQ"),
             ("6", "Command entry . . . . . . . . . . . .", "CMD"),
+            ("7", "Programming Development Manager . . . .", "STRPDM"),
             (" ", " ", " "),
             ("10", "System configuration  . . . . . . . .", "CFG"),
         ]
@@ -42,6 +43,7 @@ impl MainMenu {
             "4" => ScreenResult::goto(ScreenId::WorkManagement),
             "5" => ScreenResult::goto(ScreenId::DataQueueViewer),
             "6" => ScreenResult::goto(ScreenId::CommandLine),
+            "7" => ScreenResult::goto(ScreenId::PdmBrowser),
             "10" => ScreenResult::goto(ScreenId::ObjectBrowser),
             _ => ScreenResult::none(),
         }
@@ -341,5 +343,12 @@ mod tests {
         let mut menu = MainMenu::new();
         let result = menu.handle_key(key(KeyCode::F(4)));
         assert_eq!(result.next, Some(ScreenId::CommandLine));
+    }
+
+    #[test]
+    fn digit_seven_opens_pdm_browser() {
+        let mut menu = MainMenu::new();
+        let result = menu.handle_key(key(KeyCode::Char('7')));
+        assert_eq!(result.next, Some(ScreenId::PdmBrowser));
     }
 }

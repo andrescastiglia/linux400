@@ -57,7 +57,14 @@ Y validar la salida esperada de esa demo con:
 ```
 
 ### 5. Toolchain V1
-El subset CL soportado hoy en v1 es explícito y pequeño: `PGM`, `SNDPGMMSG` y `ENDPGM`. En modo stub, `clc` genera un ejecutable observable que reproduce los `SNDPGMMSG` soportados y marca el resto de comandos como fuera del subset v1.
+El subset CL soportado por `clc` en la ruta batch ya no se limita a `PGM`, `SNDPGMMSG` y `ENDPGM`. Además de esos comandos base, el codegen actual también emite llamadas reales para:
+
+- `STRPDM`
+- `STRSEU FILE(...) MBR(...)`
+- `STRSQL`
+- `WRKMBRPDM FILE(...)`
+
+En batch, esos comandos delegan en `libl400` y muestran una representación textual del entorno interactivo: bibliotecas catalogadas, miembros de un source file, contenido de un miembro o resultados de `SELECT`.
 
 Los ejemplos canónicos actuales son:
 ```bash
@@ -70,7 +77,32 @@ Puedes validar el flujo completo `fuente -> compilación -> catalogación *PGM -
 ./scripts/test/test_toolchain_v1_demo.sh
 ```
 
-### 6. Workloads V1
+### 6. TUI interactiva (`os400-tui`)
+La TUI ya incluye las pantallas interactivas del flujo de desarrollo OS/400-style:
+
+- `STRPDM`: navega bibliotecas catalogadas.
+- `WRKMBRPDM`: lista y crea miembros dentro de un source file.
+- `STRSEU`: edita y guarda miembros fuente.
+- `STRSQL`: ejecuta `SELECT` mínimos sobre PF/LF del runtime.
+
+Puedes arrancarla con:
+```bash
+cargo run -p os400-tui
+```
+
+Dentro de la TUI:
+
+- En el menú principal, `7` abre `STRPDM`.
+- En la línea de comandos, se reconocen `STRPDM`, `STRSEU`, `STRSQL` y `WRKMBRPDM`.
+- `STRSEU` permite guardar cambios sobre miembros para luego recompilarlos con `clc`.
+
+Las pruebas focalizadas para este flujo son:
+```bash
+cargo test -p os400-tui
+cargo test -p clc
+```
+
+### 7. Workloads V1
 Linux/400 intenta separar carga interactiva (`QINTER`) y batch (`QBATCH`) con cgroups v2. Cuando el host no permite esa separación completa, el runtime mantiene un registro de jobs en `L400_RUN_DIR` para que la TUI y las demos sigan mostrando workloads reales en modo degradado.
 
 Puedes generar una demo simple de job interactivo + batch con:
@@ -78,7 +110,7 @@ Puedes generar una demo simple de job interactivo + batch con:
 ./scripts/test/test_workload_demo.sh
 ```
 
-### 7. Loader/eBPF por modo
+### 8. Loader/eBPF por modo
 `l400-loader` soporta tres modos operativos:
 
 - `full`: requiere hook eBPF activo; si no puede cargar/adjuntar el LSM, falla.
@@ -92,7 +124,7 @@ cargo run -p l400-loader -- --mode degraded --once
 cargo run -p l400-loader -- --mode dev --once
 ```
 
-### 8. Release candidate v1
+### 9. Release candidate v1
 La RC v1 queda descrita en:
 
 - `docs/RELEASE_V1_RC.md`

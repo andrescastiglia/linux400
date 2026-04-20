@@ -2,66 +2,95 @@
 
 ## Project
 
-OS/400-style object model on Linux (ZFS xattrs, eBPF LSM, sled database).
+Linux/400 is an OS/400-style object model on Linux backed by ZFS xattrs, an eBPF LSM, and a `sled`-based runtime for `*FILE` and `*DTAQ` flows.
 
-## Crates
+## Workspace
 
-- `libl400/` - Core runtime (objects, PF/LF, data queues, ZFS helpers)
-- `l400-ebpf/` - eBPF LSM program (Aya)
-- `l400-ebpf-common/` - Shared types (no_std)
-- `l400-loader/` - Privileged eBPF loader
-- `cl_compiler/clc/` - CL compiler with Pest parser
-- `c400_compiler/` - C frontend
+- `libl400/` - Core runtime for objects, PF/LF handling, data queues, aligned I/O, and ZFS helpers
+- `l400-ebpf-common/` - Shared `no_std` contract between user space and the eBPF program
+- `l400-ebpf/` - Aya-based LSM program
+- `l400-loader/` - Privileged loader for the eBPF program and policy status
+- `cl_compiler/clc/` - CL compiler with Pest parser and optional LLVM backend
+- `c400_compiler/` - C frontend that builds native `*PGM` objects
+- `os400-tui/` - OS/400-style green-screen TUI
 
 ## Build Commands
 
+Use targeted Cargo commands from the repository root. Plain `cargo build` pulls in `l400-ebpf` and may fail without the BPF toolchain.
+
 ```bash
-# User-space only (safe - avoids BPF toolchain)
+# Safe user-space builds that currently compile cleanly
 cargo build -p c400c
 cargo build -p clc
 cargo build -p l400-loader
 
+# Core library tests/build coverage
+cargo test -p l400
+
 # eBPF (requires BPF toolchain)
 cd l400-ebpf && cargo build --target bpfel-unknown-none --release
-
-# WARNING: `cargo build` from root pulls in eBPF and may fail
 ```
+
+`os400-tui` is a workspace member, but do not assume it is part of the current known-clean build subset.
 
 ## Test Commands
 
 ```bash
+# Core library
 cargo test -p l400
-cargo test -p l400 test_pf              # pattern match
-cargo test -p l400 db::tests::test_name -- --exact  # exact match
+cargo test -p l400 test_pf
+cargo test -p l400 db::tests::test_name -- --exact
+
+# V1 demos / smoke tests
+./scripts/test/test_objects_v1_demo.sh
+./scripts/test/test_toolchain_v1_demo.sh
+./scripts/test/test_workload_demo.sh
+./scripts/test/test_loader_modes.sh
+./scripts/test/test_release_rc.sh
+RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh
 ```
 
-## Lint/Format
+## Lint / Format
 
 ```bash
-cargo fmt --all
+cargo fmt --all --check
 cargo clippy -p l400 --all-targets -- -D warnings
 ```
 
-## Environment-Dependent Tests (require root + special setup)
+`cargo fmt --all --check` and `cargo clippy -p l400 --all-targets -- -D warnings` are useful checks, but the tree is not always baseline-clean outside the code you are touching.
+
+## Environment-Dependent Flows
+
+These require root and/or host setup:
 
 ```bash
-sudo ./test_e2e_bpf.sh    # requires BPF LSM kernel support
-sudo ./test_e2e_zfs.sh     # requires ZFS pool setup
-./build_docker_env.sh      # Docker multi-arch build environment
-./run_dev_env.sh           # ZFS + BPF dev container
+sudo ./test_e2e_bpf.sh
+sudo ./test_e2e_zfs.sh
+./build_docker_env.sh
+./run_dev_env.sh
+./scripts/build/build_release_rc.sh
 ```
 
 ## Platform Requirements
 
-- Kernel >= 6.11 (eBPF LSM)
+- Kernel >= 6.11 for the eBPF LSM flow
 - ZFS with `xattr=sa`
-- Root for loader/e2e flows
+- Root privileges for loader and end-to-end flows
 
-## Architecture
+## High-Level Architecture
+
+- `libl400/` owns object creation/deletion/copying, ZFS xattr helpers, PF/LF emulation over `sled`, and data queues.
+- `l400-ebpf-common/` centralizes policy/version constants and the valid Linux/400 object types.
+- `l400-ebpf/` enforces object-type policy in the kernel.
+- `l400-loader/` attaches the eBPF hooks and persists loader status for support/reporting flows.
+- `clc` and `c400c` both produce native Linux binaries and catalog them as `*PGM`.
+- `os400-tui/` provides the green-screen interface for workload and system views.
+
+## Key Conventions
 
 ### Object Types
 
-Authoritative boundary: `user.l400.objtype` xattr. Valid types in `l400-ebpf-common/src/lib.rs` (shared with eBPF).
+`user.l400.objtype` is the authoritative object-type boundary. If you add a new object type, update `l400-ebpf-common/src/lib.rs` because both `libl400` validation and the eBPF allowlist depend on it.
 
 ```rust
 pub const VALID_OBJ_TYPES: &[L400ObjType] = &[
@@ -76,17 +105,15 @@ pub const VALID_OBJ_TYPES: &[L400ObjType] = &[
 ];
 ```
 
-### Sled Tree Names
+### Runtime Storage Names
 
 - PF members: `"PF_MEMBER"`
 - LF secondary indexes: `"LF_IDX_<name>"`
 - Data queues: `"DTAQ"`
 
-### Workspace Note
+### Workspace Notes
 
-`cl_compiler/clc` links against top-level `libl400`, NOT `cl_compiler/libl400`.
-
-## eBPF-Specific
-
-- `l400-ebpf-common/` is `#![no_std]` - core types only
-- Loader expects: `../l400-ebpf/target/bpfel-unknown-none/release/l400-ebpf`
+- `cl_compiler/clc` links against the top-level `libl400`, not `cl_compiler/libl400`.
+- `l400-ebpf-common/` is `#![no_std]`; keep it limited to shared core types/constants.
+- `l400-loader` expects the compiled eBPF artifact at `../l400-ebpf/target/bpfel-unknown-none/release/l400-ebpf`.
+- Prefer paths relative to the current repo root. Some older scripts/docs still contain historical absolute paths.

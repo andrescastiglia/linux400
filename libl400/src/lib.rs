@@ -1,5 +1,5 @@
-mod bdb_native;
 pub mod auth;
+mod bdb_native;
 pub mod cgroup;
 pub mod db;
 pub mod dtaq;
@@ -20,7 +20,9 @@ pub use cgroup::{
     remove_job, set_cpu_priority, set_memory_limit, update_job_status, CgroupError, CgroupParams,
     WorkloadJob, WorkloadType,
 };
-pub use db::{create_lf, create_pf, DbError, LogicalFile, PhysicalFile};
+pub use db::{
+    create_lf, create_pf, run_select_query, DbError, LogicalFile, PhysicalFile, QueryResult,
+};
 pub use dtaq::{crtdtaq, DataQueue, DtaqError};
 pub use lam::{
     detect_hardware_mode, enable_for_platform, get_space_bits, is_lam_enabled, is_tagged_pointer,
@@ -28,8 +30,9 @@ pub use lam::{
 };
 pub use object::{
     catalog_object, copy_object, create_library, create_object, create_object_with_metadata,
-    delete_object, describe_object, ensure_library, list_objects, lookup_object,
-    open_object_direct, resolve_l400_root, L400Object, ObjectError,
+    create_source_member, delete_object, describe_object, ensure_library, list_libraries,
+    list_members, list_objects, lookup_object, member_path, open_object_direct, resolve_l400_root,
+    L400Object, ObjectError, SourceMemberInfo,
 };
 pub use runtime::{
     l400_run_dir, loader_status_path, read_loader_status, write_loader_status, LoaderStatus,
