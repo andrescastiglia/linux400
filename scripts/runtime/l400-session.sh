@@ -7,6 +7,10 @@ fallback_shell="/bin/sh"
 boot_mode=""
 run_dir="${L400_RUN_DIR:-/run/l400}"
 
+if [ "$#" -gt 0 ]; then
+    exec "${fallback_shell}" "$@"
+fi
+
 if [ -f "${run_dir}/boot-mode" ]; then
     boot_mode="$(cat "${run_dir}/boot-mode" 2>/dev/null || true)"
 fi

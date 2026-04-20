@@ -19,4 +19,10 @@ case "${boot_mode}" in
         ;;
 esac
 
+case "${tty_name}" in
+    /dev/ttyS*|/dev/ttyAMA*|/dev/hvc*)
+        login_user="root"
+        ;;
+esac
+
 exec /bin/busybox login -f "${login_user}"

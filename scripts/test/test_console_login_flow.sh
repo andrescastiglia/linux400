@@ -34,7 +34,10 @@ grep -q '^qsecofr:x:1000:1000:Linux/400 Security Officer:/home/qsecofr:/usr/loca
 grep -q '^qsecofr:' "${ROOTFS_DIR}/etc/shadow"
 grep -q 'l400-console-autologin' "${ROOTFS_DIR}/etc/inittab"
 grep -q 'exec /usr/local/bin/l400-installer' "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin"
+grep -q '/dev/ttyS\*|/dev/ttyAMA\*|/dev/hvc\*)' "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin"
+grep -q 'login_user="root"' "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin"
 grep -q 'exec /usr/local/bin/l400-session' "${ROOTFS_DIR}/home/qsecofr/.profile"
+grep -q 'exec "${fallback_shell}" "\$@"' "${ROOTFS_DIR}/usr/local/bin/l400-session"
 test -x "${ROOTFS_DIR}/usr/local/bin/l400-installer"
 
 echo "PASS: la ISO/live queda configurada para login TUI en live y para instalador en modo install."
