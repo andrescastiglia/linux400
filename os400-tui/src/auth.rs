@@ -3,6 +3,8 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
 use std::{fs, io};
 
+use sha_crypt::{PasswordVerifier, ShaCrypt};
+
 pub const DEFAULT_SIGNON_USER: &str = "QSECOFR";
 pub const DEFAULT_SIGNON_PASSWORD: &str = "l400";
 
@@ -190,6 +192,12 @@ fn shadow_hash_is_usable(hash: &str) -> bool {
 }
 
 fn verify_password_against_shadow_hash(password: &str, shadow_hash: &str) -> bool {
+    if shadow_hash.starts_with("$5$") || shadow_hash.starts_with("$6$") {
+        return ShaCrypt::default()
+            .verify_password(password.as_bytes(), shadow_hash)
+            .is_ok();
+    }
+
     let crypt = match load_crypt() {
         Ok(crypt) => crypt,
         Err(()) => return false,
