@@ -176,27 +176,31 @@ EOF
     fi
 }
 
-ensure_user_l400() {
+ensure_default_user() {
     local passwd_file="${ROOTFS_DIR}/etc/passwd"
     local shadow_file="${ROOTFS_DIR}/etc/shadow"
     local group_file="${ROOTFS_DIR}/etc/group"
     local session_shell="/usr/local/bin/l400-session"
+    local default_user="qsecofr"
 
-    mkdir -p "${ROOTFS_DIR}/home/l400"
+    mkdir -p "${ROOTFS_DIR}/home/${default_user}"
 
-    grep -q '^l400:' "${group_file}" 2>/dev/null || \
-        echo 'l400:x:1000:' >> "${group_file}"
+    sed -i '/^l400:/d' "${group_file}" 2>/dev/null || true
+    grep -q "^${default_user}:" "${group_file}" 2>/dev/null || \
+        echo "${default_user}:x:1000:" >> "${group_file}"
 
-    if grep -q '^l400:' "${passwd_file}" 2>/dev/null; then
-        sed -i "s#^l400:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:.*#l400:x:1000:1000:Linux/400 User:/home/l400:${session_shell}#" \
+    sed -i '/^l400:/d' "${passwd_file}" 2>/dev/null || true
+    if grep -q "^${default_user}:" "${passwd_file}" 2>/dev/null; then
+        sed -i "s#^${default_user}:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:.*#${default_user}:x:1000:1000:Linux/400 Security Officer:/home/${default_user}:${session_shell}#" \
             "${passwd_file}"
     else
-        echo "l400:x:1000:1000:Linux/400 User:/home/l400:${session_shell}" >> "${passwd_file}"
+        echo "${default_user}:x:1000:1000:Linux/400 Security Officer:/home/${default_user}:${session_shell}" >> "${passwd_file}"
     fi
 
-    if ! grep -q '^l400:' "${shadow_file}" 2>/dev/null; then
+    sed -i '/^l400:/d' "${shadow_file}" 2>/dev/null || true
+    if ! grep -q "^${default_user}:" "${shadow_file}" 2>/dev/null; then
         # Password por defecto: l400
-        echo 'l400:$5$Tb0gqvL3IrC3D4Qx$4xrkxXHqP5cW5M6E1x2hMUPi8JjGCVr8K8Qm7N8Hj7/:20000:0:99999:7:::' >> "${shadow_file}"
+        echo "${default_user}:\$5\$Tb0gqvL3IrC3D4Qx\$4xrkxXHqP5cW5M6E1x2hMUPi8JjGCVr8K8Qm7N8Hj7/:20000:0:99999:7:::" >> "${shadow_file}"
     fi
 }
 
@@ -231,6 +235,7 @@ install_userspace() {
 
     cp "${RUNTIME_DIR}/l400-session.sh" "${ROOTFS_DIR}/usr/local/bin/l400-session"
     cp "${RUNTIME_DIR}/l400-console-autologin.sh" "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin"
+    cp "${RUNTIME_DIR}/l400-installer.sh" "${ROOTFS_DIR}/usr/local/bin/l400-installer"
     cp "${RUNTIME_DIR}/l400-support-report.sh" "${ROOTFS_DIR}/usr/local/bin/l400-support-report"
     cp "${RUNTIME_DIR}/install_linux400.sh" "${ROOTFS_DIR}/usr/local/sbin/install-linux400"
 
@@ -239,6 +244,7 @@ install_userspace() {
     chmod +x \
         "${ROOTFS_DIR}/usr/local/bin/l400-session" \
         "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin" \
+        "${ROOTFS_DIR}/usr/local/bin/l400-installer" \
         "${ROOTFS_DIR}/usr/local/bin/l400-support-report" \
         "${ROOTFS_DIR}/usr/local/sbin/install-linux400"
 
@@ -265,7 +271,7 @@ export LIBRARY_PATH="/lib/l400${LIBRARY_PATH:+:$LIBRARY_PATH}"
 export LD_LIBRARY_PATH="/lib/l400${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 EOF
 
-    cat > "${ROOTFS_DIR}/home/l400/.profile" <<'EOF'
+    cat > "${ROOTFS_DIR}/home/qsecofr/.profile" <<'EOF'
 if [ -f /etc/profile ]; then
     . /etc/profile
 fi
@@ -275,7 +281,8 @@ EOF
 
     cat > "${ROOTFS_DIR}/etc/motd" <<'EOF'
 Linux/400 Live Environment
-- Usuario por defecto: l400 / l400
+- Usuario por defecto: qsecofr / l400
+- Menu ISO "Install": instalador textual al disco
 - Instalación a disco: install-linux400 /dev/sdX
 EOF
 
@@ -324,7 +331,7 @@ main() {
     maybe_install_extra_packages
     install_host_disk_tools_fallback
     install_host_mtools_fallback
-    ensure_user_l400
+    ensure_default_user
     install_userspace
     configure_shell_environment
     configure_console_login

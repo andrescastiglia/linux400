@@ -128,7 +128,7 @@ impl CommandLine {
                     Some(ScreenResult::none())
                 }
             }
-            "SIGNOFF" => Some(ScreenResult::exit()),
+            "SIGNOFF" => Some(ScreenResult::goto(ScreenId::SignOn)),
             "STRPDM" => Some(ScreenResult::goto(ScreenId::PdmBrowser)),
             "STRSQL" => Some(ScreenResult::goto(ScreenId::StrSql)),
             "WRKMBRPDM" => {
@@ -370,5 +370,20 @@ impl CommandLine {
 impl Default for CommandLine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signoff_returns_to_signon_screen() {
+        let mut cmd = CommandLine::new();
+        cmd.command = "SIGNOFF".to_string();
+
+        let result = cmd.execute_command();
+
+        assert_eq!(result.next, Some(ScreenId::SignOn));
     }
 }

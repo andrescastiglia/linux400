@@ -13,13 +13,19 @@ use crate::style::*;
 pub struct MainMenu {
     selected_index: usize,
     pending_option: String,
+    current_user: String,
 }
 
 impl MainMenu {
     pub fn new() -> Self {
+        Self::with_user(None)
+    }
+
+    pub fn with_user(user: Option<String>) -> Self {
         Self {
             selected_index: 0,
             pending_option: String::new(),
+            current_user: user.unwrap_or_else(|| "QSECOFR".to_string()),
         }
     }
 
@@ -135,7 +141,7 @@ impl Screen for MainMenu {
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
         match key.code {
-            KeyCode::F(3) => ScreenResult::exit(),
+            KeyCode::F(3) => ScreenResult::goto(ScreenId::SignOn),
             KeyCode::F(4) => {
                 self.pending_option.clear();
                 ScreenResult::goto(ScreenId::CommandLine)
@@ -189,6 +195,9 @@ impl MainMenu {
             Line::from(vec![
                 "System: ".into(),
                 "L400   ".into(),
+                "User: ".into(),
+                self.current_user.clone().into(),
+                "   ".into(),
                 "Library: ".into(),
                 "QSYS   ".into(),
                 "Selection: ".into(),
@@ -231,7 +240,7 @@ impl MainMenu {
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
         let help_text = Line::from(vec![
-            "F3=Exit   ".into(),
+            "F3=Signoff   ".into(),
             "F4=Prompt   ".into(),
             "F12=Cancel   ".into(),
             "Enter=Select".into(),
@@ -306,10 +315,10 @@ mod tests {
     }
 
     #[test]
-    fn f3_exits_menu() {
+    fn f3_signs_off_to_login() {
         let mut menu = MainMenu::new();
         let result = menu.handle_key(key(KeyCode::F(3)));
-        assert_eq!(result.next, Some(ScreenId::Exit));
+        assert_eq!(result.next, Some(ScreenId::SignOn));
     }
 
     #[test]

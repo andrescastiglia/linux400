@@ -3,6 +3,7 @@ pub mod dtaq_viewer;
 pub mod main_menu;
 pub mod object_browser;
 pub mod pdm_browser;
+pub mod sign_on;
 pub mod str_seu;
 pub mod str_sql;
 pub mod work_mgmt;
@@ -13,6 +14,7 @@ use ratatui::Frame;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScreenId {
+    SignOn,
     MainMenu,
     WorkManagement,
     ObjectBrowser,

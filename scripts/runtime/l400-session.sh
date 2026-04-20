@@ -1,5 +1,5 @@
 #!/bin/sh
-# l400-session.sh - Lanza la TUI por defecto para sesiones interactivas del usuario l400
+# l400-session.sh - Lanza la TUI por defecto para sesiones interactivas del usuario qsecofr
 
 set -eu
 

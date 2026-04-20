@@ -7,6 +7,7 @@ use crate::screens::dtaq_viewer::DataQueueViewer;
 use crate::screens::main_menu::MainMenu;
 use crate::screens::object_browser::ObjectBrowser;
 use crate::screens::pdm_browser::PdmBrowser;
+use crate::screens::sign_on::SignOnScreen;
 use crate::screens::str_seu::StrSeu;
 use crate::screens::str_sql::StrSql;
 use crate::screens::work_mgmt::WorkManagement;
@@ -18,15 +19,17 @@ pub struct App {
     current_screen_id: ScreenId,
     should_exit: bool,
     previous_screen: Option<ScreenId>,
+    session_user: Option<String>,
 }
 
 impl App {
     pub fn new() -> Self {
         Self {
-            current_screen: Box::new(MainMenu::new()),
-            current_screen_id: ScreenId::MainMenu,
+            current_screen: Box::new(SignOnScreen::new()),
+            current_screen_id: ScreenId::SignOn,
             should_exit: false,
             previous_screen: None,
+            session_user: None,
         }
     }
 
@@ -76,10 +79,19 @@ impl App {
     fn switch_screen(&mut self, next: ScreenId, data: Option<String>) {
         let origin = self.current_screen_id;
         self.previous_screen = Some(origin);
+        if next == ScreenId::SignOn {
+            self.session_user = None;
+        }
+        if next == ScreenId::MainMenu {
+            if let Some(user) = data.clone() {
+                self.session_user = Some(user);
+            }
+        }
         self.current_screen_id = next;
 
         self.current_screen = match next {
-            ScreenId::MainMenu => Box::new(MainMenu::new()),
+            ScreenId::SignOn => Box::new(SignOnScreen::new()),
+            ScreenId::MainMenu => Box::new(MainMenu::with_user(self.session_user.clone())),
             ScreenId::WorkManagement => Box::new(WorkManagement::new()),
             ScreenId::ObjectBrowser => Box::new(ObjectBrowser::new()),
             ScreenId::DataQueueViewer => Box::new(DataQueueViewer::new()),
@@ -115,7 +127,7 @@ impl App {
             }
             ScreenId::Exit => {
                 self.should_exit = true;
-                Box::new(MainMenu::new())
+                Box::new(MainMenu::with_user(self.session_user.clone()))
             }
         };
     }

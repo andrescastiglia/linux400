@@ -94,6 +94,10 @@ cargo run -p os400-tui
 
 Dentro de la TUI:
 
+- La sesión ahora arranca con una pantalla de sign-on estilo OS/400.
+- Usuario inicial sugerido: `qsecofr`
+- Password inicial del entorno live/install: `l400`
+
 - En el menú principal, `7` abre `STRPDM`.
 - En la línea de comandos, se reconocen `STRPDM`, `STRSEU`, `STRSQL` y `WRKMBRPDM`.
 - `STRSEU` permite guardar cambios sobre miembros para luego recompilarlos con `clc`.

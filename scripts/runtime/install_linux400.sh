@@ -332,8 +332,9 @@ EOF
         fi
     fi
 
-    mkdir -p "${TARGET_MNT}/home/l400"
-    chown -R 1000:1000 "${TARGET_MNT}/home/l400" 2>/dev/null || true
+    rm -rf "${TARGET_MNT}/home/l400" 2>/dev/null || true
+    mkdir -p "${TARGET_MNT}/home/qsecofr"
+    chown -R 1000:1000 "${TARGET_MNT}/home/qsecofr" 2>/dev/null || true
 }
 
 cleanup_mounts() {

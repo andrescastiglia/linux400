@@ -2,7 +2,7 @@
 # l400-console-autologin.sh - Login automático para consola Linux/400
 
 tty_name="$(/bin/busybox tty 2>/dev/null || true)"
-login_user="l400"
+login_user="qsecofr"
 boot_mode=""
 run_dir="${L400_RUN_DIR:-/run/l400}"
 
@@ -11,6 +11,9 @@ if [ -f "${run_dir}/boot-mode" ]; then
 fi
 
 case "${boot_mode}" in
+    install)
+        exec /usr/local/bin/l400-installer
+        ;;
     rescue)
         login_user="root"
         ;;
