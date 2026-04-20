@@ -710,6 +710,7 @@ name = "l400"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "clap",
  "l400-ebpf-common",
  "libc",
  "rustix 0.38.44",

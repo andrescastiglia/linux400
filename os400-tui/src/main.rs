@@ -5,7 +5,7 @@ use crossterm::{
 };
 use l400::{
     assign_to_workload, create_l400_slices, register_current_job, remove_job, update_job_status,
-    WorkloadType,
+    WorkloadType, cgroup::JobStatus,
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
@@ -17,7 +17,7 @@ fn main() -> Result<()> {
     let _ = register_current_job(
         "OS400-TUI",
         WorkloadType::Interactive,
-        "ACTIVE",
+        JobStatus::Active,
         "os400-tui",
     );
     let pid = std::process::id() as u64;
@@ -25,7 +25,7 @@ fn main() -> Result<()> {
     let mut terminal = setup_terminal()?;
     let result = run_app(&mut terminal);
     restore_terminal()?;
-    let _ = update_job_status(pid, "COMPLETED");
+    let _ = update_job_status(pid, JobStatus::Completed);
     let _ = remove_job(pid);
     result
 }

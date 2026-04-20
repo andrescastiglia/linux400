@@ -12,7 +12,7 @@ use core::ffi::c_void;
 use l400_ebpf_common::{
     L400_POLICY_VERSION, STAT_DENIED_INVALID_TAG, STAT_EXEC_ALLOWED_NATIVE, STAT_EXEC_ALLOWED_PGM,
     STAT_EXEC_CHECK_ALLOWED, STAT_EXEC_CHECK_DENIED, STAT_EXEC_DECISION_MISSING,
-    STAT_EXEC_DENIED_WRONG_TYPE, STAT_OBJTYPE_BASE, STAT_OPEN_ALLOWED, VALID_OBJ_TYPES,
+    STAT_EXEC_DENIED_WRONG_TYPE, STAT_EXEC_DENIED_INVALID_FORMAT, STAT_EXEC_DENIED_EXCLUDE, STAT_OBJTYPE_BASE, STAT_OPEN_ALLOWED, VALID_OBJ_TYPES,
 };
 
 #[map(name = "L400_STATS")]
@@ -54,6 +54,8 @@ const EXEC_ALLOW_NATIVE: u32 = 1;
 const EXEC_ALLOW_PGM: u32 = 2;
 const EXEC_DENY_INVALID_TAG: u32 = 3;
 const EXEC_DENY_WRONG_TYPE: u32 = 4;
+const EXEC_DENY_INVALID_FORMAT: u32 = 5;
+const EXEC_DENY_EXCLUDE: u32 = 6;
 
 enum ObjTypeLookup {
     Untagged,
@@ -92,6 +94,91 @@ fn lookup_file_objtype(file: *mut c_void) -> ObjTypeLookup {
     }
 
     ObjTypeLookup::Invalid
+}
+
+fn lookup_file_objattr(file: *mut c_void) -> bool {
+    let attr_name = b"user.l400.objattr\0";
+    let mut attr_value: [u8; 16] = [0; 16];
+    let mut dynptr = bpf_dynptr { val: [0, 0] };
+
+    let err = unsafe {
+        bpf_dynptr_from_mem(
+            attr_value.as_mut_ptr() as *mut c_void,
+            attr_value.len() as u32,
+            0,
+            &mut dynptr as *mut bpf_dynptr,
+        )
+    };
+    if err != 0 {
+        return false;
+    }
+
+    let err =
+        unsafe { bpf_get_file_xattr(file, attr_name.as_ptr(), &mut dynptr as *mut bpf_dynptr) };
+    if err < 0 {
+        return false;
+    }
+
+    if err == 1 && attr_value[0] == b'C' {
+        return true;
+    }
+    if err == 2 && attr_value[0] == b'C' && attr_value[1] == b'L' {
+        return true;
+    }
+    
+    // Also handle null-terminated strings just in case
+    if attr_value[0] == b'C' && attr_value[1] == 0 {
+        return true;
+    }
+    if attr_value[0] == b'C' && attr_value[1] == b'L' && attr_value[2] == 0 {
+        return true;
+    }
+
+    false
+}
+
+fn lookup_file_public_auth_exclude(file: *mut c_void) -> bool {
+    let attr_name = b"user.l400.auth\0";
+    let mut attr_value: [u8; 128] = [0; 128];
+    let mut dynptr = bpf_dynptr { val: [0, 0] };
+
+    let err = unsafe {
+        bpf_dynptr_from_mem(
+            attr_value.as_mut_ptr() as *mut c_void,
+            attr_value.len() as u32,
+            0,
+            &mut dynptr as *mut bpf_dynptr,
+        )
+    };
+    if err != 0 {
+        return false;
+    }
+
+    let err =
+        unsafe { bpf_get_file_xattr(file, attr_name.as_ptr(), &mut dynptr as *mut bpf_dynptr) };
+    if err < 0 {
+        return false;
+    }
+
+    let len = err as usize;
+    if len > 128 {
+        return false;
+    }
+
+    let target = b"*PUBLIC:*EXCLUDE";
+    let target2 = b"*PUBLIC:EXCLUDE";
+
+    // Substring search
+    for i in 0..len {
+        if i + target.len() <= len && &attr_value[i..i+target.len()] == target {
+            return true;
+        }
+        if i + target2.len() <= len && &attr_value[i..i+target2.len()] == target2 {
+            return true;
+        }
+    }
+
+    false
 }
 
 #[lsm(hook = "file_open", sleepable)]
@@ -160,12 +247,28 @@ fn try_bprm_creds_from_file(ctx: LsmContext) -> Result<i32, i32> {
         ObjTypeLookup::Known(prefix, index) => {
             inc_stat(STAT_OBJTYPE_BASE + index as u32);
             if prefix == *b"*PGM" {
-                inc_stat(STAT_EXEC_ALLOWED_PGM);
-                info!(
-                    &ctx,
-                    "Policy {}: ejecución permitida para objeto *PGM", L400_POLICY_VERSION
-                );
-                EXEC_ALLOW_PGM
+                if lookup_file_public_auth_exclude(file) {
+                    inc_stat(STAT_EXEC_DENIED_EXCLUDE);
+                    warn!(
+                        &ctx,
+                        "Policy {}: ejecución denegada por *PUBLIC:*EXCLUDE", L400_POLICY_VERSION
+                    );
+                    EXEC_DENY_EXCLUDE
+                } else if lookup_file_objattr(file) {
+                    inc_stat(STAT_EXEC_ALLOWED_PGM);
+                    info!(
+                        &ctx,
+                        "Policy {}: ejecución permitida para objeto *PGM nativo", L400_POLICY_VERSION
+                    );
+                    EXEC_ALLOW_PGM
+                } else {
+                    inc_stat(STAT_EXEC_DENIED_INVALID_FORMAT);
+                    warn!(
+                        &ctx,
+                        "Policy {}: ejecución denegada, el *PGM no tiene firma de toolchain válida", L400_POLICY_VERSION
+                    );
+                    EXEC_DENY_INVALID_FORMAT
+                }
             } else {
                 inc_stat(STAT_EXEC_DENIED_WRONG_TYPE);
                 warn!(
@@ -189,7 +292,7 @@ fn try_bprm_creds_from_file(ctx: LsmContext) -> Result<i32, i32> {
 
     match decision {
         EXEC_ALLOW_NATIVE | EXEC_ALLOW_PGM => Ok(0),
-        EXEC_DENY_INVALID_TAG | EXEC_DENY_WRONG_TYPE => Err(EACCES),
+        EXEC_DENY_INVALID_TAG | EXEC_DENY_WRONG_TYPE | EXEC_DENY_INVALID_FORMAT | EXEC_DENY_EXCLUDE => Err(EACCES),
         _ => Ok(0),
     }
 }
@@ -211,7 +314,7 @@ pub fn bprm_check_security(ctx: LsmContext) -> i32 {
                 );
                 0
             }
-            EXEC_DENY_INVALID_TAG | EXEC_DENY_WRONG_TYPE => {
+            EXEC_DENY_INVALID_TAG | EXEC_DENY_WRONG_TYPE | EXEC_DENY_INVALID_FORMAT | EXEC_DENY_EXCLUDE => {
                 inc_stat(STAT_EXEC_CHECK_DENIED);
                 warn!(
                     &ctx,

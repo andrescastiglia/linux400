@@ -1,11 +1,15 @@
 mod bdb_native;
+pub mod auth;
 pub mod cgroup;
 pub mod db;
 pub mod dtaq;
+pub mod ffi;
 pub mod lam;
 pub mod object;
 pub mod runtime;
+pub mod space;
 pub mod storage;
+pub mod usrprf;
 pub mod util;
 pub mod zfs;
 

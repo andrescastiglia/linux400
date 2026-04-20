@@ -12,6 +12,8 @@ pub const STAT_EXEC_DENIED_WRONG_TYPE: u32 = 4;
 pub const STAT_EXEC_DECISION_MISSING: u32 = 5;
 pub const STAT_EXEC_CHECK_ALLOWED: u32 = 6;
 pub const STAT_EXEC_CHECK_DENIED: u32 = 7;
+pub const STAT_EXEC_DENIED_INVALID_FORMAT: u32 = 8;
+pub const STAT_EXEC_DENIED_EXCLUDE: u32 = 9;
 pub const STAT_OBJTYPE_BASE: u32 = 16;
 
 #[derive(Copy, Clone)]

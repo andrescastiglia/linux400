@@ -22,87 +22,39 @@ pub struct WorkManagement {
     jobs: Vec<JobInfo>,
     state: TableState,
     scroll_offset: usize,
-    using_runtime_data: bool,
 }
 
 impl WorkManagement {
     pub fn new() -> Self {
-        let (jobs, using_runtime_data) = Self::load_jobs();
+        let jobs = Self::load_jobs();
         Self {
             jobs,
             state: TableState::default(),
             scroll_offset: 0,
-            using_runtime_data,
         }
     }
 
-    fn fallback_jobs() -> Vec<JobInfo> {
-        vec![
-            JobInfo {
-                name: "QINTER".to_string(),
-                user: "QSYS".to_string(),
-                type_: "INTERACT".to_string(),
-                status: "ACTIVE".to_string(),
-                subsystem: "QINTER".to_string(),
-            },
-            JobInfo {
-                name: "QCMD".to_string(),
-                user: "QSYS".to_string(),
-                type_: "INTERACT".to_string(),
-                status: "ACTIVE".to_string(),
-                subsystem: "QINTER".to_string(),
-            },
-            JobInfo {
-                name: "QP0ZSPWT".to_string(),
-                user: "QSYS".to_string(),
-                type_: "SYS".to_string(),
-                status: "ACTIVE".to_string(),
-                subsystem: "QSYSWRK".to_string(),
-            },
-            JobInfo {
-                name: "QDBSRV01".to_string(),
-                user: "QSYS".to_string(),
-                type_: "BATCH".to_string(),
-                status: "JOBQ".to_string(),
-                subsystem: "QBATCH".to_string(),
-            },
-            JobInfo {
-                name: "QDOCSRV".to_string(),
-                user: "QSYS".to_string(),
-                type_: "BATCH".to_string(),
-                status: "ACTIVE".to_string(),
-                subsystem: "QBATCH".to_string(),
-            },
-        ]
-    }
-
-    fn load_jobs() -> (Vec<JobInfo>, bool) {
+    fn load_jobs() -> Vec<JobInfo> {
         if let Ok(jobs) = list_jobs() {
-            if !jobs.is_empty() {
-                let mapped = jobs
-                    .into_iter()
-                    .map(|job| JobInfo {
-                        name: job.name,
-                        user: job.user,
-                        type_: match job.workload {
-                            l400::WorkloadType::Interactive => "INTERACT".to_string(),
-                            l400::WorkloadType::Batch => "BATCH".to_string(),
-                        },
-                        status: job.status,
-                        subsystem: job.subsystem,
-                    })
-                    .collect::<Vec<_>>();
-                return (mapped, true);
-            }
+            return jobs
+                .into_iter()
+                .map(|job| JobInfo {
+                    name: job.name,
+                    user: job.user,
+                    type_: match job.workload {
+                        l400::WorkloadType::Interactive => "INTERACT".to_string(),
+                        l400::WorkloadType::Batch => "BATCH".to_string(),
+                    },
+                    status: job.status.to_string(),
+                    subsystem: job.subsystem,
+                })
+                .collect();
         }
-
-        (Self::fallback_jobs(), false)
+        Vec::new()
     }
 
     fn refresh(&mut self) {
-        let (jobs, using_runtime_data) = Self::load_jobs();
-        self.jobs = jobs;
-        self.using_runtime_data = using_runtime_data;
+        self.jobs = Self::load_jobs();
     }
 }
 
@@ -173,11 +125,7 @@ impl WorkManagement {
 
         frame.render_widget(block, area);
 
-        let source = if self.using_runtime_data {
-            "Runtime workloads"
-        } else {
-            "Bundled sample"
-        };
+        let source = "Runtime workloads";
         let lines: Vec<Line> = vec![
             Line::from(vec![format!(
                 "Source: {}. Type options, press Enter.",

@@ -17,6 +17,8 @@ pub struct ObjectInfo {
     pub type_: String,
     pub attribute: String,
     pub text: String,
+    pub owner: String,
+    pub public_auth: String,
 }
 
 pub struct ObjectBrowser {
@@ -46,6 +48,8 @@ impl ObjectBrowser {
                     type_: "*PGM".to_string(),
                     attribute: "CL".to_string(),
                     text: "Command processing program".to_string(),
+                    owner: "QSYS".to_string(),
+                    public_auth: "*USE".to_string(),
                 },
                 ObjectInfo {
                     library: "QSYS".to_string(),
@@ -53,6 +57,8 @@ impl ObjectBrowser {
                     type_: "*FILE".to_string(),
                     attribute: "PF".to_string(),
                     text: "Physical file".to_string(),
+                    owner: "QSYS".to_string(),
+                    public_auth: "*USE".to_string(),
                 },
                 ObjectInfo {
                     library: "QSYS".to_string(),
@@ -60,6 +66,8 @@ impl ObjectBrowser {
                     type_: "*FILE".to_string(),
                     attribute: "LF".to_string(),
                     text: "Source file".to_string(),
+                    owner: "QSYS".to_string(),
+                    public_auth: "*USE".to_string(),
                 },
                 ObjectInfo {
                     library: "QSYS".to_string(),
@@ -67,6 +75,8 @@ impl ObjectBrowser {
                     type_: "*PGM".to_string(),
                     attribute: "RPG".to_string(),
                     text: "Send to data queue".to_string(),
+                    owner: "QSYS".to_string(),
+                    public_auth: "*USE".to_string(),
                 },
                 ObjectInfo {
                     library: "QSYS".to_string(),
@@ -74,6 +84,8 @@ impl ObjectBrowser {
                     type_: "*SRVPGM".to_string(),
                     attribute: "C".to_string(),
                     text: "Command execution".to_string(),
+                    owner: "QSYS".to_string(),
+                    public_auth: "*USE".to_string(),
                 },
             ],
             _ => vec![ObjectInfo {
@@ -82,6 +94,8 @@ impl ObjectBrowser {
                 type_: "*PGM".to_string(),
                 attribute: "C".to_string(),
                 text: "Test program".to_string(),
+                owner: "L400".to_string(),
+                public_auth: "*ALL".to_string(),
             }],
         }
     }
@@ -97,6 +111,8 @@ impl ObjectBrowser {
                     type_: object.objtype,
                     attribute: object.attribute.unwrap_or_else(|| "-".to_string()),
                     text: object.text.unwrap_or_default(),
+                    owner: object.owner.unwrap_or_else(|| "UNKNOWN".to_string()),
+                    public_auth: object.public_auth.unwrap_or_else(|| "*NONE".to_string()),
                 })
                 .collect::<Vec<_>>();
             return (mapped, true);
@@ -186,7 +202,7 @@ impl ObjectBrowser {
                 source_label
             )
             .into()]),
-            Line::from(vec!["Opt  Object      Type      Attribute   Text".into()]),
+            Line::from(vec!["Opt  Object      Type      Attribute   Owner       *PUBLIC   Text".into()]),
         ];
         let text = Text::from(lines);
 
@@ -195,8 +211,8 @@ impl ObjectBrowser {
     }
 
     fn render_objects(&mut self, frame: &mut Frame, area: Rect) {
-        let header = ["", "Object", "Type", "Attribute", "Text"];
-        let widths = [4u16, 16, 10, 10, 30];
+        let header = ["", "Object", "Type", "Attribute", "Owner", "*PUBLIC", "Text"];
+        let widths = [4u16, 12, 10, 10, 12, 10, 20];
 
         let rows: Vec<Row> = self
             .objects
@@ -207,6 +223,8 @@ impl ObjectBrowser {
                     obj.name.clone(),
                     obj.type_.clone(),
                     obj.attribute.clone(),
+                    obj.owner.clone(),
+                    obj.public_auth.clone(),
                     obj.text.clone(),
                 ])
             })

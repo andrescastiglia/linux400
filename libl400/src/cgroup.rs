@@ -25,6 +25,39 @@ pub enum WorkloadType {
     Batch,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobStatus {
+    JobQ,
+    Active,
+    Completed,
+    Failed,
+}
+
+impl std::fmt::Display for JobStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JobStatus::JobQ => write!(f, "JOBQ"),
+            JobStatus::Active => write!(f, "ACTIVE"),
+            JobStatus::Completed => write!(f, "COMPLETED"),
+            JobStatus::Failed => write!(f, "FAILED"),
+        }
+    }
+}
+
+impl std::str::FromStr for JobStatus {
+    type Err = CgroupError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "JOBQ" => Ok(JobStatus::JobQ),
+            "ACTIVE" => Ok(JobStatus::Active),
+            "COMPLETED" => Ok(JobStatus::Completed),
+            "FAILED" => Ok(JobStatus::Failed),
+            _ => Err(CgroupError::InvalidJob(format!("invalid status: {}", s))),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct CgroupParams {
     pub cpu_weight: u64,
@@ -41,7 +74,7 @@ pub struct WorkloadJob {
     pub name: String,
     pub user: String,
     pub workload: WorkloadType,
-    pub status: String,
+    pub status: JobStatus,
     pub subsystem: String,
     pub command: String,
 }
@@ -127,7 +160,7 @@ fn write_job_at(
     name: &str,
     user: &str,
     workload: WorkloadType,
-    status: &str,
+    status: JobStatus,
     command: &str,
 ) -> Result<(), CgroupError> {
     let registry = job_registry_path(base);
@@ -141,8 +174,11 @@ fn write_job_at(
     Ok(())
 }
 
-fn update_job_status_at(base: &Path, pid: u64, status: &str) -> Result<(), CgroupError> {
+fn update_job_status_at(base: &Path, pid: u64, status: JobStatus) -> Result<(), CgroupError> {
     let path = job_file(base, pid);
+    if !path.exists() {
+        return Err(CgroupError::InvalidJob(format!("job {} not found", pid)));
+    }
     let content = std::fs::read_to_string(&path)?;
     let mut updated = false;
     let mut lines = Vec::new();
@@ -178,7 +214,7 @@ fn parse_job(content: &str) -> Result<WorkloadJob, CgroupError> {
                 "name" => name = Some(value.to_string()),
                 "user" => user = Some(value.to_string()),
                 "workload" => workload = Some(workload_from_name(value)?),
-                "status" => status = Some(value.to_string()),
+                "status" => status = value.parse().ok(),
                 "subsystem" => subsystem = Some(value.to_string()),
                 "command" => command = Some(value.to_string()),
                 _ => {}
@@ -213,10 +249,13 @@ fn list_jobs_at(base: &Path) -> Result<Vec<WorkloadJob>, CgroupError> {
         }
         let content = std::fs::read_to_string(&path)?;
         let job = parse_job(&content)?;
-        if PathBuf::from(format!("/proc/{}", job.pid)).exists() || job.status != "ACTIVE" {
+        if PathBuf::from(format!("/proc/{}", job.pid)).exists() || job.status != JobStatus::Active {
             jobs.push(job);
         } else {
-            let _ = std::fs::remove_file(path);
+            let mut failed_job = job.clone();
+            failed_job.status = JobStatus::Failed;
+            let _ = update_job_status_at(base, failed_job.pid, JobStatus::Failed);
+            jobs.push(failed_job);
         }
     }
     jobs.sort_by(|left, right| left.pid.cmp(&right.pid));
@@ -318,7 +357,7 @@ pub fn register_job(
     name: &str,
     user: &str,
     workload: WorkloadType,
-    status: &str,
+    status: JobStatus,
     command: &str,
 ) -> Result<(), CgroupError> {
     write_job_at(&l400_run_dir(), pid, name, user, workload, status, command)
@@ -327,7 +366,7 @@ pub fn register_job(
 pub fn register_current_job(
     name: &str,
     workload: WorkloadType,
-    status: &str,
+    status: JobStatus,
     command: &str,
 ) -> Result<u64, CgroupError> {
     let pid = std::process::id() as u64;
@@ -335,7 +374,7 @@ pub fn register_current_job(
     Ok(pid)
 }
 
-pub fn update_job_status(pid: u64, status: &str) -> Result<(), CgroupError> {
+pub fn update_job_status(pid: u64, status: JobStatus) -> Result<(), CgroupError> {
     update_job_status_at(&l400_run_dir(), pid, status)
 }
 
@@ -516,7 +555,7 @@ mod tests {
             "BATCHDEMO",
             "l400",
             WorkloadType::Batch,
-            "ACTIVE",
+            JobStatus::Active,
             "demo command",
         )
         .unwrap();
@@ -526,8 +565,8 @@ mod tests {
         assert_eq!(jobs[0].name, "BATCHDEMO");
         assert_eq!(jobs[0].subsystem, "QBATCH");
 
-        update_job_status_at(root.path(), pid, "COMPLETED").unwrap();
+        update_job_status_at(root.path(), pid, JobStatus::Completed).unwrap();
         let jobs = list_jobs_at(root.path()).unwrap();
-        assert_eq!(jobs[0].status, "COMPLETED");
+        assert_eq!(jobs[0].status, JobStatus::Completed);
     }
 }

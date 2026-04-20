@@ -1,6 +1,7 @@
 use l400::{
     assign_to_workload, create_l400_slices, list_jobs, register_current_job, register_job,
     remove_job, update_job_status, WorkloadType,
+    cgroup::JobStatus,
 };
 use std::process::{Command, Stdio};
 use std::thread;
@@ -19,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let interactive_pid = register_current_job(
         "WORKLOADDEMO",
         WorkloadType::Interactive,
-        "ACTIVE",
+        JobStatus::Active,
         "workload_demo",
     )?;
 
@@ -31,9 +32,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let batch_pid = child.id() as u64;
     let batch_status = if assign_to_workload(batch_pid, WorkloadType::Batch).is_ok() {
-        "ACTIVE"
+        JobStatus::Active
     } else {
-        "DEGRADED"
+        JobStatus::Failed
     };
     register_job(
         batch_pid,
@@ -54,12 +55,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let output = child.wait_with_output()?;
-    update_job_status(batch_pid, "COMPLETED")?;
+    update_job_status(batch_pid, JobStatus::Completed)?;
     println!("== Batch output ==");
     print!("{}", String::from_utf8_lossy(&output.stdout));
 
     let _ = remove_job(batch_pid);
-    let _ = update_job_status(interactive_pid, "COMPLETED");
+    let _ = update_job_status(interactive_pid, JobStatus::Completed);
     let _ = remove_job(interactive_pid);
     Ok(())
 }

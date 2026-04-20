@@ -31,10 +31,10 @@ fn extract_sndpgmmsg(command: &crate::ast::Command) -> Option<String> {
     None
 }
 
-fn generate_stub_c(source_path: &str, ast: &crate::ast::Program) -> String {
+fn generate_c_backend(source_path: &str, ast: &crate::ast::Program) -> String {
     let mut body = Vec::new();
     body.push(format!(
-        "puts(\"[clc] Executing CL stub compiled from {}\");",
+        "l400_sndpgmmsg(\"[clc] Executing CL program compiled from {}\");",
         source_path.replace('"', "\\\"")
     ));
 
@@ -44,10 +44,10 @@ fn generate_stub_c(source_path: &str, ast: &crate::ast::Program) -> String {
             "SNDPGMMSG" => {
                 let message = extract_sndpgmmsg(command)
                     .unwrap_or_else(|| "SNDPGMMSG without message".to_string());
-                body.push(format!("puts({});", escape_c_string(&message)));
+                body.push(format!("l400_sndpgmmsg({});", escape_c_string(&message)));
             }
             other => body.push(format!(
-                "puts({});",
+                "l400_sndpgmmsg({});",
                 escape_c_string(&format!(
                     "[clc] Unsupported CL command in v1 subset: {other}"
                 ))
@@ -56,11 +56,9 @@ fn generate_stub_c(source_path: &str, ast: &crate::ast::Program) -> String {
     }
 
     format!(
-        "#include <stdio.h>\n\nint main(void) {{\n    {}\n    return 0;\n}}\n",
+        "#include <stdio.h>\nextern void l400_sndpgmmsg(const char*);\n\nint main(void) {{\n    {}\n    return 0;\n}}\n",
         body.join("\n    ")
     )
-}
-
 impl Compiler {
     pub fn compile(source_path: &str, output_path: &str) -> Result<(), String> {
         // 1. Leer fuente CL
@@ -89,15 +87,15 @@ impl Compiler {
 
         #[cfg(not(feature = "llvm-backend"))]
         {
-            // Sin backend LLVM: emitir un stub de ELF vía shell-out a clang con IR vacío
-            println!("[WARN] Backend LLVM no habilitado. Emitiendo objeto stub ejecutable.");
+            // Sin backend LLVM: emitir código C nativo
+            println!(">> Emitiendo código nativo vía backend C.");
             use std::io::Write;
-            let c_stub = generate_stub_c(source_path, &ast);
-            let stub_c = format!("{}.stub.c", output_path);
+            let c_code = generate_c_backend(source_path, &ast);
+            let c_file = format!("{}.tmp.c", output_path);
             let mut f =
-                fs::File::create(&stub_c).map_err(|e| format!("Error creando stub C: {}", e))?;
-            f.write_all(c_stub.as_bytes())
-                .map_err(|e| format!("Error escribiendo stub: {}", e))?;
+                fs::File::create(&c_file).map_err(|e| format!("Error creando archivo C temporal: {}", e))?;
+            f.write_all(c_code.as_bytes())
+                .map_err(|e| format!("Error escribiendo archivo C: {}", e))?;
 
             let c_compiler = if std::process::Command::new("clang")
                 .arg("--version")
@@ -110,18 +108,19 @@ impl Compiler {
             };
 
             let status = std::process::Command::new(c_compiler)
-                .arg(&stub_c)
+                .arg(&c_file)
                 .arg("-c")
                 .arg("-o")
                 .arg(output_path)
                 .status()
                 .map_err(|e| format!("Error ejecutando {}: {}", c_compiler, e))?;
 
-            let _ = fs::remove_file(&stub_c);
+            let _ = fs::remove_file(&c_file);
 
             if !status.success() {
-                return Err(format!("{c_compiler} falló al compilar el stub"));
+                return Err(format!("{c_compiler} falló al compilar el backend C"));
             }
+
         }
 
         Ok(())
@@ -134,7 +133,7 @@ mod tests {
     use crate::ast::{Command, Parameter, Program, Value};
 
     #[test]
-    fn generate_stub_emits_sndpgmmsg_output() {
+    fn generate_c_backend_emits_sndpgmmsg_output() {
         let program = Program {
             commands: vec![
                 Command {
@@ -154,13 +153,14 @@ mod tests {
             ],
         };
 
-        let stub = generate_stub_c("demo.clp", &program);
-        assert!(stub.contains("Hola desde CL"));
-        assert!(stub.contains("Executing CL stub"));
+        let code = generate_c_backend("demo.clp", &program);
+        assert!(code.contains("Hola desde CL"));
+        assert!(code.contains("Executing CL program"));
+        assert!(code.contains("l400_sndpgmmsg"));
     }
 
     #[test]
-    fn generate_stub_marks_unsupported_commands() {
+    fn generate_c_backend_marks_unsupported_commands() {
         let program = Program {
             commands: vec![Command {
                 name: "DLTOBJ".to_string(),
@@ -168,7 +168,7 @@ mod tests {
             }],
         };
 
-        let stub = generate_stub_c("demo.clp", &program);
-        assert!(stub.contains("Unsupported CL command in v1 subset: DLTOBJ"));
+        let code = generate_c_backend("demo.clp", &program);
+        assert!(code.contains("Unsupported CL command in v1 subset: DLTOBJ"));
     }
 }

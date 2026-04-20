@@ -37,6 +37,8 @@ pub struct L400Object {
     pub objtype: String,
     pub attribute: Option<String>,
     pub text: Option<String>,
+    pub owner: Option<String>,
+    pub public_auth: Option<String>,
 }
 
 pub fn resolve_l400_root() -> PathBuf {
@@ -279,6 +281,17 @@ pub fn describe_object(path: &Path) -> Result<L400Object, ObjectError> {
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
+    let mut public_auth = None;
+    if let Ok(Some(raw)) = read_l400_attr(path, crate::auth::L400_AUTH_ATTR) {
+        for part in raw.split(',') {
+            if let Some(("*PUBLIC", perm)) = part.split_once(':') {
+                public_auth = Some(perm.to_string());
+            } else if let Some(("PUBLIC", perm)) = part.split_once(':') {
+                public_auth = Some(perm.to_string());
+            }
+        }
+    }
+
     Ok(L400Object {
         path: path.to_path_buf(),
         library: library_name_from_path(path),
@@ -286,6 +299,8 @@ pub fn describe_object(path: &Path) -> Result<L400Object, ObjectError> {
         objtype,
         attribute: read_l400_attr(path, L400_OBJATTR_ATTR)?,
         text: read_l400_attr(path, L400_TEXT_ATTR)?,
+        owner: read_l400_attr(path, L400_OWNER_ATTR)?,
+        public_auth,
     })
 }
 

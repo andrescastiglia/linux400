@@ -14,6 +14,7 @@ l400-ebpf-common = { path = "../l400-ebpf-common" }
 sled = "0.34"
 rustix = { version = "0.38", features = ["fs", "std"] }
 libc = "0.2"
+clap = { version = "4.0", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3"
