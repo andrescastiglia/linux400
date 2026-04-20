@@ -11,6 +11,8 @@ fi
 
 case "${boot_mode}" in
     install)
+        stty sane 2>/dev/null || true
+        export TERM="${TERM:-vt100}"
         exec /usr/local/bin/l400-installer
         ;;
     rescue)

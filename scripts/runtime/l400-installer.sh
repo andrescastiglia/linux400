@@ -8,6 +8,8 @@ export PATH
 
 fallback_shell="/bin/sh"
 
+trap '' INT QUIT TSTP
+
 if [ -n "${L400_INSTALLER_ACTIVE:-}" ]; then
     exec "${fallback_shell}"
 fi
@@ -24,7 +26,12 @@ if [ ! -t 0 ] || [ ! -t 1 ]; then
 fi
 
 clear_screen() {
-    printf '\033c'
+    printf '\033[2J\033[H'
+}
+
+prepare_terminal() {
+    stty sane 2>/dev/null || true
+    export TERM="${TERM:-vt100}"
 }
 
 list_disks() {
@@ -133,6 +140,7 @@ finish_menu() {
 main() {
     local disk=""
 
+    prepare_terminal
     disk="$(prompt_disk)"
     if ! confirm_install "${disk}"; then
         printf '\nInstalacion cancelada. Presione Enter para volver al selector...'

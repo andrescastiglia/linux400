@@ -204,7 +204,7 @@ ensure_default_user() {
     sed -i '/^l400:/d;/^root:/d' "${shadow_file}" 2>/dev/null || true
     if ! grep -q "^${default_user}:" "${shadow_file}" 2>/dev/null; then
         # Password por defecto: l400
-        echo "${default_user}:\$5\$Tb0gqvL3IrC3D4Qx\$4xrkxXHqP5cW5M6E1x2hMUPi8JjGCVr8K8Qm7N8Hj7/:20000:0:99999:7:::" >> "${shadow_file}"
+        echo "${default_user}:\$5\$0PUnB4kNAIWwK67r\$v3YFQYo9crkPTFaBSm69uMWk6RaAIaSsNrc2rvpwAd1:20000:0:99999:7:::" >> "${shadow_file}"
     fi
 }
 
