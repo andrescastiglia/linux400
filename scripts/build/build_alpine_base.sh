@@ -12,6 +12,27 @@ USERSPACE_DIR="${OUTPUT_DIR}/userspace"
 RUNTIME_DIR="${L400_SRC_DIR}/scripts/runtime"
 MINIROOT="alpine-minirootfs-${ALPINE_VERSION}.0-${ARCH}.tar.gz"
 MINIROOT_URL="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/releases/${ARCH}/${MINIROOT}"
+COMMAND_BINARIES=(
+    WRKSYSSTS
+    WRKACTJOB
+    WRKSYSVAL
+    DSPLOG
+    WRKUSRPRF
+    PWRDWNSYS
+    WRKOBJ
+    CRTLIB
+    DLTLIB
+    ADDLIBLE
+    CHGCURLIB
+    RNMOBJ
+    CRTPGM
+    GO
+    SIGNOFF
+    STRPDM
+    STRSEU
+    STRSQL
+    WRKMBRPDM
+)
 
 copy_binary_with_runtime() {
     local binary="$1"
@@ -194,6 +215,7 @@ install_userspace() {
     cp "${USERSPACE_DIR}/bin/l400-loader" "${ROOTFS_DIR}/opt/l400/bin/"
     cp "${USERSPACE_DIR}/bin/c400c" "${ROOTFS_DIR}/opt/l400/bin/"
     cp "${USERSPACE_DIR}/bin/clc" "${ROOTFS_DIR}/opt/l400/bin/"
+    cp "${USERSPACE_DIR}/bin/l400cmd" "${ROOTFS_DIR}/opt/l400/bin/"
     cp "${USERSPACE_DIR}/lib/libl400.a" "${ROOTFS_DIR}/lib/l400/"
     if [ -f "${USERSPACE_DIR}/lib/libl400.so" ]; then
         cp "${USERSPACE_DIR}/lib/libl400.so" "${ROOTFS_DIR}/lib/l400/"
@@ -220,6 +242,12 @@ install_userspace() {
     ln -sf /opt/l400/bin/l400-loader "${ROOTFS_DIR}/usr/local/bin/l400-loader"
     ln -sf /opt/l400/bin/c400c "${ROOTFS_DIR}/usr/local/bin/c400c"
     ln -sf /opt/l400/bin/clc "${ROOTFS_DIR}/usr/local/bin/clc"
+    ln -sf /opt/l400/bin/l400cmd "${ROOTFS_DIR}/usr/local/bin/l400cmd"
+
+    for command_name in "${COMMAND_BINARIES[@]}"; do
+        ln -sf /opt/l400/bin/l400cmd "${ROOTFS_DIR}/opt/l400/bin/${command_name}"
+        ln -sf /opt/l400/bin/${command_name} "${ROOTFS_DIR}/usr/local/bin/${command_name}"
+    done
 }
 
 configure_shell_environment() {

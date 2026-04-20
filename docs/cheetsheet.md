@@ -1,5 +1,7 @@
 # OS/400 (IBM i) Cheetsheet
 
+> En la ISO live/install de Linux/400, los comandos listados aquí quedan expuestos como binarios separados en `PATH` vía `/usr/local/bin` -> `/opt/l400/bin/l400cmd`. `F4`, `F10` y `F11` siguen siendo teclas de la TUI, no ejecutables independientes.
+
 1. Gestión de Trabajos y Sistema
 
 * **WRKSYSSTS**: Muestra el estado general del sistema (CPU, ASP, jobs).

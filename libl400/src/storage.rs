@@ -43,7 +43,13 @@ pub fn default_storage_backend() -> StorageBackend {
     env::var("L400_STORAGE_BACKEND")
         .ok()
         .and_then(|value| StorageBackend::parse(&value))
-        .unwrap_or(StorageBackend::BerkeleyDb)
+        .unwrap_or({
+            if cfg!(target_env = "musl") {
+                StorageBackend::Sled
+            } else {
+                StorageBackend::BerkeleyDb
+            }
+        })
 }
 
 pub fn write_storage_backend(path: &Path, backend: StorageBackend) -> Result<(), StorageError> {
@@ -109,5 +115,15 @@ mod tests {
             Some(StorageBackend::BerkeleyDb)
         );
         assert_eq!(StorageBackend::parse("nope"), None);
+    }
+
+    #[test]
+    fn default_backend_matches_current_target() {
+        let backend = default_storage_backend();
+        if cfg!(target_env = "musl") {
+            assert_eq!(backend, StorageBackend::Sled);
+        } else {
+            assert_eq!(backend, StorageBackend::BerkeleyDb);
+        }
     }
 }

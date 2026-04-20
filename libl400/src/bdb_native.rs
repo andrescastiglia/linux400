@@ -66,6 +66,8 @@ pub enum BdbError {
     DbCode(i32),
     #[error("record not found")]
     NotFound,
+    #[error("Berkeley DB backend is not supported in this build")]
+    UnsupportedBuild,
 }
 
 fn map_db_error(code: i32) -> BdbError {
@@ -81,6 +83,7 @@ pub struct BdbHandle {
 }
 
 impl BdbHandle {
+    #[cfg(not(target_env = "musl"))]
     pub fn open(path: &Path, create: bool) -> Result<Self, BdbError> {
         let path =
             CString::new(path.to_string_lossy().as_bytes()).map_err(|_| BdbError::InvalidPath)?;
@@ -101,6 +104,12 @@ impl BdbHandle {
         Ok(Self { raw: db })
     }
 
+    #[cfg(target_env = "musl")]
+    pub fn open(_path: &Path, _create: bool) -> Result<Self, BdbError> {
+        Err(BdbError::UnsupportedBuild)
+    }
+
+    #[cfg(not(target_env = "musl"))]
     pub fn put(&self, key: &[u8], value: &[u8]) -> Result<(), BdbError> {
         let ret = unsafe {
             l400_bdb_put(
@@ -117,6 +126,13 @@ impl BdbHandle {
         Ok(())
     }
 
+    #[cfg(target_env = "musl")]
+    pub fn put(&self, _key: &[u8], _value: &[u8]) -> Result<(), BdbError> {
+        let _ = self;
+        Err(BdbError::UnsupportedBuild)
+    }
+
+    #[cfg(not(target_env = "musl"))]
     pub fn get(&self, key: &[u8]) -> Result<Vec<u8>, BdbError> {
         let mut data = std::ptr::null_mut();
         let mut len = 0;
@@ -137,6 +153,13 @@ impl BdbHandle {
         Ok(bytes)
     }
 
+    #[cfg(target_env = "musl")]
+    pub fn get(&self, _key: &[u8]) -> Result<Vec<u8>, BdbError> {
+        let _ = self;
+        Err(BdbError::UnsupportedBuild)
+    }
+
+    #[cfg(not(target_env = "musl"))]
     pub fn delete(&self, key: &[u8]) -> Result<(), BdbError> {
         let ret =
             unsafe { l400_bdb_del(self.raw, key.as_ptr() as *const c_void, key.len() as c_uint) };
@@ -146,6 +169,13 @@ impl BdbHandle {
         Ok(())
     }
 
+    #[cfg(target_env = "musl")]
+    pub fn delete(&self, _key: &[u8]) -> Result<(), BdbError> {
+        let _ = self;
+        Err(BdbError::UnsupportedBuild)
+    }
+
+    #[cfg(not(target_env = "musl"))]
     pub fn read_all(&self) -> Result<Vec<BdbRecord>, BdbError> {
         let mut cursor = std::ptr::null_mut();
         let ret = unsafe { l400_bdb_cursor_open(self.raw, &mut cursor) };
@@ -192,6 +222,13 @@ impl BdbHandle {
         Ok(rows)
     }
 
+    #[cfg(target_env = "musl")]
+    pub fn read_all(&self) -> Result<Vec<BdbRecord>, BdbError> {
+        let _ = self;
+        Err(BdbError::UnsupportedBuild)
+    }
+
+    #[cfg(not(target_env = "musl"))]
     pub fn last_key(&self) -> Result<Option<Vec<u8>>, BdbError> {
         let mut cursor = std::ptr::null_mut();
         let ret = unsafe { l400_bdb_cursor_open(self.raw, &mut cursor) };
@@ -230,9 +267,16 @@ impl BdbHandle {
         }
         Ok(Some(key_vec))
     }
+
+    #[cfg(target_env = "musl")]
+    pub fn last_key(&self) -> Result<Option<Vec<u8>>, BdbError> {
+        let _ = self;
+        Err(BdbError::UnsupportedBuild)
+    }
 }
 
 impl Drop for BdbHandle {
+    #[cfg(not(target_env = "musl"))]
     fn drop(&mut self) {
         if !self.raw.is_null() {
             unsafe {
@@ -240,4 +284,7 @@ impl Drop for BdbHandle {
             }
         }
     }
+
+    #[cfg(target_env = "musl")]
+    fn drop(&mut self) {}
 }

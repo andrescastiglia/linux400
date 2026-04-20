@@ -66,6 +66,8 @@ El subset CL soportado por `clc` en la ruta batch ya no se limita a `PGM`, `SNDP
 
 En batch, esos comandos delegan en `libl400` y muestran una representación textual del entorno interactivo: bibliotecas catalogadas, miembros de un source file, contenido de un miembro o resultados de `SELECT`.
 
+Además, la imagen live/install ahora expone comandos Linux/400 como binarios separados en el `PATH` del sistema (`/usr/local/bin` -> `/opt/l400/bin/l400cmd`). Los nombres OS/400-style como `WRKSYSSTS`, `CRTLIB`, `GO`, `STRPDM`, `STRSEU`, `STRSQL` o `WRKMBRPDM` se resuelven vía symlinks al mismo dispatcher para evitar duplicar lógica.
+
 Los ejemplos canónicos actuales son:
 ```bash
 tests/hola_mundo.c
@@ -95,6 +97,16 @@ Dentro de la TUI:
 - En el menú principal, `7` abre `STRPDM`.
 - En la línea de comandos, se reconocen `STRPDM`, `STRSEU`, `STRSQL` y `WRKMBRPDM`.
 - `STRSEU` permite guardar cambios sobre miembros para luego recompilarlos con `clc`.
+
+Fuera de la TUI, el live ISO también deja disponibles binarios separados para los comandos del cheatsheet. Ejemplos shell-friendly:
+```bash
+WRKSYSSTS
+CRTLIB QGPL
+WRKMBRPDM QGPL/QCLSRC
+STRSEU QGPL/QCLSRC HELLO.CLP
+STRSQL "SELECT * FROM QGPL/MYFILE"
+GO MAIN
+```
 
 Las pruebas focalizadas para este flujo son:
 ```bash
