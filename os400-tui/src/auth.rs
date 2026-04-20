@@ -46,17 +46,33 @@ struct PamCredentials {
     password: CString,
 }
 
-unsafe extern "C" {
-    fn pam_start(
-        service_name: *const c_char,
-        user: *const c_char,
-        pam_conversation: *const PamConv,
-        pamh: *mut *mut PamHandle,
-    ) -> c_int;
-    fn pam_end(pamh: *mut PamHandle, pam_status: c_int) -> c_int;
-    fn pam_authenticate(pamh: *mut PamHandle, flags: c_int) -> c_int;
-    fn pam_acct_mgmt(pamh: *mut PamHandle, flags: c_int) -> c_int;
-    fn pam_strerror(pamh: *mut PamHandle, errnum: c_int) -> *const c_char;
+type PamStartFn = unsafe extern "C" fn(
+    service_name: *const c_char,
+    user: *const c_char,
+    pam_conversation: *const PamConv,
+    pamh: *mut *mut PamHandle,
+) -> c_int;
+type PamEndFn = unsafe extern "C" fn(pamh: *mut PamHandle, pam_status: c_int) -> c_int;
+type PamAuthenticateFn = unsafe extern "C" fn(pamh: *mut PamHandle, flags: c_int) -> c_int;
+type PamAcctMgmtFn = unsafe extern "C" fn(pamh: *mut PamHandle, flags: c_int) -> c_int;
+type PamStrerrorFn =
+    unsafe extern "C" fn(pamh: *mut PamHandle, errnum: c_int) -> *const c_char;
+
+struct PamFns {
+    _handle: *mut c_void,
+    pam_start: PamStartFn,
+    pam_end: PamEndFn,
+    pam_authenticate: PamAuthenticateFn,
+    pam_acct_mgmt: PamAcctMgmtFn,
+    pam_strerror: PamStrerrorFn,
+}
+
+impl Drop for PamFns {
+    fn drop(&mut self) {
+        unsafe {
+            libc::dlclose(self._handle);
+        }
+    }
 }
 
 pub fn authenticate_linux_user(username: &str, password: &str) -> Result<(), String> {
@@ -77,6 +93,9 @@ pub fn authenticate_linux_user(username: &str, password: &str) -> Result<(), Str
     };
     let service = CString::new("login")
         .map_err(|_| "Unable to initialize Linux authentication.".to_string())?;
+    let pam = load_pam().map_err(|_| {
+        "Linux authentication is not available in this build/runtime.".to_string()
+    })?;
 
     let conversation = PamConv {
         conv: Some(pam_conversation),
@@ -85,7 +104,7 @@ pub fn authenticate_linux_user(username: &str, password: &str) -> Result<(), Str
 
     let mut handle: *mut PamHandle = ptr::null_mut();
     let start_status = unsafe {
-        pam_start(
+        (pam.pam_start)(
             service.as_ptr(),
             credentials.username.as_ptr(),
             &conversation,
@@ -93,24 +112,24 @@ pub fn authenticate_linux_user(username: &str, password: &str) -> Result<(), Str
         )
     };
     if start_status != PAM_SUCCESS {
-        return Err(format_pam_error(handle, start_status));
+        return Err(format_pam_error(&pam, handle, start_status));
     }
 
-    let auth_status = unsafe { pam_authenticate(handle, 0) };
+    let auth_status = unsafe { (pam.pam_authenticate)(handle, 0) };
     if auth_status != PAM_SUCCESS {
         unsafe {
-            pam_end(handle, auth_status);
+            (pam.pam_end)(handle, auth_status);
         }
         return Err("User or password not correct.".to_string());
     }
 
-    let acct_status = unsafe { pam_acct_mgmt(handle, 0) };
-    let end_status = unsafe { pam_end(handle, acct_status) };
+    let acct_status = unsafe { (pam.pam_acct_mgmt)(handle, 0) };
+    let end_status = unsafe { (pam.pam_end)(handle, acct_status) };
     if acct_status != PAM_SUCCESS {
-        return Err(format_pam_error(ptr::null_mut(), acct_status));
+        return Err(format_pam_error(&pam, ptr::null_mut(), acct_status));
     }
     if end_status != PAM_SUCCESS {
-        return Err(format_pam_error(ptr::null_mut(), end_status));
+        return Err(format_pam_error(&pam, ptr::null_mut(), end_status));
     }
 
     Ok(())
@@ -185,8 +204,53 @@ fn free_pam_responses(responses: *mut PamResponse, initialized: usize) {
     }
 }
 
-fn format_pam_error(handle: *mut PamHandle, status: c_int) -> String {
-    let message = unsafe { pam_strerror(handle, status) };
+fn load_pam() -> Result<PamFns, ()> {
+    let candidates = ["libpam.so.0", "libpam.so"];
+    for candidate in candidates {
+        let name = CString::new(candidate).map_err(|_| ())?;
+        let handle = unsafe { libc::dlopen(name.as_ptr(), libc::RTLD_LAZY | libc::RTLD_LOCAL) };
+        if handle.is_null() {
+            continue;
+        }
+
+        let fns = unsafe {
+            let pam_start = load_symbol::<PamStartFn>(handle, b"pam_start\0")?;
+            let pam_end = load_symbol::<PamEndFn>(handle, b"pam_end\0")?;
+            let pam_authenticate = load_symbol::<PamAuthenticateFn>(handle, b"pam_authenticate\0")?;
+            let pam_acct_mgmt = load_symbol::<PamAcctMgmtFn>(handle, b"pam_acct_mgmt\0")?;
+            let pam_strerror = load_symbol::<PamStrerrorFn>(handle, b"pam_strerror\0")?;
+            PamFns {
+                _handle: handle,
+                pam_start,
+                pam_end,
+                pam_authenticate,
+                pam_acct_mgmt,
+                pam_strerror,
+            }
+        };
+        return Ok(fns);
+    }
+
+    Err(())
+}
+
+unsafe fn load_symbol<T>(handle: *mut c_void, symbol: &[u8]) -> Result<T, ()>
+where
+    T: Copy,
+{
+    let ptr = unsafe { libc::dlsym(handle, symbol.as_ptr().cast()) };
+    if ptr.is_null() {
+        unsafe {
+            libc::dlclose(handle);
+        }
+        return Err(());
+    }
+
+    Ok(unsafe { std::mem::transmute_copy::<*mut c_void, T>(&ptr) })
+}
+
+fn format_pam_error(pam: &PamFns, handle: *mut PamHandle, status: c_int) -> String {
+    let message = unsafe { (pam.pam_strerror)(handle, status) };
     if message.is_null() {
         "Linux authentication failed.".to_string()
     } else {

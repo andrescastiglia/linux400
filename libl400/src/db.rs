@@ -570,7 +570,10 @@ pub fn run_select_query(
 mod tests {
     use super::*;
     use crate::object::create_library;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     fn tmp_lib() -> TempDir {
         tempfile::tempdir().expect("No se pudo crear directorio temporal")
@@ -746,6 +749,10 @@ mod tests {
 
     #[test]
     fn test_run_select_query_for_pf() {
+        let _guard = ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env test lock poisoned");
         let lib = tmp_lib();
         let lib_path = l400_library(&lib, "QGPL");
         let pf = create_pf(&lib_path, "CLIENTES", 100).expect("create_pf falló");
@@ -779,6 +786,10 @@ mod tests {
 
     #[test]
     fn test_run_select_query_rejects_unknown_columns() {
+        let _guard = ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env test lock poisoned");
         let lib = tmp_lib();
         let lib_path = l400_library(&lib, "QGPL");
         let pf = create_pf(&lib_path, "CLIENTES", 100).expect("create_pf falló");

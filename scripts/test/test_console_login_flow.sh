@@ -29,13 +29,14 @@ done
 
 ROOTFS_DIR="${ROOTFS_DIR}" "${L400_SRC_DIR}/scripts/build/build_alpine_base.sh" >/tmp/l400-build-rootfs.log
 
-grep -q '^qsecofr:x:1000:1000:Linux/400 Security Officer:/home/qsecofr:/usr/local/bin/l400-session$' \
+grep -q '^qsecofr:x:0:0:Linux/400 Security Officer:/home/qsecofr:/usr/local/bin/l400-session$' \
     "${ROOTFS_DIR}/etc/passwd"
 grep -q '^qsecofr:' "${ROOTFS_DIR}/etc/shadow"
 grep -q 'l400-console-autologin' "${ROOTFS_DIR}/etc/inittab"
 grep -q 'exec /usr/local/bin/l400-installer' "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin"
 grep -q '/dev/ttyS\*|/dev/ttyAMA\*|/dev/hvc\*)' "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin"
 grep -q 'login_user="root"' "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin"
+grep -q 'unset L400_INSTALLER_ACTIVE' "${ROOTFS_DIR}/usr/local/bin/l400-installer"
 grep -q 'exec /usr/local/bin/l400-session' "${ROOTFS_DIR}/home/qsecofr/.profile"
 grep -q 'exec "${fallback_shell}" "\$@"' "${ROOTFS_DIR}/usr/local/bin/l400-session"
 test -x "${ROOTFS_DIR}/usr/local/bin/l400-installer"

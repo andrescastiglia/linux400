@@ -29,7 +29,14 @@ clear_screen() {
 
 list_disks() {
     if command -v lsblk >/dev/null 2>&1; then
-        lsblk -d -n -o PATH,SIZE,MODEL,TYPE 2>/dev/null | awk '$4 == "disk" {print $1 "\t" $2 "\t" $3}'
+        lsblk -d -P -n -o PATH,SIZE,TYPE,MODEL 2>/dev/null | while IFS= read -r line; do
+            path="$(printf '%s\n' "${line}" | sed -n 's/.*PATH="\([^"]*\)".*/\1/p')"
+            size="$(printf '%s\n' "${line}" | sed -n 's/.*SIZE="\([^"]*\)".*/\1/p')"
+            type="$(printf '%s\n' "${line}" | sed -n 's/.*TYPE="\([^"]*\)".*/\1/p')"
+            model="$(printf '%s\n' "${line}" | sed -n 's/.*MODEL="\([^"]*\)".*/\1/p')"
+            [ "${type}" = "disk" ] || continue
+            printf '%s\t%s\t%s\n' "${path}" "${size}" "${model}"
+        done
         return 0
     fi
 
@@ -130,6 +137,7 @@ main() {
     if ! confirm_install "${disk}"; then
         printf '\nInstalacion cancelada. Presione Enter para volver al selector...'
         IFS= read -r _
+        unset L400_INSTALLER_ACTIVE
         exec "$0"
     fi
 
