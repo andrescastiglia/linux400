@@ -1,6 +1,7 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
+use std::{fs, io};
 
 pub const DEFAULT_SIGNON_USER: &str = "QSECOFR";
 pub const DEFAULT_SIGNON_PASSWORD: &str = "l400";
@@ -66,7 +67,22 @@ struct PamFns {
     pam_strerror: PamStrerrorFn,
 }
 
+type CryptFn = unsafe extern "C" fn(key: *const c_char, salt: *const c_char) -> *mut c_char;
+
+struct CryptFns {
+    _handle: *mut c_void,
+    crypt: CryptFn,
+}
+
 impl Drop for PamFns {
+    fn drop(&mut self) {
+        unsafe {
+            libc::dlclose(self._handle);
+        }
+    }
+}
+
+impl Drop for CryptFns {
     fn drop(&mut self) {
         unsafe {
             libc::dlclose(self._handle);
@@ -92,8 +108,10 @@ pub fn authenticate_linux_user(username: &str, password: &str) -> Result<(), Str
     };
     let service = CString::new("login")
         .map_err(|_| "Unable to initialize Linux authentication.".to_string())?;
-    let pam = load_pam()
-        .map_err(|_| "Linux authentication is not available in this build/runtime.".to_string())?;
+    let pam = match load_pam() {
+        Ok(pam) => pam,
+        Err(()) => return authenticate_shadow_user(&normalized, password),
+    };
 
     let conversation = PamConv {
         conv: Some(pam_conversation),
@@ -131,6 +149,67 @@ pub fn authenticate_linux_user(username: &str, password: &str) -> Result<(), Str
     }
 
     Ok(())
+}
+
+fn authenticate_shadow_user(username: &str, password: &str) -> Result<(), String> {
+    let shadow_hash = read_shadow_hash("/etc/shadow", username)
+        .map_err(|_| "Linux authentication is not available in this build/runtime.".to_string())?
+        .ok_or_else(|| "User or password not correct.".to_string())?;
+
+    if !shadow_hash_is_usable(&shadow_hash) {
+        return Err("User or password not correct.".to_string());
+    }
+
+    if verify_password_against_shadow_hash(password, &shadow_hash) {
+        Ok(())
+    } else {
+        Err("User or password not correct.".to_string())
+    }
+}
+
+fn read_shadow_hash(path: &str, username: &str) -> io::Result<Option<String>> {
+    let content = fs::read_to_string(path)?;
+    Ok(find_shadow_hash(&content, username))
+}
+
+fn find_shadow_hash(content: &str, username: &str) -> Option<String> {
+    content.lines().find_map(|line| {
+        let mut fields = line.splitn(3, ':');
+        let entry_user = fields.next()?;
+        let hash = fields.next()?;
+        if entry_user == username {
+            Some(hash.to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn shadow_hash_is_usable(hash: &str) -> bool {
+    !hash.is_empty() && hash != "x" && hash != "!" && hash != "*" && !hash.starts_with('!')
+}
+
+fn verify_password_against_shadow_hash(password: &str, shadow_hash: &str) -> bool {
+    let crypt = match load_crypt() {
+        Ok(crypt) => crypt,
+        Err(()) => return false,
+    };
+    let password = match CString::new(password) {
+        Ok(password) => password,
+        Err(_) => return false,
+    };
+    let salt = match CString::new(shadow_hash) {
+        Ok(salt) => salt,
+        Err(_) => return false,
+    };
+
+    let crypted = unsafe { (crypt.crypt)(password.as_ptr(), salt.as_ptr()) };
+    if crypted.is_null() {
+        return false;
+    }
+
+    let crypted = unsafe { CStr::from_ptr(crypted) };
+    crypted.to_bytes() == shadow_hash.as_bytes()
 }
 
 unsafe extern "C" fn pam_conversation(
@@ -232,6 +311,31 @@ fn load_pam() -> Result<PamFns, ()> {
     Err(())
 }
 
+fn load_crypt() -> Result<CryptFns, ()> {
+    let candidates = [
+        "libcrypt.so.2",
+        "libcrypt.so.1",
+        "libcrypt.so",
+        "libc.so.6",
+        "libc.musl-x86_64.so.1",
+    ];
+    for candidate in candidates {
+        let name = CString::new(candidate).map_err(|_| ())?;
+        let handle = unsafe { libc::dlopen(name.as_ptr(), libc::RTLD_LAZY | libc::RTLD_LOCAL) };
+        if handle.is_null() {
+            continue;
+        }
+
+        let crypt = unsafe { load_symbol::<CryptFn>(handle, b"crypt\0")? };
+        return Ok(CryptFns {
+            _handle: handle,
+            crypt,
+        });
+    }
+
+    Err(())
+}
+
 unsafe fn load_symbol<T>(handle: *mut c_void, symbol: &[u8]) -> Result<T, ()>
 where
     T: Copy,
@@ -255,5 +359,27 @@ fn format_pam_error(pam: &PamFns, handle: *mut PamHandle, status: c_int) -> Stri
         unsafe { CStr::from_ptr(message) }
             .to_string_lossy()
             .into_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_hash_for_matching_user() {
+        let shadow = "qsecofr:$5$abc$hash:20000:0:99999:7:::\nother:!:20000:0:99999:7:::";
+        assert_eq!(
+            find_shadow_hash(shadow, "qsecofr").as_deref(),
+            Some("$5$abc$hash")
+        );
+    }
+
+    #[test]
+    fn rejects_locked_shadow_hashes() {
+        assert!(!shadow_hash_is_usable("!"));
+        assert!(!shadow_hash_is_usable("*"));
+        assert!(!shadow_hash_is_usable("!locked"));
+        assert!(shadow_hash_is_usable("$5$salt$hash"));
     }
 }
