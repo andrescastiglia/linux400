@@ -193,7 +193,7 @@ ensure_default_user() {
         echo "${default_user}:x:0:" >> "${group_file}"
     fi
 
-    sed -i '/^l400:/d' "${passwd_file}" 2>/dev/null || true
+    sed -i '/^l400:/d;/^root:/d' "${passwd_file}" 2>/dev/null || true
     if grep -q "^${default_user}:" "${passwd_file}" 2>/dev/null; then
         sed -i "s#^${default_user}:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:.*#${default_user}:x:0:0:Linux/400 Security Officer:/home/${default_user}:${session_shell}#" \
             "${passwd_file}"
@@ -201,7 +201,7 @@ ensure_default_user() {
         echo "${default_user}:x:0:0:Linux/400 Security Officer:/home/${default_user}:${session_shell}" >> "${passwd_file}"
     fi
 
-    sed -i '/^l400:/d' "${shadow_file}" 2>/dev/null || true
+    sed -i '/^l400:/d;/^root:/d' "${shadow_file}" 2>/dev/null || true
     if ! grep -q "^${default_user}:" "${shadow_file}" 2>/dev/null; then
         # Password por defecto: l400
         echo "${default_user}:\$5\$Tb0gqvL3IrC3D4Qx\$4xrkxXHqP5cW5M6E1x2hMUPi8JjGCVr8K8Qm7N8Hj7/:20000:0:99999:7:::" >> "${shadow_file}"
@@ -283,12 +283,7 @@ fi
 exec /usr/local/bin/l400-session
 EOF
 
-    cat > "${ROOTFS_DIR}/etc/motd" <<'EOF'
-Linux/400 Live Environment
-- Usuario por defecto: qsecofr / l400
-- Menu ISO "Install": instalador textual al disco
-- Instalación a disco: install-linux400 /dev/sdX
-EOF
+    : > "${ROOTFS_DIR}/etc/motd"
 
     echo "linux400" > "${ROOTFS_DIR}/etc/hostname"
 }

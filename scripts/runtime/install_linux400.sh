@@ -350,6 +350,7 @@ EOF
     rm -rf "${TARGET_MNT}/home/l400" 2>/dev/null || true
     mkdir -p "${TARGET_MNT}/home/qsecofr"
     chown -R 0:0 "${TARGET_MNT}/home/qsecofr" 2>/dev/null || true
+    : > "${TARGET_MNT}/etc/motd"
 }
 
 cleanup_mounts() {
