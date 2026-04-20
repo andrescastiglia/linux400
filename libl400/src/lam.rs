@@ -200,6 +200,36 @@ pub fn is_lam_enabled() -> bool {
     *LAM_ENABLED.get().unwrap_or(&false)
 }
 
+/// Convierte un tipo de objeto OS/400 (ej. "*PGM") a un ID numérico predefinido para usar en LAM.
+pub fn tag_for_objtype(objtype: &str) -> u16 {
+    match objtype {
+        "*PGM" => 1,
+        "*FILE" => 2,
+        "*USRPRF" => 3,
+        "*LIB" => 4,
+        "*DTAQ" => 5,
+        "*CMD" => 6,
+        "*SRVPGM" => 7,
+        "*OUTQ" => 8,
+        _ => 99, // Unknown/Other
+    }
+}
+
+/// Convierte el tag LAM (bits 48-63) a un string con el tipo de objeto.
+pub fn objtype_from_tag(tag: u16) -> &'static str {
+    match tag {
+        1 => "*PGM",
+        2 => "*FILE",
+        3 => "*USRPRF",
+        4 => "*LIB",
+        5 => "*DTAQ",
+        6 => "*CMD",
+        7 => "*SRVPGM",
+        8 => "*OUTQ",
+        _ => "*UNKNOWN",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,5 +292,15 @@ mod tests {
             "Invalid mode detected: {:?}",
             mode
         );
+    }
+
+    #[test]
+    fn test_objtype_encoding() {
+        assert_eq!(tag_for_objtype("*PGM"), 1);
+        assert_eq!(tag_for_objtype("*FILE"), 2);
+        
+        assert_eq!(objtype_from_tag(1), "*PGM");
+        assert_eq!(objtype_from_tag(2), "*FILE");
+        assert_eq!(objtype_from_tag(99), "*UNKNOWN");
     }
 }

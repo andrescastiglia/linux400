@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use l400::{list_objects, resolve_l400_root};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
@@ -16,25 +17,29 @@ pub struct ObjectInfo {
     pub type_: String,
     pub attribute: String,
     pub text: String,
+    pub owner: String,
+    pub public_auth: String,
 }
 
 pub struct ObjectBrowser {
     current_library: String,
     objects: Vec<ObjectInfo>,
     state: TableState,
+    using_runtime_data: bool,
 }
 
 impl ObjectBrowser {
     pub fn new() -> Self {
-        let objects = Self::load_objects("QSYS");
+        let (objects, using_runtime_data) = Self::load_objects("QSYS");
         Self {
             current_library: "QSYS".to_string(),
             objects,
             state: TableState::default(),
+            using_runtime_data,
         }
     }
 
-    fn load_objects(library: &str) -> Vec<ObjectInfo> {
+    fn fallback_objects(library: &str) -> Vec<ObjectInfo> {
         match library {
             "QSYS" => vec![
                 ObjectInfo {
@@ -43,6 +48,8 @@ impl ObjectBrowser {
                     type_: "*PGM".to_string(),
                     attribute: "CL".to_string(),
                     text: "Command processing program".to_string(),
+                    owner: "QSYS".to_string(),
+                    public_auth: "*USE".to_string(),
                 },
                 ObjectInfo {
                     library: "QSYS".to_string(),
@@ -50,6 +57,8 @@ impl ObjectBrowser {
                     type_: "*FILE".to_string(),
                     attribute: "PF".to_string(),
                     text: "Physical file".to_string(),
+                    owner: "QSYS".to_string(),
+                    public_auth: "*USE".to_string(),
                 },
                 ObjectInfo {
                     library: "QSYS".to_string(),
@@ -57,6 +66,8 @@ impl ObjectBrowser {
                     type_: "*FILE".to_string(),
                     attribute: "LF".to_string(),
                     text: "Source file".to_string(),
+                    owner: "QSYS".to_string(),
+                    public_auth: "*USE".to_string(),
                 },
                 ObjectInfo {
                     library: "QSYS".to_string(),
@@ -64,6 +75,8 @@ impl ObjectBrowser {
                     type_: "*PGM".to_string(),
                     attribute: "RPG".to_string(),
                     text: "Send to data queue".to_string(),
+                    owner: "QSYS".to_string(),
+                    public_auth: "*USE".to_string(),
                 },
                 ObjectInfo {
                     library: "QSYS".to_string(),
@@ -71,6 +84,8 @@ impl ObjectBrowser {
                     type_: "*SRVPGM".to_string(),
                     attribute: "C".to_string(),
                     text: "Command execution".to_string(),
+                    owner: "QSYS".to_string(),
+                    public_auth: "*USE".to_string(),
                 },
             ],
             _ => vec![ObjectInfo {
@@ -79,7 +94,41 @@ impl ObjectBrowser {
                 type_: "*PGM".to_string(),
                 attribute: "C".to_string(),
                 text: "Test program".to_string(),
+                owner: "L400".to_string(),
+                public_auth: "*ALL".to_string(),
             }],
+        }
+    }
+
+    fn load_objects(library: &str) -> (Vec<ObjectInfo>, bool) {
+        let library_path = resolve_l400_root().join(library);
+        if let Ok(objects) = list_objects(&library_path) {
+            let mapped = objects
+                .into_iter()
+                .map(|object| ObjectInfo {
+                    library: object.library.unwrap_or_else(|| library.to_string()),
+                    name: object.name,
+                    type_: object.objtype,
+                    attribute: object.attribute.unwrap_or_else(|| "-".to_string()),
+                    text: object.text.unwrap_or_default(),
+                    owner: object.owner.unwrap_or_else(|| "UNKNOWN".to_string()),
+                    public_auth: object.public_auth.unwrap_or_else(|| "*NONE".to_string()),
+                })
+                .collect::<Vec<_>>();
+            return (mapped, true);
+        }
+
+        (Self::fallback_objects(library), false)
+    }
+
+    fn refresh(&mut self) {
+        let (objects, using_runtime_data) = Self::load_objects(&self.current_library);
+        self.objects = objects;
+        self.using_runtime_data = using_runtime_data;
+        if self.objects.is_empty() {
+            self.state.select(None);
+        } else if self.state.selected().is_none() {
+            self.state.select(Some(0));
         }
     }
 }
@@ -102,7 +151,12 @@ impl Screen for ObjectBrowser {
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
         match key.code {
-            KeyCode::F(3) | KeyCode::Char('3') => ScreenResult::goto(ScreenId::MainMenu),
+            KeyCode::F(3) => ScreenResult::goto(ScreenId::MainMenu),
+            KeyCode::F(4) => ScreenResult::goto(ScreenId::CommandLine),
+            KeyCode::F(5) => {
+                self.refresh();
+                ScreenResult::none()
+            }
             KeyCode::F(12) => ScreenResult::goto(ScreenId::MainMenu),
             KeyCode::Up => {
                 self.state
@@ -137,9 +191,18 @@ impl ObjectBrowser {
 
         frame.render_widget(block, area);
 
+        let source_label = if self.using_runtime_data {
+            "Runtime catalog"
+        } else {
+            "Bundled sample"
+        };
         let lines: Vec<Line> = vec![
-            Line::from(vec!["Type options, press Enter.  ".into()]),
-            Line::from(vec!["Opt  Object      Type      Attribute   Text".into()]),
+            Line::from(vec![format!(
+                "Source: {}. Type options, press Enter.",
+                source_label
+            )
+            .into()]),
+            Line::from(vec!["Opt  Object      Type      Attribute   Owner       *PUBLIC   Text".into()]),
         ];
         let text = Text::from(lines);
 
@@ -148,8 +211,8 @@ impl ObjectBrowser {
     }
 
     fn render_objects(&mut self, frame: &mut Frame, area: Rect) {
-        let header = ["", "Object", "Type", "Attribute", "Text"];
-        let widths = [4u16, 16, 10, 10, 30];
+        let header = ["", "Object", "Type", "Attribute", "Owner", "*PUBLIC", "Text"];
+        let widths = [4u16, 12, 10, 10, 12, 10, 20];
 
         let rows: Vec<Row> = self
             .objects
@@ -160,6 +223,8 @@ impl ObjectBrowser {
                     obj.name.clone(),
                     obj.type_.clone(),
                     obj.attribute.clone(),
+                    obj.owner.clone(),
+                    obj.public_auth.clone(),
                     obj.text.clone(),
                 ])
             })

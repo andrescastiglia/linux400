@@ -7,44 +7,41 @@ use pest_derive::Parser;
 pub struct CLParser;
 
 pub fn parse_file(source: &str) -> Result<Program, pest::error::Error<Rule>> {
-    let mut file_parsed = CLParser::parse(Rule::file, source)?;
     let mut commands = Vec::new();
 
-    let root = file_parsed.next().unwrap();
-    for record in root.into_inner() {
-        match record.as_rule() {
-            Rule::command => {
-                let mut inner = record.into_inner();
-                let name = inner.next().unwrap().as_str().to_uppercase();
-                let mut parameters = Vec::new();
-
-                if let Some(params_node) = inner.next() {
-                    for param_node in params_node.into_inner() {
-                        let mut p_inner = param_node.into_inner();
-                        let first = p_inner.next().unwrap();
-
-                        let param =
-                            if first.as_rule() == Rule::identifier && p_inner.peek().is_some() {
-                                let key = first.as_str().to_uppercase();
-                                let val_node = p_inner.next().unwrap().into_inner().next().unwrap();
-                                Parameter::Named(key, parse_value(val_node))
-                            } else {
-                                // Era solo value o identifier resolviendo a fallback (Posicional)
-                                let val_node = if first.as_rule() == Rule::value {
-                                    first.into_inner().next().unwrap()
-                                } else {
-                                    first
-                                };
-                                Parameter::Positional(parse_value(val_node))
-                            };
-                        parameters.push(param);
-                    }
-                }
-                commands.push(Command { name, parameters });
-            }
-            Rule::EOI => (),
-            _ => unreachable!(),
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
         }
+
+        let mut parsed = CLParser::parse(Rule::command, trimmed)?;
+        let record = parsed.next().unwrap();
+        let mut inner = record.into_inner();
+        let name = inner.next().unwrap().as_str().to_uppercase();
+        let mut parameters = Vec::new();
+
+        if let Some(params_node) = inner.next() {
+            for param_node in params_node.into_inner() {
+                let mut p_inner = param_node.into_inner();
+                let first = p_inner.next().unwrap();
+
+                let param = if first.as_rule() == Rule::identifier && p_inner.peek().is_some() {
+                    let key = first.as_str().to_uppercase();
+                    let val_node = p_inner.next().unwrap().into_inner().next().unwrap();
+                    Parameter::Named(key, parse_value(val_node))
+                } else {
+                    let val_node = if first.as_rule() == Rule::value {
+                        first.into_inner().next().unwrap()
+                    } else {
+                        first
+                    };
+                    Parameter::Positional(parse_value(val_node))
+                };
+                parameters.push(param);
+            }
+        }
+        commands.push(Command { name, parameters });
     }
     Ok(Program { commands })
 }

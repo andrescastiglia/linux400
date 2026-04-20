@@ -42,3 +42,70 @@ cargo build --release
 # O prueba un parsing directo:
 ./target/release/clc --help
 ```
+
+### 4. Demo de objetos V1
+La v1 actual toma `sled` como backend operativo de `*FILE` y `*DTAQ`, manteniendo `user.l400.objtype` como frontera autoritativa de tipado para el runtime y el LSM.
+
+Puedes generar una demo local de bibliotecas, `*PGM`, PF/LF y `*DTAQ` con:
+```bash
+cargo run -p l400 --example objects_v1_demo -- /tmp/l400-demo
+```
+
+Y validar la salida esperada de esa demo con:
+```bash
+./scripts/test/test_objects_v1_demo.sh
+```
+
+### 5. Toolchain V1
+El subset CL soportado hoy en v1 es explícito y pequeño: `PGM`, `SNDPGMMSG` y `ENDPGM`. En modo stub, `clc` genera un ejecutable observable que reproduce los `SNDPGMMSG` soportados y marca el resto de comandos como fuera del subset v1.
+
+Los ejemplos canónicos actuales son:
+```bash
+tests/hola_mundo.c
+tests/prueba.clp
+```
+
+Puedes validar el flujo completo `fuente -> compilación -> catalogación *PGM -> ejecución` con:
+```bash
+./scripts/test/test_toolchain_v1_demo.sh
+```
+
+### 6. Workloads V1
+Linux/400 intenta separar carga interactiva (`QINTER`) y batch (`QBATCH`) con cgroups v2. Cuando el host no permite esa separación completa, el runtime mantiene un registro de jobs en `L400_RUN_DIR` para que la TUI y las demos sigan mostrando workloads reales en modo degradado.
+
+Puedes generar una demo simple de job interactivo + batch con:
+```bash
+./scripts/test/test_workload_demo.sh
+```
+
+### 7. Loader/eBPF por modo
+`l400-loader` soporta tres modos operativos:
+
+- `full`: requiere hook eBPF activo; si no puede cargar/adjuntar el LSM, falla.
+- `degraded`: intenta activar enforcement; si falla, sigue arriba sin protección activa.
+- `dev`: como `degraded`, pero optimizado para desarrollo local y tolerante a assets/BTF/hooks ausentes.
+
+Ejemplos:
+```bash
+cargo run -p l400-loader -- --mode full --once
+cargo run -p l400-loader -- --mode degraded --once
+cargo run -p l400-loader -- --mode dev --once
+```
+
+### 8. Release candidate v1
+La RC v1 queda descrita en:
+
+- `docs/RELEASE_V1_RC.md`
+- `docs/SUPPORT_MATRIX.md`
+- `docs/RELEASE_CHECKLIST.md`
+
+Build reproducible de RC:
+```bash
+./scripts/build/build_release_rc.sh
+```
+
+Smoke tests de RC:
+```bash
+./scripts/test/test_release_rc.sh
+RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh
+```

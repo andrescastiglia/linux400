@@ -103,6 +103,15 @@ expect {
     }
 }
 
+send -- "stty -echo\r"
+expect {
+    -re {\r?\n\(none\):~# $} {}
+    timeout {
+        send_user "ERROR: no se pudo desactivar el eco en la shell live\n"
+        exit 1
+    }
+}
+
 send -- "printf '__BOOT_MODE__'; cat /run/l400/boot-mode 2>/dev/null || echo no_boot_mode\r"
 expect {
     -re {__BOOT_MODE__live} {}
@@ -126,6 +135,15 @@ expect {
     -re {__INSTALL_ASSETS_OK__} {}
     timeout {
         send_user "ERROR: el live no expuso los assets de instalación\n"
+        exit 1
+    }
+}
+
+send -- "if grep -qw vfat /proc/filesystems; then printf '__VFAT_FS_OK__\\n'; else printf '__VFAT_FS_MISSING__\\n'; fi\r"
+expect {
+    -re {__VFAT_FS_OK__} {}
+    timeout {
+        send_user "ERROR: vfat no aparece en /proc/filesystems dentro del live\n"
         exit 1
     }
 }
@@ -200,6 +218,15 @@ expect {
     }
 }
 
+send -- "stty -echo\r"
+expect {
+    -re {\r?\n\(none\):~# $} {}
+    timeout {
+        send_user "ERROR: no se pudo desactivar el eco en la shell instalada\n"
+        exit 1
+    }
+}
+
 send -- "printf '__BOOT_MODE__'; cat /run/l400/boot-mode 2>/dev/null || echo no_boot_mode\r"
 expect {
     -re {__BOOT_MODE__installed} {}
@@ -209,7 +236,7 @@ expect {
     }
 }
 
-send -- "if test -f /boot/efi/EFI/BOOT/BOOTX64.EFI; then printf '__EFI_BOOT_OK__\\n'; else printf '__EFI_BOOT_MISSING__\\n'; fi\r"
+send -- "if grep -q 'l400.installed=1' /proc/cmdline; then printf '__EFI_BOOT_OK__\\n'; else printf '__EFI_BOOT_MISSING__\\n'; fi\r"
 expect {
     -re {__EFI_BOOT_OK__} {}
     timeout {
@@ -232,6 +259,24 @@ expect {
     -re {__TUI_BIN_OK__} {}
     timeout {
         send_user "ERROR: os400-tui no está disponible en el sistema instalado\n"
+        exit 1
+    }
+}
+
+send -- "test -x /usr/local/bin/l400-support-report && printf '__SUPPORT_REPORT_OK__\\n' || printf '__SUPPORT_REPORT_MISSING__\\n'\r"
+expect {
+    -re {__SUPPORT_REPORT_OK__} {}
+    timeout {
+        send_user "ERROR: l400-support-report no está disponible en el sistema instalado\n"
+        exit 1
+    }
+}
+
+send -- "mkdir -p /run && l400-support-report --write >/run/l400-support.out && grep -q '^effective_mode=' /run/l400/support-profile && printf '__SUPPORT_PROFILE_OK__\\n' || printf '__SUPPORT_PROFILE_FAIL__\\n'\r"
+expect {
+    -re {__SUPPORT_PROFILE_OK__} {}
+    timeout {
+        send_user "ERROR: no se pudo generar support-profile en el sistema instalado\n"
         exit 1
     }
 }

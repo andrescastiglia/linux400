@@ -5,13 +5,14 @@ set -eu
 
 fallback_shell="${SHELL:-/bin/sh}"
 boot_mode=""
+run_dir="${L400_RUN_DIR:-/run/l400}"
 
-if [ -f /run/l400/boot-mode ]; then
-    boot_mode="$(cat /run/l400/boot-mode 2>/dev/null || true)"
+if [ -f "${run_dir}/boot-mode" ]; then
+    boot_mode="$(cat "${run_dir}/boot-mode" 2>/dev/null || true)"
 fi
 
 case "${boot_mode}" in
-    install|rescue)
+    rescue)
         exec "${fallback_shell}"
         ;;
 esac

@@ -9,6 +9,7 @@ ROOT_LABEL="${ROOT_LABEL:-linux400-root}"
 EFI_LABEL="${EFI_LABEL:-L400EFI}"
 INSTALL_MODE="${INSTALL_MODE:-uefi}"
 AUTO_PARTITION="${AUTO_PARTITION:-1}"
+EFI_ACCESS_MODE="mount"
 
 usage() {
     cat <<'EOF'
@@ -63,6 +64,70 @@ require_device() {
         echo "ERROR: dispositivo no válido: $1" >&2
         exit 1
     fi
+}
+
+log_mount_debug() {
+    local device="$1"
+    local mount_dir="$2"
+
+    echo "DEBUG: mount target=${mount_dir} device=${device}" >&2
+    echo "DEBUG: PATH=${PATH}" >&2
+    echo "DEBUG: kernel filesystems:" >&2
+    cat /proc/filesystems 2>/dev/null >&2 || true
+    echo "DEBUG: lsblk del dispositivo:" >&2
+    lsblk -f "${device}" 2>/dev/null >&2 || true
+    echo "DEBUG: blkid del dispositivo:" >&2
+    blkid "${device}" 2>/dev/null >&2 || true
+    echo "DEBUG: binarios relevantes:" >&2
+    command -v mount >&2 2>/dev/null || true
+    command -v mount.vfat >&2 2>/dev/null || true
+    command -v blkid >&2 2>/dev/null || true
+    command -v findfs >&2 2>/dev/null || true
+}
+
+prepare_mtools_efi_access() {
+    if ! have_cmd mcopy || ! have_cmd mmd; then
+        return 1
+    fi
+
+    if mmd -D o -i "${EFI_PART}" ::/EFI >>/tmp/l400-mount-efi.log 2>&1 || \
+        mdir -i "${EFI_PART}" ::/EFI >>/tmp/l400-mount-efi.log 2>&1; then
+        EFI_ACCESS_MODE="mtools"
+        return 0
+    fi
+
+    return 1
+}
+
+mount_efi_partition() {
+    if mount -t vfat "${EFI_PART}" "${TARGET_MNT}/boot/efi" 2>/tmp/l400-mount-efi.log; then
+        EFI_ACCESS_MODE="mount"
+        return 0
+    fi
+
+    if mount -t vfat -o codepage=850 "${EFI_PART}" "${TARGET_MNT}/boot/efi" >>/tmp/l400-mount-efi.log 2>&1; then
+        EFI_ACCESS_MODE="mount"
+        return 0
+    fi
+
+    if mount "${EFI_PART}" "${TARGET_MNT}/boot/efi" >>/tmp/l400-mount-efi.log 2>&1; then
+        EFI_ACCESS_MODE="mount"
+        return 0
+    fi
+
+    if mount -t vfat -o utf8=1,iocharset=utf8,codepage=437 "${EFI_PART}" "${TARGET_MNT}/boot/efi" \
+        >>/tmp/l400-mount-efi.log 2>&1; then
+        EFI_ACCESS_MODE="mount"
+        return 0
+    fi
+
+    if mount -t vfat -o utf8=0,iocharset=ascii,codepage=437 "${EFI_PART}" "${TARGET_MNT}/boot/efi" \
+        >>/tmp/l400-mount-efi.log 2>&1; then
+        EFI_ACCESS_MODE="mount"
+        return 0
+    fi
+
+    prepare_mtools_efi_access
 }
 
 partition_disk() {
@@ -125,27 +190,39 @@ mount_target() {
     modprobe vfat 2>/dev/null || true
     modprobe fat 2>/dev/null || true
     modprobe nls_cp437 2>/dev/null || true
+    modprobe nls_cp850 2>/dev/null || true
     modprobe nls_ascii 2>/dev/null || true
+    modprobe nls_utf8 2>/dev/null || true
 
     mkdir -p "${TARGET_MNT}"
     mount "${ROOT_PART}" "${TARGET_MNT}"
     mkdir -p "${TARGET_MNT}/boot/efi"
-    mount -t vfat "${EFI_PART}" "${TARGET_MNT}/boot/efi"
+
+    if mount_efi_partition; then
+        return 0
+    fi
+
+    echo "ERROR: no se pudo montar la partición EFI ${EFI_PART} en ${TARGET_MNT}/boot/efi" >&2
+    cat /tmp/l400-mount-efi.log >&2 || true
+    log_mount_debug "${EFI_PART}" "${TARGET_MNT}/boot/efi"
+    exit 1
 }
 
 copy_rootfs() {
-    tar \
-        --exclude="${TARGET_MNT}" \
-        --exclude=/proc \
-        --exclude=/sys \
-        --exclude=/dev \
-        --exclude=/run \
-        --exclude=/tmp \
-        --exclude=/mnt \
-        --exclude=/media \
-        --exclude=/l400 \
-        --exclude=/var/cache/apk \
-        -cpf - / | tar -xpf - -C "${TARGET_MNT}"
+    (
+        cd /
+        tar \
+            --exclude=./proc \
+            --exclude=./sys \
+            --exclude=./dev \
+            --exclude=./run \
+            --exclude=./tmp \
+            --exclude=./mnt \
+            --exclude=./media \
+            --exclude=./l400 \
+            --exclude=./var/cache/apk \
+            -cpf - .
+    ) | tar -xpf - -C "${TARGET_MNT}"
 }
 
 install_boot_assets() {
@@ -185,25 +262,45 @@ install_boot_assets() {
 
     mkdir -p "${TARGET_MNT}/boot" "${TARGET_MNT}/boot/efi/EFI/BOOT" "${TARGET_MNT}/boot/efi/EFI/Linux400"
 
-    cp "${iso_boot_dir}/vmlinuz" "${TARGET_MNT}/boot/efi/EFI/Linux400/vmlinuz"
-    cp "${iso_boot_dir}/initramfs.img" "${TARGET_MNT}/boot/efi/EFI/Linux400/initramfs.img"
+    cp "${iso_boot_dir}/vmlinuz" "${TARGET_MNT}/boot/vmlinuz"
+    cp "${iso_boot_dir}/initramfs.img" "${TARGET_MNT}/boot/initramfs.img"
 
-    if [ -n "${efi_asset}" ]; then
-        cp "${efi_asset}" "${TARGET_MNT}/boot/efi/EFI/BOOT/BOOTX64.EFI"
-    else
+    if [ -z "${efi_asset}" ]; then
         echo "ERROR: BOOTX64.EFI no encontrado dentro de los assets de instalación." >&2
         exit 1
     fi
 
-    cat > "${TARGET_MNT}/boot/efi/EFI/BOOT/grub.cfg" <<'EOF'
+    cat > /tmp/l400-grub.cfg <<'EOF'
 set timeout=5
 set default=0
+search --no-floppy --file /EFI/BOOT/BOOTX64.EFI --set=root
 
 menuentry "Linux/400" {
-    linux /EFI/Linux400/vmlinuz root=LABEL=linux400-root rw quiet console=tty0 console=ttyS0,115200 l400.installed=1
-    initrd /EFI/Linux400/initramfs.img
+    linux /EFI/LINUX400/VMLINUZ root=LABEL=linux400-root rw quiet console=tty0 console=ttyS0,115200 l400.installed=1 l400.efi=LABEL=L400EFI
+    initrd /EFI/LINUX400/INITRD.IMG
 }
 EOF
+
+    case "${EFI_ACCESS_MODE}" in
+        mount)
+            mkdir -p "${TARGET_MNT}/boot/efi/EFI/BOOT" "${TARGET_MNT}/boot/efi/EFI/LINUX400"
+            cp "${iso_boot_dir}/vmlinuz" "${TARGET_MNT}/boot/efi/EFI/LINUX400/VMLINUZ"
+            cp "${iso_boot_dir}/initramfs.img" "${TARGET_MNT}/boot/efi/EFI/LINUX400/INITRD.IMG"
+            cp "${efi_asset}" "${TARGET_MNT}/boot/efi/EFI/BOOT/BOOTX64.EFI"
+            cp /tmp/l400-grub.cfg "${TARGET_MNT}/boot/efi/EFI/BOOT/grub.cfg"
+            ;;
+        mtools)
+            mmd -D o -i "${EFI_PART}" ::/EFI ::/EFI/BOOT ::/EFI/LINUX400 >/dev/null 2>&1 || true
+            mcopy -D o -n -i "${EFI_PART}" "${iso_boot_dir}/vmlinuz" ::/EFI/LINUX400/VMLINUZ
+            mcopy -D o -n -i "${EFI_PART}" "${iso_boot_dir}/initramfs.img" ::/EFI/LINUX400/INITRD.IMG
+            mcopy -D o -n -i "${EFI_PART}" "${efi_asset}" ::/EFI/BOOT/BOOTX64.EFI
+            mcopy -D o -n -i "${EFI_PART}" /tmp/l400-grub.cfg ::/EFI/BOOT/grub.cfg
+            ;;
+        *)
+            echo "ERROR: modo EFI desconocido: ${EFI_ACCESS_MODE}" >&2
+            exit 1
+            ;;
+    esac
 }
 
 configure_installed_system() {
