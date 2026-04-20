@@ -1,6 +1,7 @@
 // Gramática Básica para CL (Control Language) de OS/400
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT    = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 
 // Un archivo CL contiene múltiples comandos separados por espacios/líneas
 file = { SOI ~ command* ~ EOI }
@@ -15,7 +16,10 @@ identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 parameters = { parameter+ }
 
 // Un parámetro puede ser posicional (sólo un valor) o nombrado KWD(VAL)
-parameter = { (identifier ~ "(" ~ value ~ ")") | value }
+parameter = { (identifier ~ "(" ~ value_list ~ ")") | value }
+
+// Lista de valores separados por espacios dentro de paréntesis (ej. ADDLIBLE LIB(*LIBL *USRLIBL))
+value_list = { value ~ (value)* }
 
 // Valores posibles para un parámetro
 value = { string_literal | keyword | identifier }

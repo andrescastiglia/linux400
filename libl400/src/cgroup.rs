@@ -234,7 +234,7 @@ fn parse_job(content: &str) -> Result<WorkloadJob, CgroupError> {
     })
 }
 
-fn list_jobs_at(base: &Path) -> Result<Vec<WorkloadJob>, CgroupError> {
+pub fn list_jobs_at(base: &Path) -> Result<Vec<WorkloadJob>, CgroupError> {
     let registry = job_registry_path(base);
     if !registry.exists() {
         return Ok(Vec::new());

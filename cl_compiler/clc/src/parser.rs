@@ -9,34 +9,34 @@ pub struct CLParser;
 pub fn parse_file(source: &str) -> Result<Program, pest::error::Error<Rule>> {
     let mut commands = Vec::new();
 
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
+    let mut parsed = CLParser::parse(Rule::file, source)?;
+    let file_node = parsed.next().unwrap();
+
+    for command_node in file_node.into_inner() {
+        if command_node.as_rule() != Rule::command {
             continue;
         }
 
-        let mut parsed = CLParser::parse(Rule::command, trimmed)?;
-        let record = parsed.next().unwrap();
-        let mut inner = record.into_inner();
+        let mut inner = command_node.into_inner();
         let name = inner.next().unwrap().as_str().to_uppercase();
         let mut parameters = Vec::new();
 
         if let Some(params_node) = inner.next() {
             for param_node in params_node.into_inner() {
-                let mut p_inner = param_node.into_inner();
+                let mut p_inner = param_node.clone().into_inner();
                 let first = p_inner.next().unwrap();
 
                 let param = if first.as_rule() == Rule::identifier && p_inner.peek().is_some() {
+                    // Named parameter: KWD(VAL) or KWD(VAL1 VAL2)
                     let key = first.as_str().to_uppercase();
-                    let val_node = p_inner.next().unwrap().into_inner().next().unwrap();
+                    // value_list node — take first value for simplicity (primary param)
+                    let vlist = p_inner.next().unwrap();
+                    let val_node = vlist.into_inner().next().unwrap();
                     Parameter::Named(key, parse_value(val_node))
+                } else if first.as_rule() == Rule::value {
+                    Parameter::Positional(parse_value(first.into_inner().next().unwrap()))
                 } else {
-                    let val_node = if first.as_rule() == Rule::value {
-                        first.into_inner().next().unwrap()
-                    } else {
-                        first
-                    };
-                    Parameter::Positional(parse_value(val_node))
+                    Parameter::Positional(parse_value(first))
                 };
                 parameters.push(param);
             }

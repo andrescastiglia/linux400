@@ -15,50 +15,175 @@ fn value_to_string(value: &crate::ast::Value) -> String {
     }
 }
 
-fn extract_sndpgmmsg(command: &crate::ast::Command) -> Option<String> {
-    for parameter in &command.parameters {
-        match parameter {
-            crate::ast::Parameter::Named(name, value) if name == "MSG" => {
-                return Some(value_to_string(value));
+fn named_param<'a>(command: &'a crate::ast::Command, key: &str) -> Option<&'a crate::ast::Value> {
+    for p in &command.parameters {
+        if let crate::ast::Parameter::Named(k, v) = p {
+            if k.eq_ignore_ascii_case(key) {
+                return Some(v);
             }
-            crate::ast::Parameter::Positional(value) => {
-                return Some(value_to_string(value));
-            }
-            _ => {}
         }
     }
-
     None
+}
+
+fn first_positional(command: &crate::ast::Command) -> Option<String> {
+    for p in &command.parameters {
+        if let crate::ast::Parameter::Positional(v) = p {
+            return Some(value_to_string(v));
+        }
+    }
+    None
+}
+
+fn generate_command_call(command: &crate::ast::Command) -> String {
+    match command.name.as_str() {
+        "PGM" | "ENDPGM" => String::new(),
+
+        "SNDPGMMSG" => {
+            let msg = named_param(command, "MSG")
+                .map(value_to_string)
+                .or_else(|| first_positional(command))
+                .unwrap_or_else(|| "SNDPGMMSG sin mensaje".to_string());
+            format!("l400_sndpgmmsg({});", escape_c_string(&msg))
+        }
+
+        // --- Gestión de sistema ---
+        "WRKSYSSTS" => "l400_wrksyssts();".to_string(),
+        "WRKACTJOB" => "l400_wrkactjob();".to_string(),
+        "WRKSYSVAL" => "l400_wrksysval();".to_string(),
+        "DSPLOG"    => "l400_dsplog();".to_string(),
+        "WRKUSRPRF" => {
+            let profile = named_param(command, "USRPRF")
+                .map(value_to_string)
+                .or_else(|| first_positional(command))
+                .unwrap_or_else(|| "*ALL".to_string());
+            format!("l400_wrkusrprf({});", escape_c_string(&profile))
+        }
+        "PWRDWNSYS" => {
+            let opt = named_param(command, "OPTION")
+                .map(value_to_string)
+                .or_else(|| first_positional(command))
+                .unwrap_or_else(|| "*CNTRLD".to_string());
+            format!("l400_pwrdwnsys({});", escape_c_string(&opt))
+        }
+
+        // --- Objetos y bibliotecas ---
+        "WRKOBJ" => {
+            let obj = named_param(command, "OBJ")
+                .map(value_to_string)
+                .or_else(|| first_positional(command))
+                .unwrap_or_else(|| "*ALL".to_string());
+            format!("l400_wrkobj({});", escape_c_string(&obj))
+        }
+        "CRTLIB" => {
+            let lib = named_param(command, "LIB")
+                .map(value_to_string)
+                .or_else(|| first_positional(command))
+                .unwrap_or_else(|| "NEWLIB".to_string());
+            format!("l400_crtlib({});", escape_c_string(&lib))
+        }
+        "DLTLIB" => {
+            let lib = named_param(command, "LIB")
+                .map(value_to_string)
+                .or_else(|| first_positional(command))
+                .unwrap_or_else(|| "NEWLIB".to_string());
+            format!("l400_dltlib({});", escape_c_string(&lib))
+        }
+        "ADDLIBLE" => {
+            let lib = named_param(command, "LIB")
+                .map(value_to_string)
+                .or_else(|| first_positional(command))
+                .unwrap_or_else(|| "QGPL".to_string());
+            format!("l400_addlible({});", escape_c_string(&lib))
+        }
+        "CHGCURLIB" => {
+            let lib = named_param(command, "CURLIB")
+                .map(value_to_string)
+                .or_else(|| first_positional(command))
+                .unwrap_or_else(|| "QGPL".to_string());
+            format!("l400_chgcurlib({});", escape_c_string(&lib))
+        }
+        "RNMOBJ" => {
+            let obj = named_param(command, "OBJ")
+                .map(value_to_string)
+                .or_else(|| first_positional(command))
+                .unwrap_or_default();
+            let newname = named_param(command, "NEWOBJ")
+                .map(value_to_string)
+                .unwrap_or_else(|| "RENAMED".to_string());
+            format!("l400_rnmobj({}, {});", escape_c_string(&obj), escape_c_string(&newname))
+        }
+
+        // --- Programación ---
+        "CRTPGM" => {
+            let pgm = named_param(command, "PGM")
+                .map(value_to_string)
+                .or_else(|| first_positional(command))
+                .unwrap_or_default();
+            format!("l400_crtpgm({});", escape_c_string(&pgm))
+        }
+
+        // --- Navegación / sesión ---
+        "GO" => {
+            let target = first_positional(command)
+                .unwrap_or_else(|| "MAIN".to_string());
+            format!("l400_go({});", escape_c_string(&target))
+        }
+        "SIGNOFF" => "l400_signoff();".to_string(),
+
+        // Entornos interactivos — no disponibles en modo batch
+        "STRPDM" | "STRSEU" | "STRSQL" | "WRKMBRPDM" => {
+            format!(
+                "l400_sndpgmmsg({});",
+                escape_c_string(&format!("[clc] {} no disponible en modo batch", command.name))
+            )
+        }
+
+        other => format!(
+            "l400_sndpgmmsg({});",
+            escape_c_string(&format!("[clc] Comando CL no soportado en v2: {other}"))
+        ),
+    }
 }
 
 fn generate_c_backend(source_path: &str, ast: &crate::ast::Program) -> String {
     let mut body = Vec::new();
     body.push(format!(
-        "l400_sndpgmmsg(\"[clc] Executing CL program compiled from {}\");",
+        "l400_sndpgmmsg(\"[clc] Ejecutando programa CL compilado desde {}\");",
         source_path.replace('"', "\\\"")
     ));
 
     for command in &ast.commands {
-        match command.name.as_str() {
-            "PGM" | "ENDPGM" => {}
-            "SNDPGMMSG" => {
-                let message = extract_sndpgmmsg(command)
-                    .unwrap_or_else(|| "SNDPGMMSG without message".to_string());
-                body.push(format!("l400_sndpgmmsg({});", escape_c_string(&message)));
-            }
-            other => body.push(format!(
-                "l400_sndpgmmsg({});",
-                escape_c_string(&format!(
-                    "[clc] Unsupported CL command in v1 subset: {other}"
-                ))
-            )),
+        let line = generate_command_call(command);
+        if !line.is_empty() {
+            body.push(line);
         }
     }
 
     format!(
-        "#include <stdio.h>\nextern void l400_sndpgmmsg(const char*);\n\nint main(void) {{\n    {}\n    return 0;\n}}\n",
+        "#include <stdio.h>\n\
+         extern void l400_sndpgmmsg(const char*);\n\
+         extern void l400_wrksyssts(void);\n\
+         extern void l400_wrkactjob(void);\n\
+         extern void l400_wrksysval(void);\n\
+         extern void l400_dsplog(void);\n\
+         extern void l400_wrkusrprf(const char*);\n\
+         extern void l400_pwrdwnsys(const char*);\n\
+         extern void l400_wrkobj(const char*);\n\
+         extern void l400_crtlib(const char*);\n\
+         extern void l400_dltlib(const char*);\n\
+         extern void l400_addlible(const char*);\n\
+         extern void l400_chgcurlib(const char*);\n\
+         extern void l400_rnmobj(const char*, const char*);\n\
+         extern void l400_crtpgm(const char*);\n\
+         extern void l400_go(const char*);\n\
+         extern void l400_signoff(void);\n\
+         \n\
+         int main(void) {{\n    {}\n    return 0;\n}}\n",
         body.join("\n    ")
     )
+}
+
 impl Compiler {
     pub fn compile(source_path: &str, output_path: &str) -> Result<(), String> {
         // 1. Leer fuente CL
@@ -120,7 +245,6 @@ impl Compiler {
             if !status.success() {
                 return Err(format!("{c_compiler} falló al compilar el backend C"));
             }
-
         }
 
         Ok(())
@@ -136,26 +260,20 @@ mod tests {
     fn generate_c_backend_emits_sndpgmmsg_output() {
         let program = Program {
             commands: vec![
-                Command {
-                    name: "PGM".to_string(),
-                    parameters: vec![],
-                },
+                Command { name: "PGM".to_string(), parameters: vec![] },
                 Command {
                     name: "SNDPGMMSG".to_string(),
                     parameters: vec![Parameter::Positional(Value::StringLiteral(
                         "Hola desde CL".to_string(),
                     ))],
                 },
-                Command {
-                    name: "ENDPGM".to_string(),
-                    parameters: vec![],
-                },
+                Command { name: "ENDPGM".to_string(), parameters: vec![] },
             ],
         };
 
         let code = generate_c_backend("demo.clp", &program);
         assert!(code.contains("Hola desde CL"));
-        assert!(code.contains("Executing CL program"));
+        assert!(code.contains("Ejecutando programa CL"));
         assert!(code.contains("l400_sndpgmmsg"));
     }
 
@@ -169,6 +287,51 @@ mod tests {
         };
 
         let code = generate_c_backend("demo.clp", &program);
-        assert!(code.contains("Unsupported CL command in v1 subset: DLTOBJ"));
+        assert!(code.contains("no soportado en v2: DLTOBJ"));
+    }
+
+    #[test]
+    fn generate_crtlib_call() {
+        let program = Program {
+            commands: vec![Command {
+                name: "CRTLIB".to_string(),
+                parameters: vec![Parameter::Named(
+                    "LIB".to_string(),
+                    Value::Identifier("MYLIB".to_string()),
+                )],
+            }],
+        };
+        let code = generate_c_backend("demo.clp", &program);
+        assert!(code.contains("l400_crtlib"));
+        assert!(code.contains("MYLIB"));
+    }
+
+    #[test]
+    fn generate_wrkactjob_call() {
+        let program = Program {
+            commands: vec![Command { name: "WRKACTJOB".to_string(), parameters: vec![] }],
+        };
+        let code = generate_c_backend("demo.clp", &program);
+        assert!(code.contains("l400_wrkactjob()"));
+    }
+
+    #[test]
+    fn generate_signoff_call() {
+        let program = Program {
+            commands: vec![Command { name: "SIGNOFF".to_string(), parameters: vec![] }],
+        };
+        let code = generate_c_backend("demo.clp", &program);
+        assert!(code.contains("l400_signoff()"));
+    }
+
+    #[test]
+    fn batch_only_commands_emit_warning() {
+        for cmd in ["STRPDM", "STRSEU", "STRSQL", "WRKMBRPDM"] {
+            let program = Program {
+                commands: vec![Command { name: cmd.to_string(), parameters: vec![] }],
+            };
+            let code = generate_c_backend("demo.clp", &program);
+            assert!(code.contains("no disponible en modo batch"), "Failed for {cmd}");
+        }
     }
 }

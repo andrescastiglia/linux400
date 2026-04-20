@@ -4,6 +4,7 @@ pub mod cgroup;
 pub mod db;
 pub mod dtaq;
 pub mod ffi;
+pub mod ffi_commands;
 pub mod lam;
 pub mod object;
 pub mod runtime;
