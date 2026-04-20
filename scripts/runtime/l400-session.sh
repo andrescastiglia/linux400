@@ -3,7 +3,7 @@
 
 set -eu
 
-fallback_shell="${SHELL:-/bin/sh}"
+fallback_shell="/bin/sh"
 boot_mode=""
 run_dir="${L400_RUN_DIR:-/run/l400}"
 
@@ -30,14 +30,18 @@ if [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
 fi
 
 current_tty="$(tty 2>/dev/null || true)"
-case "${current_tty}" in
-    /dev/ttyS*)
-        exec "${fallback_shell}"
-        ;;
-esac
-
 if [ "${TERM:-dumb}" = "dumb" ]; then
-    exec "${fallback_shell}"
+    case "${current_tty}" in
+        /dev/ttyS*)
+            export TERM="vt100"
+            ;;
+        /dev/tty*)
+            export TERM="linux"
+            ;;
+        *)
+            exec "${fallback_shell}"
+            ;;
+    esac
 fi
 
 if [ -n "${L400_TUI_ACTIVE:-}" ]; then

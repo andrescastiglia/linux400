@@ -180,14 +180,18 @@ ensure_user_l400() {
     local passwd_file="${ROOTFS_DIR}/etc/passwd"
     local shadow_file="${ROOTFS_DIR}/etc/shadow"
     local group_file="${ROOTFS_DIR}/etc/group"
+    local session_shell="/usr/local/bin/l400-session"
 
     mkdir -p "${ROOTFS_DIR}/home/l400"
 
     grep -q '^l400:' "${group_file}" 2>/dev/null || \
         echo 'l400:x:1000:' >> "${group_file}"
 
-    if ! grep -q '^l400:' "${passwd_file}" 2>/dev/null; then
-        echo 'l400:x:1000:1000:Linux/400 User:/home/l400:/bin/sh' >> "${passwd_file}"
+    if grep -q '^l400:' "${passwd_file}" 2>/dev/null; then
+        sed -i "s#^l400:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:.*#l400:x:1000:1000:Linux/400 User:/home/l400:${session_shell}#" \
+            "${passwd_file}"
+    else
+        echo "l400:x:1000:1000:Linux/400 User:/home/l400:${session_shell}" >> "${passwd_file}"
     fi
 
     if ! grep -q '^l400:' "${shadow_file}" 2>/dev/null; then

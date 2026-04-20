@@ -116,6 +116,19 @@ impl CommandLine {
         let action = tokens.first()?.to_uppercase();
 
         match action.as_str() {
+            "GO" => {
+                let target = tokens
+                    .get(1)
+                    .map(|value| value.trim().to_uppercase())
+                    .unwrap_or_default();
+                if target == "MAIN" {
+                    Some(ScreenResult::goto(ScreenId::MainMenu))
+                } else {
+                    self.show_usage_error("Usage: GO MAIN");
+                    Some(ScreenResult::none())
+                }
+            }
+            "SIGNOFF" => Some(ScreenResult::exit()),
             "STRPDM" => Some(ScreenResult::goto(ScreenId::PdmBrowser)),
             "STRSQL" => Some(ScreenResult::goto(ScreenId::StrSql)),
             "WRKMBRPDM" => {

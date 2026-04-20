@@ -1,7 +1,9 @@
 use std::env;
 use std::ffi::CString;
+use std::io::{stdin, stdout, IsTerminal};
 use std::os::raw::c_char;
 use std::path::Path;
+use std::process::Command;
 use std::process::ExitCode;
 
 use l400::ffi_commands;
@@ -135,11 +137,8 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             "CRTPGM PGM(MYPGM)",
             ffi_commands::l400_crtpgm,
         ),
-        "GO" => dispatch_unary_required(command, args, &["MENU"], "GO MAIN", ffi_commands::l400_go),
-        "SIGNOFF" => {
-            ffi_commands::l400_signoff();
-            ExitCode::SUCCESS
-        }
+        "GO" => dispatch_go(command, args),
+        "SIGNOFF" => dispatch_signoff(),
         "STRPDM" => {
             ffi_commands::l400_strpdm();
             ExitCode::SUCCESS
@@ -249,6 +248,62 @@ fn dispatch_strsql(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+fn dispatch_go(command: &str, args: &[String]) -> ExitCode {
+    let target = extract_named_arg(args, &["MENU"])
+        .or_else(|| positional_args(args, &["MENU"]).first().cloned());
+    let Some(target) = target else {
+        eprintln!("ERROR: faltan parámetros para {command}.");
+        eprintln!("Uso: GO MAIN");
+        return ExitCode::from(2);
+    };
+
+    if target.trim().eq_ignore_ascii_case("MAIN") {
+        return launch_main_menu();
+    }
+
+    call_with_cstring(&target, ffi_commands::l400_go)
+}
+
+fn launch_main_menu() -> ExitCode {
+    if !stdin().is_terminal() || !stdout().is_terminal() {
+        return call_with_cstring("MAIN", ffi_commands::l400_go);
+    }
+
+    match Command::new("os400-tui").status() {
+        Ok(status) if status.success() => ExitCode::SUCCESS,
+        Ok(status) => ExitCode::from(status.code().unwrap_or(1) as u8),
+        Err(error) => {
+            eprintln!("ERROR: no se pudo lanzar os400-tui: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn dispatch_signoff() -> ExitCode {
+    if stdin().is_terminal() && stdout().is_terminal() {
+        let parent_pid = unsafe { libc::getppid() };
+        if parent_pid > 1 {
+            let parent_name = std::fs::read_to_string(format!("/proc/{parent_pid}/comm"))
+                .ok()
+                .map(|value| value.trim().to_string())
+                .unwrap_or_default();
+            if matches!(
+                parent_name.as_str(),
+                "sh" | "ash" | "bash" | "dash" | "busybox"
+            ) {
+                println!("[SIGNOFF] Cerrando sesión Linux/400.");
+                let result = unsafe { libc::kill(parent_pid, libc::SIGHUP) };
+                if result == 0 {
+                    return ExitCode::SUCCESS;
+                }
+            }
+        }
+    }
+
+    ffi_commands::l400_signoff();
+    ExitCode::SUCCESS
 }
 
 fn call_with_cstring(value: &str, callback: extern "C" fn(*const c_char)) -> ExitCode {

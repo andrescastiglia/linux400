@@ -10,12 +10,6 @@ if [ -f "${run_dir}/boot-mode" ]; then
     boot_mode="$(cat "${run_dir}/boot-mode" 2>/dev/null || true)"
 fi
 
-case "${tty_name}" in
-    /dev/ttyS*)
-        login_user="root"
-        ;;
-esac
-
 case "${boot_mode}" in
     rescue)
         login_user="root"
