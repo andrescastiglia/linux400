@@ -1,3 +1,5 @@
+use crate::runtime::l400_run_dir;
+use std::env;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -11,6 +13,8 @@ pub enum CgroupError {
     AssignmentFailed(String),
     #[error("Permission denied (requires root or l400 group)")]
     PermissionDenied,
+    #[error("Invalid job registry entry: {0}")]
+    InvalidJob(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -21,6 +25,39 @@ pub enum WorkloadType {
     Batch,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobStatus {
+    JobQ,
+    Active,
+    Completed,
+    Failed,
+}
+
+impl std::fmt::Display for JobStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JobStatus::JobQ => write!(f, "JOBQ"),
+            JobStatus::Active => write!(f, "ACTIVE"),
+            JobStatus::Completed => write!(f, "COMPLETED"),
+            JobStatus::Failed => write!(f, "FAILED"),
+        }
+    }
+}
+
+impl std::str::FromStr for JobStatus {
+    type Err = CgroupError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "JOBQ" => Ok(JobStatus::JobQ),
+            "ACTIVE" => Ok(JobStatus::Active),
+            "COMPLETED" => Ok(JobStatus::Completed),
+            "FAILED" => Ok(JobStatus::Failed),
+            _ => Err(CgroupError::InvalidJob(format!("invalid status: {}", s))),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct CgroupParams {
     pub cpu_weight: u64,
@@ -29,6 +66,17 @@ pub struct CgroupParams {
     pub memory_high: String,
     pub memory_max: String,
     pub pids_max: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkloadJob {
+    pub pid: u64,
+    pub name: String,
+    pub user: String,
+    pub workload: WorkloadType,
+    pub status: JobStatus,
+    pub subsystem: String,
+    pub command: String,
 }
 
 impl Default for CgroupParams {
@@ -71,9 +119,201 @@ impl CgroupParams {
 const L400_CGROUP_ROOT: &str = "/sys/fs/cgroup/l400.slice";
 const QINTER_SLICE: &str = "l400.qinter";
 const QBATCH_SLICE: &str = "l400.qbatch";
-
 fn l400_root() -> PathBuf {
     PathBuf::from(L400_CGROUP_ROOT)
+}
+
+fn job_registry_path(base: &Path) -> PathBuf {
+    base.join("jobs")
+}
+
+fn workload_name(workload: WorkloadType) -> &'static str {
+    match workload {
+        WorkloadType::Interactive => "QINTER",
+        WorkloadType::Batch => "QBATCH",
+    }
+}
+
+fn workload_from_name(value: &str) -> Result<WorkloadType, CgroupError> {
+    match value {
+        "QINTER" | "INTERACTIVE" => Ok(WorkloadType::Interactive),
+        "QBATCH" | "BATCH" => Ok(WorkloadType::Batch),
+        other => Err(CgroupError::InvalidJob(other.to_string())),
+    }
+}
+
+fn job_file(base: &Path, pid: u64) -> PathBuf {
+    job_registry_path(base).join(format!("{pid}.job"))
+}
+
+fn current_user_name() -> String {
+    env::var("SUDO_USER")
+        .ok()
+        .or_else(|| env::var("USER").ok())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "l400".to_string())
+}
+
+fn encode_job_value(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'%' | b'=' | b'\n' | b'\r' => {
+                encoded.push('%');
+                encoded.push_str(&format!("{byte:02X}"));
+            }
+            _ => encoded.push(byte as char),
+        }
+    }
+    encoded
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn decode_job_value(value: &str) -> Result<String, CgroupError> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                return Err(CgroupError::InvalidJob(
+                    "job field contains truncated escape sequence".to_string(),
+                ));
+            }
+            let high = hex_value(bytes[index + 1]).ok_or_else(|| {
+                CgroupError::InvalidJob("job field contains invalid escape sequence".to_string())
+            })?;
+            let low = hex_value(bytes[index + 2]).ok_or_else(|| {
+                CgroupError::InvalidJob("job field contains invalid escape sequence".to_string())
+            })?;
+            decoded.push((high << 4) | low);
+            index += 3;
+            continue;
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8(decoded)
+        .map_err(|_| CgroupError::InvalidJob("job field is not valid UTF-8".to_string()))
+}
+
+fn write_job_at(
+    base: &Path,
+    pid: u64,
+    name: &str,
+    user: &str,
+    workload: WorkloadType,
+    status: JobStatus,
+    command: &str,
+) -> Result<(), CgroupError> {
+    let registry = job_registry_path(base);
+    std::fs::create_dir_all(&registry)?;
+    let encoded_name = encode_job_value(name);
+    let encoded_user = encode_job_value(user);
+    let subsystem = workload_name(workload);
+    let encoded_subsystem = encode_job_value(subsystem);
+    let encoded_command = encode_job_value(command);
+    let payload = format!(
+        "pid={pid}\nname={encoded_name}\nuser={encoded_user}\nworkload={subsystem}\nstatus={status}\nsubsystem={encoded_subsystem}\ncommand={encoded_command}\n"
+    );
+    std::fs::write(job_file(base, pid), payload)?;
+    Ok(())
+}
+
+fn update_job_status_at(base: &Path, pid: u64, status: JobStatus) -> Result<(), CgroupError> {
+    let path = job_file(base, pid);
+    if !path.exists() {
+        return Err(CgroupError::InvalidJob(format!("job {} not found", pid)));
+    }
+    let content = std::fs::read_to_string(&path)?;
+    let mut updated = false;
+    let mut lines = Vec::new();
+    for line in content.lines() {
+        if line.starts_with("status=") {
+            lines.push(format!("status={status}"));
+            updated = true;
+        } else {
+            lines.push(line.to_string());
+        }
+    }
+    if !updated {
+        lines.push(format!("status={status}"));
+    }
+    lines.push(String::new());
+    std::fs::write(path, lines.join("\n"))?;
+    Ok(())
+}
+
+fn parse_job(content: &str) -> Result<WorkloadJob, CgroupError> {
+    let mut pid = None;
+    let mut name = None;
+    let mut user = None;
+    let mut workload = None;
+    let mut status = None;
+    let mut subsystem = None;
+    let mut command = None;
+
+    for line in content.lines() {
+        if let Some((key, value)) = line.split_once('=') {
+            match key {
+                "pid" => pid = value.parse::<u64>().ok(),
+                "name" => name = Some(decode_job_value(value)?),
+                "user" => user = Some(decode_job_value(value)?),
+                "workload" => workload = Some(workload_from_name(value)?),
+                "status" => status = value.parse().ok(),
+                "subsystem" => subsystem = Some(decode_job_value(value)?),
+                "command" => command = Some(decode_job_value(value)?),
+                _ => {}
+            }
+        }
+    }
+
+    Ok(WorkloadJob {
+        pid: pid.ok_or_else(|| CgroupError::InvalidJob("missing pid".to_string()))?,
+        name: name.ok_or_else(|| CgroupError::InvalidJob("missing name".to_string()))?,
+        user: user.ok_or_else(|| CgroupError::InvalidJob("missing user".to_string()))?,
+        workload: workload
+            .ok_or_else(|| CgroupError::InvalidJob("missing workload".to_string()))?,
+        status: status.ok_or_else(|| CgroupError::InvalidJob("missing status".to_string()))?,
+        subsystem: subsystem.unwrap_or_else(|| "UNKNOWN".to_string()),
+        command: command.unwrap_or_default(),
+    })
+}
+
+pub fn list_jobs_at(base: &Path) -> Result<Vec<WorkloadJob>, CgroupError> {
+    let registry = job_registry_path(base);
+    if !registry.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut jobs = Vec::new();
+    for entry in std::fs::read_dir(&registry)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let content = std::fs::read_to_string(&path)?;
+        let job = parse_job(&content)?;
+        if PathBuf::from(format!("/proc/{}", job.pid)).exists() || job.status != JobStatus::Active {
+            jobs.push(job);
+        } else {
+            let mut failed_job = job.clone();
+            failed_job.status = JobStatus::Failed;
+            let _ = update_job_status_at(base, failed_job.pid, JobStatus::Failed);
+            jobs.push(failed_job);
+        }
+    }
+    jobs.sort_by_key(|left| left.pid);
+    Ok(jobs)
 }
 
 fn qinter_path() -> PathBuf {
@@ -164,6 +404,44 @@ pub fn assign_to_workload(pid: u64, workload: WorkloadType) -> Result<(), Cgroup
     std::fs::write(&tasks_file, pid.to_string())?;
 
     Ok(())
+}
+
+pub fn register_job(
+    pid: u64,
+    name: &str,
+    user: &str,
+    workload: WorkloadType,
+    status: JobStatus,
+    command: &str,
+) -> Result<(), CgroupError> {
+    write_job_at(&l400_run_dir(), pid, name, user, workload, status, command)
+}
+
+pub fn register_current_job(
+    name: &str,
+    workload: WorkloadType,
+    status: JobStatus,
+    command: &str,
+) -> Result<u64, CgroupError> {
+    let pid = std::process::id() as u64;
+    register_job(pid, name, &current_user_name(), workload, status, command)?;
+    Ok(pid)
+}
+
+pub fn update_job_status(pid: u64, status: JobStatus) -> Result<(), CgroupError> {
+    update_job_status_at(&l400_run_dir(), pid, status)
+}
+
+pub fn remove_job(pid: u64) -> Result<(), CgroupError> {
+    let path = job_file(&l400_run_dir(), pid);
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+pub fn list_jobs() -> Result<Vec<WorkloadJob>, CgroupError> {
+    list_jobs_at(&l400_run_dir())
 }
 
 pub fn get_current_workload() -> Result<WorkloadType, CgroupError> {
@@ -261,6 +539,7 @@ pub fn cleanup_l400_slices() -> Result<(), CgroupError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn test_cgroup_params_defaults() {
@@ -318,5 +597,52 @@ mod tests {
             result.is_ok() || matches!(result, Err(CgroupError::NotAvailable)),
             "Should either get current workload or gracefully fail"
         );
+    }
+
+    #[test]
+    fn test_job_registry_round_trip() {
+        let root = tempdir().unwrap();
+        let pid = std::process::id() as u64;
+        write_job_at(
+            root.path(),
+            pid,
+            "BATCHDEMO",
+            "l400",
+            WorkloadType::Batch,
+            JobStatus::Active,
+            "demo command",
+        )
+        .unwrap();
+
+        let jobs = list_jobs_at(root.path()).unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].name, "BATCHDEMO");
+        assert_eq!(jobs[0].subsystem, "QBATCH");
+
+        update_job_status_at(root.path(), pid, JobStatus::Completed).unwrap();
+        let jobs = list_jobs_at(root.path()).unwrap();
+        assert_eq!(jobs[0].status, JobStatus::Completed);
+    }
+
+    #[test]
+    fn test_job_registry_escapes_special_characters() {
+        let root = tempdir().unwrap();
+        let pid = std::process::id() as u64 + 1;
+        write_job_at(
+            root.path(),
+            pid,
+            "BATCH=DEMO",
+            "l400\nops",
+            WorkloadType::Batch,
+            JobStatus::Active,
+            "printf 'a=b\n'",
+        )
+        .unwrap();
+
+        let jobs = list_jobs_at(root.path()).unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].name, "BATCH=DEMO");
+        assert_eq!(jobs[0].user, "l400\nops");
+        assert_eq!(jobs[0].command, "printf 'a=b\n'");
     }
 }

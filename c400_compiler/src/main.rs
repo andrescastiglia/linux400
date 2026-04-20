@@ -1,5 +1,5 @@
 use clap::Parser;
-use l400::zfs::set_objtype;
+use l400::catalog_object;
 use std::path::Path;
 use std::process::Command;
 
@@ -14,7 +14,8 @@ fn resolve_l400_lib_path() -> String {
         "target/release",
         "target/debug",
     ] {
-        if Path::new(candidate).exists() {
+        let candidate_path = Path::new(candidate);
+        if candidate_path.join("libl400.a").exists() || candidate_path.join("libl400.so").exists() {
             return candidate.to_string();
         }
     }
@@ -72,6 +73,7 @@ fn main() {
         .arg("-o")
         .arg(&args.output)
         .arg(format!("-L{}", lib_path))
+        .arg(format!("-Wl,-rpath,{}", lib_path))
         .arg("-ll400")
         .status();
 
@@ -87,7 +89,12 @@ fn main() {
 
     // Paso 2: Catalogación estricta ZFS
     println!(">> (2) Integración Single-Level Storage (zfs xattr)...");
-    match set_objtype(output_path, "*PGM") {
+    match catalog_object(
+        output_path,
+        "*PGM",
+        Some("C"),
+        Some("C/400 compiled program"),
+    ) {
         Ok(_) => {
             println!("   [OK] Tipificación ZFS completada (*PGM asignado).");
         }

@@ -2,7 +2,11 @@ pub mod cmd_line;
 pub mod dtaq_viewer;
 pub mod main_menu;
 pub mod object_browser;
+pub mod pdm_browser;
+pub mod str_seu;
+pub mod str_sql;
 pub mod work_mgmt;
+pub mod wrk_mbr_pdm;
 
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
@@ -14,6 +18,10 @@ pub enum ScreenId {
     ObjectBrowser,
     DataQueueViewer,
     CommandLine,
+    PdmBrowser,
+    WrkMbrPdm,
+    StrSeu,
+    StrSql,
     Exit,
 }
 
@@ -35,6 +43,13 @@ impl ScreenResult {
         Self {
             next: Some(screen),
             data: None,
+        }
+    }
+
+    pub fn with_data(screen: ScreenId, data: impl Into<String>) -> Self {
+        Self {
+            next: Some(screen),
+            data: Some(data.into()),
         }
     }
 

@@ -11,7 +11,7 @@ fi
 POOL_NAME="l400test"
 MOUNT_POINT="/mnt/l400test"
 IMAGE_FILE="/var/tmp/l400test.img"
-LOADER_BIN="./l400-loader/target/release/l400-loader"
+LOADER_BIN="./target/release/l400-loader"
 
 echo "[1] Inicializando zpool temporal de prueba..."
 mkdir -p "$MOUNT_POINT"
@@ -42,7 +42,7 @@ setfattr -n user.l400.objtype -v "*BAD" "$INVALID_OBJ"
 echo "[3] Lanzando l400-loader en modo background..."
 if [[ ! -f "$LOADER_BIN" ]]; then
     echo "[-] l400-loader no encontrado. Compilando..."
-    (cd l400-loader && cargo build --target bpfel-unknown-none --release)
+    cargo build -p l400-loader --release
 fi
 
 $LOADER_BIN &

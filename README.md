@@ -42,3 +42,112 @@ cargo build --release
 # O prueba un parsing directo:
 ./target/release/clc --help
 ```
+
+### 4. Demo de objetos V1
+La v1 actual toma `sled` como backend operativo de `*FILE` y `*DTAQ`, manteniendo `user.l400.objtype` como frontera autoritativa de tipado para el runtime y el LSM.
+
+Puedes generar una demo local de bibliotecas, `*PGM`, PF/LF y `*DTAQ` con:
+```bash
+cargo run -p l400 --example objects_v1_demo -- /tmp/l400-demo
+```
+
+Y validar la salida esperada de esa demo con:
+```bash
+./scripts/test/test_objects_v1_demo.sh
+```
+
+### 5. Toolchain V1
+El subset CL soportado por `clc` en la ruta batch ya no se limita a `PGM`, `SNDPGMMSG` y `ENDPGM`. Además de esos comandos base, el codegen actual también emite llamadas reales para:
+
+- `STRPDM`
+- `STRSEU FILE(...) MBR(...)`
+- `STRSQL`
+- `WRKMBRPDM FILE(...)`
+
+En batch, esos comandos delegan en `libl400` y muestran una representación textual del entorno interactivo: bibliotecas catalogadas, miembros de un source file, contenido de un miembro o resultados de `SELECT`.
+
+Además, la imagen live/install ahora expone comandos Linux/400 como binarios separados en el `PATH` del sistema (`/usr/local/bin` -> `/opt/l400/bin/l400cmd`). Los nombres OS/400-style como `WRKSYSSTS`, `CRTLIB`, `GO`, `STRPDM`, `STRSEU`, `STRSQL` o `WRKMBRPDM` se resuelven vía symlinks al mismo dispatcher para evitar duplicar lógica.
+
+Los ejemplos canónicos actuales son:
+```bash
+tests/hola_mundo.c
+tests/prueba.clp
+```
+
+Puedes validar el flujo completo `fuente -> compilación -> catalogación *PGM -> ejecución` con:
+```bash
+./scripts/test/test_toolchain_v1_demo.sh
+```
+
+### 6. TUI interactiva (`os400-tui`)
+La TUI ya incluye las pantallas interactivas del flujo de desarrollo OS/400-style:
+
+- `STRPDM`: navega bibliotecas catalogadas.
+- `WRKMBRPDM`: lista y crea miembros dentro de un source file.
+- `STRSEU`: edita y guarda miembros fuente.
+- `STRSQL`: ejecuta `SELECT` mínimos sobre PF/LF del runtime.
+
+Puedes arrancarla con:
+```bash
+cargo run -p os400-tui
+```
+
+Dentro de la TUI:
+
+- En el menú principal, `7` abre `STRPDM`.
+- En la línea de comandos, se reconocen `STRPDM`, `STRSEU`, `STRSQL` y `WRKMBRPDM`.
+- `STRSEU` permite guardar cambios sobre miembros para luego recompilarlos con `clc`.
+
+Fuera de la TUI, el live ISO también deja disponibles binarios separados para los comandos del cheatsheet. Ejemplos shell-friendly:
+```bash
+WRKSYSSTS
+CRTLIB QGPL
+WRKMBRPDM QGPL/QCLSRC
+STRSEU QGPL/QCLSRC HELLO.CLP
+STRSQL "SELECT * FROM QGPL/MYFILE"
+GO MAIN
+```
+
+Las pruebas focalizadas para este flujo son:
+```bash
+cargo test -p os400-tui
+cargo test -p clc
+```
+
+### 7. Workloads V1
+Linux/400 intenta separar carga interactiva (`QINTER`) y batch (`QBATCH`) con cgroups v2. Cuando el host no permite esa separación completa, el runtime mantiene un registro de jobs en `L400_RUN_DIR` para que la TUI y las demos sigan mostrando workloads reales en modo degradado.
+
+Puedes generar una demo simple de job interactivo + batch con:
+```bash
+./scripts/test/test_workload_demo.sh
+```
+
+### 8. Loader/eBPF por modo
+`l400-loader` soporta tres modos operativos:
+
+- `full`: requiere hook eBPF activo; si no puede cargar/adjuntar el LSM, falla.
+- `degraded`: intenta activar enforcement; si falla, sigue arriba sin protección activa.
+- `dev`: como `degraded`, pero optimizado para desarrollo local y tolerante a assets/BTF/hooks ausentes.
+
+Ejemplos:
+```bash
+cargo run -p l400-loader -- --mode full --once
+cargo run -p l400-loader -- --mode degraded --once
+cargo run -p l400-loader -- --mode dev --once
+```
+
+### 9. Release candidate v1
+El flujo de RC v1 se valida con los scripts reproducibles y smoke tests de este repositorio.
+
+Build reproducible de RC:
+```bash
+./scripts/build/build_release_rc.sh
+```
+
+Smoke tests de RC:
+```bash
+./scripts/test/test_release_rc.sh
+RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh
+```
+
+Nota sobre storage: el backend operativo por defecto para `*FILE` y `*DTAQ` es `sled`. `BerkeleyDb` queda como camino opt-in para builds que habiliten `--features berkeleydb` y expliciten `L400_STORAGE_BACKEND=berkeleydb`.

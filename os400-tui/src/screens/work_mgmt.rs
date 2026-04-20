@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use l400::list_jobs;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
@@ -34,43 +35,26 @@ impl WorkManagement {
     }
 
     fn load_jobs() -> Vec<JobInfo> {
-        vec![
-            JobInfo {
-                name: "QINTER".to_string(),
-                user: "QSYS".to_string(),
-                type_: "INTERACT".to_string(),
-                status: "ACTIVE".to_string(),
-                subsystem: "QCTL".to_string(),
-            },
-            JobInfo {
-                name: "QCMD".to_string(),
-                user: "QSYS".to_string(),
-                type_: "INTERACT".to_string(),
-                status: "ACTIVE".to_string(),
-                subsystem: "QCTL".to_string(),
-            },
-            JobInfo {
-                name: "QP0ZSPWT".to_string(),
-                user: "QSYS".to_string(),
-                type_: "SYS".to_string(),
-                status: "ACTIVE".to_string(),
-                subsystem: "QSYSWRK".to_string(),
-            },
-            JobInfo {
-                name: "QDBSRV01".to_string(),
-                user: "QSYS".to_string(),
-                type_: "BATCH".to_string(),
-                status: "JOBQ".to_string(),
-                subsystem: "QBATCH".to_string(),
-            },
-            JobInfo {
-                name: "QDOCSRV".to_string(),
-                user: "QSYS".to_string(),
-                type_: "BATCH".to_string(),
-                status: "ACTIVE".to_string(),
-                subsystem: "QBATCH".to_string(),
-            },
-        ]
+        if let Ok(jobs) = list_jobs() {
+            return jobs
+                .into_iter()
+                .map(|job| JobInfo {
+                    name: job.name,
+                    user: job.user,
+                    type_: match job.workload {
+                        l400::WorkloadType::Interactive => "INTERACT".to_string(),
+                        l400::WorkloadType::Batch => "BATCH".to_string(),
+                    },
+                    status: job.status.to_string(),
+                    subsystem: job.subsystem,
+                })
+                .collect();
+        }
+        Vec::new()
+    }
+
+    fn refresh(&mut self) {
+        self.jobs = Self::load_jobs();
     }
 }
 
@@ -92,7 +76,8 @@ impl Screen for WorkManagement {
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
         match key.code {
-            KeyCode::F(3) | KeyCode::Char('3') => ScreenResult::goto(ScreenId::MainMenu),
+            KeyCode::F(3) => ScreenResult::goto(ScreenId::MainMenu),
+            KeyCode::F(4) => ScreenResult::goto(ScreenId::CommandLine),
             KeyCode::F(12) | KeyCode::Char('q')
                 if key
                     .modifiers
@@ -120,7 +105,7 @@ impl Screen for WorkManagement {
                 ScreenResult::none()
             }
             KeyCode::F(5) => {
-                self.jobs = Self::load_jobs();
+                self.refresh();
                 ScreenResult::none()
             }
             _ => ScreenResult::none(),
@@ -140,8 +125,13 @@ impl WorkManagement {
 
         frame.render_widget(block, area);
 
+        let source = "Runtime workloads";
         let lines: Vec<Line> = vec![
-            Line::from(vec!["Type options, press Enter.  ".into()]),
+            Line::from(vec![format!(
+                "Source: {}. Type options, press Enter.",
+                source
+            )
+            .into()]),
             Line::from(vec![
                 "Opt  Job         User        Type      Status    Subsystem".into(),
             ]),
@@ -154,7 +144,7 @@ impl WorkManagement {
 
     fn render_jobs(&mut self, frame: &mut Frame, area: Rect) {
         let header = ["", "Job", "User", "Type", "Status", "Subsystem"];
-        let widths = [3u16, 12, 12, 8, 12, 12];
+        let widths = [3u16, 14, 12, 10, 14, 12];
 
         let rows: Vec<Row> = self
             .jobs
@@ -191,6 +181,7 @@ impl WorkManagement {
     fn render_help(&self, frame: &mut Frame, area: Rect) {
         let help_text = Line::from(vec![
             "F3=Exit   ".into(),
+            "F4=Prompt   ".into(),
             "F5=Refresh   ".into(),
             "F12=Cancel   ".into(),
             "Enter=Select   ".into(),

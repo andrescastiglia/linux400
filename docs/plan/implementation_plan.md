@@ -1,130 +1,293 @@
-# Roadmap V1 de Linux/400
+# Plan de Implementación: STRPDM, STRSEU, STRSQL y WRKMBRPDM
 
-Este documento reemplaza el plan anterior de `docs/plan/` y redefine el trabajo hacia una **v1 operable** de Linux/400, usando como visión de producto [PROJECT.md](/home/user/Source/linux400/docs/PROJECT.md:1) y como restricción el estado real del repositorio y del pipeline live/install.
+## Objetivo
 
-## Definición de V1
+Implementar los cuatro entornos interactivos del cheatsheet como pantallas TUI reales dentro de `os400-tui`, siguiendo el patrón existente (`Screen` trait + `ScreenId`):
 
-La v1 de Linux/400 queda definida como:
+- **STRPDM** — Programming Development Manager: navegador de objetos de desarrollo (bibliotecas → archivos fuente → miembros).
+- **STRSEU** — Source Entry Utility: editor de texto minimalista para miembros de archivos fuente.
+- **STRSQL** — Interactive SQL: intérprete de sentencias SQL sobre archivos `*FILE` PF/LF del runtime.
+- **WRKMBRPDM** — Work with Members in PDM: lista y gestiona miembros dentro de un archivo fuente específico.
 
-- Una distribución **live e instalable** que bootea en QEMU UEFI y en entorno controlado.
-- Un sistema que arranca al flujo Linux/400, con **TUI como experiencia principal**.
-- Una base de runtime que integra `libl400`, `os400-tui`, `clc`, `c400c`, `l400-loader` y el hook BPF.
-- Un modelo de objetos usable con `*LIB`, `*PGM`, `*FILE`, `*DTAQ`, `*USRPRF`.
-- Un backend de storage funcional para v1, con enforcement básico y subsistemas interactivo/lote observables.
+Estos cuatro comandos también deben emitir código real en el codegen de `clc` (en lugar del mensaje de "no disponible en modo batch").
 
-No forma parte obligatoria de v1:
+---
 
-- fidelidad completa a SLS/TIMI
-- soporte amplio de hardware fuera de QEMU/lab
-- enforcement universal sobre todas las syscalls
-- implementación definitiva de todas las ideas teóricas de `PROJECT.md`
+## Análisis del patrón existente
 
-## Principios de Planificación
+Cada pantalla sigue este contrato:
 
-1. Primero se estabiliza el **sistema booteable e instalable**.
-2. Después se consolida la **experiencia Linux/400 visible al usuario**.
-3. Luego se endurecen **runtime, objetos, storage y enforcement**.
-4. Finalmente se empaqueta una **release candidate v1 reproducible**.
+```
+os400-tui/src/screens/
+  ├── mod.rs           ← ScreenId enum + Screen trait
+  ├── main_menu.rs     ← ejemplo de pantalla con estado + navegación
+  ├── object_browser.rs ← ejemplo de tabla con TableState
+  └── work_mgmt.rs     ← ejemplo de datos en vivo del runtime
+```
 
-## Estado Actual Relevante
+**Para agregar una pantalla nueva se necesita:**
+1. Crear `os400-tui/src/screens/<nombre>.rs` implementando `Screen`.
+2. Agregar la variante en `ScreenId`.
+3. Registrar el módulo en `mod.rs`.
+4. Agregar la construcción en `main.rs` (switch de pantallas activas).
+5. Conectar la navegación desde donde corresponda (menú, `CommandLine`, etc.).
 
-Hoy el repositorio ya tiene avances importantes:
+---
 
-- ISO live/install, initramfs, rootfs y scripts de build.
-- TUI funcional y autologin para flujo Linux/400.
-- Toolchain `clc` y `c400c`.
-- `libl400`, `l400-loader`, `l400-ebpf`, `l400-ebpf-common`.
-- Gestión de workloads con cgroups v2.
-- Harness E2E de instalación UEFI sobre QEMU+qcow2.
+## Propuesta de flujo de navegación
 
-Bloqueadores detectados en el relevamiento reciente:
+```
+MainMenu
+  └─ [7] STRPDM ──→ PdmBrowser (lista bibliotecas)
+                        └─ Enter sobre lib ──→ WrkMbrPdm (lista archivos fuente)
+                                                   └─ F15/Enter ──→ Strseu (editor de miembro)
+                                                   └─ F16       ──→ Strsql (SQL interactivo)
+CommandLine
+  ├─ STRPDM  ──→ PdmBrowser
+  ├─ STRSEU  ──→ Strseu  (requiere parámetro FILE/MBR)
+  ├─ STRSQL  ──→ Strsql
+  └─ WRKMBRPDM → WrkMbrPdm (requiere FILE)
+```
 
-- La instalación UEFI todavía no completa porque el live no logra montar la partición EFI VFAT dentro del entorno instalado.
-- El pipeline compila el hook eBPF con fallback, pero no hay validación robusta de runtime del loader/hook en el sistema instalado.
-- El modelo de objetos y storage existe, pero todavía no está cerrado como flujo v1 de punta a punta dentro del sistema instalado.
+---
 
-## Milestones
+## Trabajo por componente
 
-### M1. Sistema Base Cerrado
+---
 
-Objetivo:
+### Componente 1 — Routing y ScreenId
 
-- ISO live estable
-- instalador UEFI funcionando
-- reboot desde disco validado en QEMU
+#### [MODIFY] `os400-tui/src/screens/mod.rs`
 
-Salida esperada:
+Agregar variantes al enum `ScreenId`:
 
-- `scripts/test/test_e2e_install_qemu.sh` pasa de punta a punta
-- el sistema instalado arranca desde qcow2 sin intervención
+```rust
+PdmBrowser,    // STRPDM
+WrkMbrPdm,     // WRKMBRPDM
+StrSeu,        // STRSEU
+StrSql,        // STRSQL
+```
 
-### M2. Experiencia Linux/400 Operable
+#### [MODIFY] `os400-tui/src/main.rs`
 
-Objetivo:
+Instanciar las nuevas pantallas en el dispatcher de `ScreenId`.
 
-- arranque normal a TUI
-- consola de recovery separada
-- sesión Linux/400 consistente en live e instalado
+#### [MODIFY] `os400-tui/src/screens/main_menu.rs`
 
-Salida esperada:
+- Agregar opción `7` al menú principal: `"Programming Development Manager"` → `STRPDM`.
+- Conectar `handle_option("7")` → `ScreenId::PdmBrowser`.
 
-- `tty1` entra a `l400-session`
-- `os400-tui` se convierte en flujo principal de operación
+#### [MODIFY] `os400-tui/src/screens/cmd_line.rs`
 
-### M3. Runtime Integrado
+Reconocer los nuevos comandos en la línea de comandos: `STRPDM`, `STRSEU`, `STRSQL`, `WRKMBRPDM`.
 
-Objetivo:
+---
 
-- toolchain y runtime funcionando dentro del sistema
-- carga de componentes del proyecto validada en entorno real
+### Componente 2 — STRPDM (`pdm_browser.rs`)
 
-Salida esperada:
+#### [NEW] `os400-tui/src/screens/pdm_browser.rs`
 
-- compilar y ejecutar programas desde el sistema Linux/400
+**Descripción:** Lista las bibliotecas catalogadas en el root de L400. Permite al usuario seleccionar una para navegar sus archivos fuente con `WRKMBRPDM`.
 
-### M4. Objetos + Storage + Enforcement V1
+**Estado interno:**
+```rust
+pub struct PdmBrowser {
+    libraries: Vec<String>,
+    state: ListState,
+}
+```
 
-Objetivo:
+**Comportamiento:**
+- Al cargar: llama `list_objects(resolve_l400_root())` y filtra tipo `*LIB`.
+- `Enter` sobre una biblioteca → `ScreenResult::goto(ScreenId::WrkMbrPdm)` pasando el nombre de la lib en `data`.
+- `F5` refresca la lista.
+- `F3`/`F12` → `ScreenId::MainMenu`.
 
-- objetos tipados utilizables
-- backend de storage v1 definido y documentado
-- enforcement básico verificable
+**Layout:**
+```
+╔═ STRPDM - Programming Development Manager ══════════════╗
+║  Select library and press Enter. F5=Refresh              ║
+╠══════════════════════════════════════════════════════════╣
+║  > QGPL                                                  ║
+║    MYLIB                                                  ║
+║    QSYS                                                   ║
+╠══════════════════════════════════════════════════════════╣
+║ F3=Exit  F5=Refresh  F12=Cancel  Enter=Select            ║
+╚══════════════════════════════════════════════════════════╝
+```
 
-Salida esperada:
+---
 
-- demo funcional con `*LIB`, `*PGM`, `*FILE`, `*DTAQ`
+### Componente 3 — WRKMBRPDM (`wrk_mbr_pdm.rs`)
 
-### M5. Release Candidate V1
+#### [NEW] `os400-tui/src/screens/wrk_mbr_pdm.rs`
 
-Objetivo:
+**Descripción:** Lista los miembros de un archivo fuente específico dentro de una biblioteca. Permite editar un miembro con SEU (F15) o entrar a SQL (F16).
 
-- documentación, matriz de soporte, demo y criterios de aceptación cerrados
+**Estado interno:**
+```rust
+pub struct WrkMbrPdm {
+    library: String,
+    file: String,
+    members: Vec<MemberInfo>,
+    state: TableState,
+}
 
-Salida esperada:
+pub struct MemberInfo {
+    pub name: String,
+    pub type_: String,     // CLP, RPGLE, SQLRPGLE, etc.
+    pub text: String,
+}
+```
 
-- release candidate reproducible en QEMU y entorno controlado
+**Comportamiento:**
+- Al cargar: llama `list_members(lib_path, file_name)` (nueva función en `libl400/src/db.rs` o `object.rs`).
+- `Enter`/`F15` sobre un miembro → `ScreenId::StrSeu` con `data = "LIB/FILE/MBR"`.
+- `F16` → `ScreenId::StrSql`.
+- `F3`/`F12` → `ScreenId::PdmBrowser`.
+- `F6` → crear nuevo miembro (interacción con prompt inline o mediante `CommandLine`).
 
-## Fases del Plan
+**Layout:**
+```
+╔═ WRKMBRPDM - Work with Members ═══════════════════════════╗
+║  File: QGPL/QCLSRC    F5=Refresh  F6=Create  F16=STRSQL   ║
+╠═══════════════════════════════════════════════════════════╣
+║  Mbr         Type      Text                               ║
+║  ──────────────────────────────────────────────────────   ║
+║  HELLO       CLP       Hello world program                ║
+║  DEMO        CLP       Demo CL program                    ║
+╠═══════════════════════════════════════════════════════════╣
+║ F3=Exit  F5=Refresh  F6=Create  F15=Edit  F16=STRSQL      ║
+╚═══════════════════════════════════════════════════════════╝
+```
 
-- [fase_1_base_sistema.md](/home/user/Source/linux400/docs/plan/fase_1_base_sistema.md)
-- [fase_2_experiencia_runtime.md](/home/user/Source/linux400/docs/plan/fase_2_experiencia_runtime.md)
-- [fase_3_objetos_storage.md](/home/user/Source/linux400/docs/plan/fase_3_objetos_storage.md)
-- [fase_4_toolchain_workloads.md](/home/user/Source/linux400/docs/plan/fase_4_toolchain_workloads.md)
-- [fase_5_release_v1.md](/home/user/Source/linux400/docs/plan/fase_5_release_v1.md)
+**Nueva función en libl400:** `list_members(lib: &Path, file: &str) -> Result<Vec<MemberInfo>, ObjectError>` — escanea el sub-directorio o la sled/BDB database correspondiente al archivo fuente.
 
-## Riesgos Principales
+---
 
-- Dependencia de kernel/módulos para `overlay`, `vfat`, `zfs`, `bpf`.
-- Entorno Alpine mínimo sin `apk` en host, lo que obliga a empaquetado híbrido.
-- Diferencia entre “compila” y “funciona en runtime” para loader/eBPF.
-- Riesgo de perseguir fidelidad teórica antes de cerrar una base operable.
+### Componente 4 — STRSEU (`str_seu.rs`)
 
-## Criterio de Cierre de V1
+#### [NEW] `os400-tui/src/screens/str_seu.rs`
 
-La v1 se considera alcanzada cuando:
+**Descripción:** Editor de texto minimalista estilo SEU para miembros CLP/RPGLE. Soporta edición básica de líneas, guardado con `F3`, y resalta números de línea al estilo OS/400.
 
-1. La ISO live bootea en QEMU UEFI.
-2. La instalación a disco completa y reinicia al sistema instalado.
-3. El sistema entra al flujo Linux/400 con TUI.
-4. `clc`, `c400c`, `libl400` y `os400-tui` funcionan dentro del sistema.
-5. Existe una demo reproducible con objetos tipados y storage v1.
+**Estado interno:**
+```rust
+pub struct StrSeu {
+    member_path: PathBuf,
+    lines: Vec<String>,
+    cursor_row: usize,
+    cursor_col: usize,
+    scroll_offset: usize,
+    modified: bool,
+}
+```
+
+**Comportamiento:**
+- Al cargar: lee el contenido del miembro desde disco (o crea vacío si es nuevo).
+- Edición de texto con teclas de movimiento y escritura.
+- `F3` → guarda y vuelve a `ScreenId::WrkMbrPdm`.
+- `F12` → descarta cambios y vuelve.
+- `F5` → recarga desde disco.
+- Números de línea al margen izquierdo (formato OS/400: `0001.00`).
+
+**Layout:**
+```
+╔═ STRSEU - Source Entry Utility ══ QGPL/QCLSRC/HELLO.CLP ╗
+║  Columns 1-72        Browse/Copy Mode  F3=Save  F12=Exit  ║
+╠═══════════════════════════════════════════════════════════╣
+║ 0001.00 PGM                                               ║
+║ 0002.00     SNDPGMMSG MSG('Hello from L400!')             ║
+║ 0003.00 ENDPGM                                            ║
+║_                                                          ║
+╠═══════════════════════════════════════════════════════════╣
+║ F3=Save  F5=Reload  F12=Cancel                            ║
+╚═══════════════════════════════════════════════════════════╝
+```
+
+---
+
+### Componente 5 — STRSQL (`str_sql.rs`)
+
+#### [NEW] `os400-tui/src/screens/str_sql.rs`
+
+**Descripción:** Intérprete SQL interactivo que ejecuta sentencias sobre los archivos PF/LF catalogados en `libl400`. Usa el backend Berkeley DB existente.
+
+**Estado interno:**
+```rust
+pub struct StrSql {
+    input: String,
+    history: Vec<String>,
+    results: Vec<Vec<String>>,
+    columns: Vec<String>,
+    error: Option<String>,
+    scroll: usize,
+}
+```
+
+**Comportamiento:**
+- El usuario escribe una sentencia SQL en el área de entrada inferior.
+- `Enter` ejecuta la consulta contra `libl400::db`.
+- Los resultados se muestran en una tabla ratatui con `TableState`.
+- `F3`/`F12` → vuelve al origen (PdmBrowser o MainMenu).
+- `F5` limpia los resultados.
+- Soporta inicialmente: `SELECT * FROM <file>`, `SELECT <cols> FROM <file> WHERE <cond>`.
+
+**Layout:**
+```
+╔═ STRSQL - Interactive SQL ════════════════════════════════╗
+║  Type SQL statement and press Enter.                       ║
+╠═══════════════════════════════════════════════════════════╣
+║  COL1       COL2       COL3                               ║
+║  ──────────────────────────────────────────────────────   ║
+║  AAAAA      00001      Lorem ipsum                        ║
+║  BBBBB      00002      Dolor sit amet                     ║
+╠═══════════════════════════════════════════════════════════╣
+║ SQL> SELECT * FROM QGPL/MYFILE_                           ║
+╠═══════════════════════════════════════════════════════════╣
+║ F3=Exit  F5=Clear  F12=Cancel                             ║
+╚═══════════════════════════════════════════════════════════╝
+```
+
+**Parseo SQL mínimo:** regex o split básico para `SELECT`, `FROM`, `WHERE`. No se requiere un parser SQL completo; el backend real de consultas ya está en `libl400::db::PhysicalFile::read_all / LogicalFile`.
+
+---
+
+### Componente 6 — codegen `clc` para los nuevos comandos
+
+#### [MODIFY] `cl_compiler/clc/src/compiler.rs`
+
+Reemplazar el bloque de fallback "no disponible en modo batch" por llamadas reales:
+
+```c
+"STRPDM"    → l400_strpdm();
+"STRSEU"    → l400_strseu(FILE, MBR);
+"STRSQL"    → l400_strsql();
+"WRKMBRPDM" → l400_wrkmbrpdm(FILE);
+```
+
+#### [MODIFY] `libl400/src/ffi_commands.rs`
+
+Agregar:
+- `l400_strpdm()` → imprime lista de bibliotecas (modo batch).
+- `l400_strseu(file, mbr)` → imprime contenido del miembro.
+- `l400_strsql()` → modo batch: acepta SQL de stdin.
+- `l400_wrkmbrpdm(file)` → lista miembros del archivo.
+
+---
+
+## Criterio de aceptación
+
+- Las cuatro pantallas TUI se navegan desde el menú principal (`7=STRPDM`) y desde `CommandLine`.
+- `STRSEU` permite editar y guardar un miembro `.clp` que luego puede compilarse con `clc`.
+- `STRSQL` ejecuta `SELECT * FROM <file>` y muestra resultados en tabla.
+- `WRKMBRPDM` lista miembros y permite abrir `STRSEU` sobre ellos.
+- Los tests de `cargo test -p os400-tui` y `cargo test -p clc` pasan.
+
+---
+
+## Notas
+
+- `STRSEU` no necesita ser un editor vi/emacs. Con soporte de `Insert`/`Delete` char, cursor libre y guardado F3 es suficiente para la primera iteración.
+- `STRSQL` inicialmente sólo soporta `SELECT`. `INSERT`/`UPDATE`/`DELETE` vienen en una iteración posterior.
+- Los miembros de archivos fuente se almacenan como archivos planos dentro del directorio del objeto `*FILE` (o como entradas nombradas en la sled/BDB del PF). El naming convention es `<MEMBER>` dentro de `<LIB>/<FILE>/`.

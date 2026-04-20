@@ -7,9 +7,12 @@ L400_SRC_DIR="${L400_SRC_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 OUTPUT_DIR="${OUTPUT_DIR:-${L400_SRC_DIR}/output}"
 INITRAMFS_DIR="${OUTPUT_DIR}/initramfs"
 KERNEL_VERSION="${KERNEL_VERSION:-$(uname -r)}"
+INITRAMFS_NAME="${INITRAMFS_NAME:-initramfs-${KERNEL_VERSION}-l400.img}"
+INITRAMFS_OUTPUT="${OUTPUT_DIR}/${INITRAMFS_NAME}"
 L400_INIT="${INITRAMFS_DIR}/init"
 USERSPACE_DIR="${OUTPUT_DIR}/userspace"
 ROOTFS_DIR="${ROOTFS_DIR:-${OUTPUT_DIR}/rootfs-build}"
+EMBED_LIVE_ROOTFS="${EMBED_LIVE_ROOTFS:-1}"
 
 ensure_userspace() {
     if [ ! -x "${USERSPACE_DIR}/bin/l400-loader" ]; then
@@ -57,7 +60,7 @@ prepare_tree() {
 
 copy_modules() {
     echo ">> Copiando módulos del kernel..."
-    mkdir -p "${INITRAMFS_DIR}/lib"
+    mkdir -p "${INITRAMFS_DIR}/lib/modules"
 
     decompress_module() {
         local module_name="$1"
@@ -80,12 +83,14 @@ copy_modules() {
     }
 
     if [ -d "/lib/modules/${KERNEL_VERSION}" ]; then
-        cp -a "/lib/modules/${KERNEL_VERSION}" "${INITRAMFS_DIR}/lib/"
+        cp -a "/lib/modules/${KERNEL_VERSION}" "${INITRAMFS_DIR}/lib/modules/"
         decompress_module overlay
         decompress_module vfat
         decompress_module fat
         decompress_module nls_cp437
+        decompress_module nls_cp850
         decompress_module nls_ascii
+        decompress_module nls_utf8
     else
         echo "WARNING: no se encontró /lib/modules/${KERNEL_VERSION}; se dependerá de módulos built-in."
     fi
@@ -105,6 +110,11 @@ copy_payloads() {
 }
 
 embed_live_rootfs() {
+    if [ "${EMBED_LIVE_ROOTFS}" != "1" ]; then
+        echo ">> Omitiendo rootfs.squashfs embebido (EMBED_LIVE_ROOTFS=${EMBED_LIVE_ROOTFS})..."
+        return 0
+    fi
+
     if [ ! -d "${ROOTFS_DIR}" ]; then
         return 0
     fi
@@ -157,15 +167,34 @@ mount_early_fs() {
 }
 
 load_kernel_modules() {
+    find_module_file() {
+        local module_name="$1"
+        local module_path=""
+
+        for module_path in \
+            "/lib/modules/$(uname -r 2>/dev/null || true)/kernel" \
+            /lib/modules \
+            /lib; do
+            [ -d "${module_path}" ] || continue
+
+            module_path="$(find "${module_path}" -name "${module_name}.ko" 2>/dev/null | head -n 1)"
+            if [ -n "${module_path}" ] && [ -f "${module_path}" ]; then
+                echo "${module_path}"
+                return 0
+            fi
+        done
+
+        return 1
+    }
+
     load_builtin_module() {
         local module_name="$1"
         local module_path=""
 
-        for module_path in $(find /lib/modules -name "${module_name}.ko" 2>/dev/null); do
-            [ -f "${module_path}" ] || continue
-            insmod "${module_path}" 2>/dev/null || true
-            return 0
-        done
+        module_path="$(find_module_file "${module_name}" || true)"
+        [ -n "${module_path}" ] || return 0
+        insmod "${module_path}" 2>/dev/null || true
+        return 0
     }
 
     local kernel_version=""
@@ -175,20 +204,18 @@ load_kernel_modules() {
     if [ -n "${kernel_version}" ] && [ -f "/lib/modules/${kernel_version}/kernel/fs/overlayfs/overlay.ko" ]; then
         overlay_module="/lib/modules/${kernel_version}/kernel/fs/overlayfs/overlay.ko"
     else
-        for overlay_module in $(find /lib/modules -name overlay.ko 2>/dev/null); do
-            [ -f "${overlay_module}" ] && break
-        done
+        overlay_module="$(find_module_file overlay || true)"
     fi
 
     if [ -n "${overlay_module}" ] && [ -f "${overlay_module}" ]; then
         insmod "${overlay_module}" 2>/dev/null || true
     fi
 
-    for module in fat nls_cp437 nls_ascii vfat; do
+    for module in fat nls_cp437 nls_cp850 nls_ascii nls_utf8 vfat; do
         load_builtin_module "${module}"
     done
 
-    for module in loop squashfs overlay isofs udf fat nls_cp437 nls_ascii vfat; do
+    for module in loop squashfs overlay isofs udf fat nls_cp437 nls_cp850 nls_ascii nls_utf8 vfat; do
         modprobe "${module}" 2>/dev/null || true
     done
 }
@@ -249,6 +276,8 @@ mount_installed_root() {
     local boot_mode="installed"
     local root_spec
     local root_dev=""
+    local efi_spec=""
+    local efi_dev=""
 
     root_spec="$(get_cmdline_arg root || true)"
     if [ -z "${root_spec}" ]; then
@@ -270,6 +299,19 @@ mount_installed_root() {
     mount "${root_dev}" /mnt/newroot || panic_shell "No se pudo montar la raíz instalada ${root_dev}."
 
     mkdir -p /mnt/newroot/proc /mnt/newroot/sys /mnt/newroot/dev /mnt/newroot/run /mnt/newroot/home/l400 /mnt/newroot/l400
+    efi_spec="$(get_cmdline_arg l400.efi || true)"
+    case "${efi_spec}" in
+        /dev/*)
+            efi_dev="${efi_spec}"
+            ;;
+        LABEL=*|UUID=*)
+            efi_dev="$(findfs "${efi_spec}" 2>/dev/null || true)"
+            ;;
+    esac
+    if [ -n "${efi_dev}" ] && [ -b "${efi_dev}" ]; then
+        mkdir -p /mnt/newroot/boot/efi
+        mount -t vfat "${efi_dev}" /mnt/newroot/boot/efi 2>/dev/null || true
+    fi
     mount -t tmpfs -o mode=0775 tmpfs /mnt/newroot/l400 2>/dev/null || true
     chown 1000:1000 /mnt/newroot/home/l400 2>/dev/null || true
     chown 1000:1000 /mnt/newroot/l400 2>/dev/null || true
@@ -377,7 +419,7 @@ pack_initramfs() {
         find . -print0 | cpio --null -ov --format=newc > "${OUTPUT_DIR}/initramfs.cpio"
     ) >/dev/null 2>&1
 
-    gzip -c "${OUTPUT_DIR}/initramfs.cpio" > "${OUTPUT_DIR}/initramfs-${KERNEL_VERSION}-l400.img"
+    gzip -c "${OUTPUT_DIR}/initramfs.cpio" > "${INITRAMFS_OUTPUT}"
     rm -f "${OUTPUT_DIR}/initramfs.cpio"
 }
 
@@ -393,7 +435,7 @@ main() {
     pack_initramfs
 
     echo "=== Initramfs listo ==="
-    echo "Ubicación: ${OUTPUT_DIR}/initramfs-${KERNEL_VERSION}-l400.img"
+    echo "Ubicación: ${INITRAMFS_OUTPUT}"
 }
 
 main "$@"

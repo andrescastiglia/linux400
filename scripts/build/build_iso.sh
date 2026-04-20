@@ -181,10 +181,11 @@ build_installer_efi() {
     cat > "${tmp_cfg}" <<'EOF'
 set default=0
 set timeout=3
+search --no-floppy --file /EFI/BOOT/BOOTX64.EFI --set=root
 
 menuentry "Linux/400" {
-    linux /EFI/Linux400/vmlinuz root=LABEL=linux400-root rw quiet console=tty0 console=ttyS0,115200 l400.installed=1
-    initrd /EFI/Linux400/initramfs.img
+    linux /EFI/LINUX400/VMLINUZ root=LABEL=linux400-root rw quiet console=tty0 console=ttyS0,115200 l400.installed=1 l400.efi=LABEL=L400EFI
+    initrd /EFI/LINUX400/INITRD.IMG
 }
 EOF
 
@@ -192,6 +193,7 @@ EOF
     grub-mkstandalone \
         -O x86_64-efi \
         -o "${INSTALL_EFI}" \
+        --modules="fat part_gpt normal linux search search_label search_fs_file configfile" \
         "boot/grub/grub.cfg=${tmp_cfg}" >/dev/null
 
     cp "${INSTALL_EFI}" "${LIVE_DIR}/BOOTX64.EFI"
