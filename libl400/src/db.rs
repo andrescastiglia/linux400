@@ -1,7 +1,7 @@
 use crate::bdb_native::{BdbError, BdbHandle};
 use crate::object::{catalog_object, ObjectError};
 use crate::storage::{
-    default_storage_backend, read_storage_backend, read_string_attr, read_u32_attr,
+    default_storage_backend, open_sled_db, read_storage_backend, read_string_attr, read_u32_attr,
     write_storage_backend, write_string_attr, write_u32_attr, StorageBackend, StorageError,
     L400_BASE_PF_ATTR, L400_RECORD_LEN_ATTR,
 };
@@ -61,7 +61,7 @@ pub struct PhysicalFile {
 }
 
 fn open_sled_pf(path: &Path) -> Result<PhysicalFileStorage, DbError> {
-    let db = sled::open(path)?;
+    let db = open_sled_db(path)?;
     let tree = db.open_tree("PF_MEMBER")?;
     Ok(PhysicalFileStorage::Sled { db, tree })
 }
@@ -226,7 +226,7 @@ fn open_sled_lf_from_db(name: &str, db: Db) -> Result<LogicalFileStorage, DbErro
 
 fn open_sled_lf(path: &Path, name: &str, pf_path: &Path) -> Result<LogicalFileStorage, DbError> {
     let _ = path;
-    let db = sled::open(pf_path)?;
+    let db = open_sled_db(pf_path)?;
     open_sled_lf_from_db(name, db)
 }
 

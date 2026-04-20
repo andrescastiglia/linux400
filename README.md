@@ -137,11 +137,7 @@ cargo run -p l400-loader -- --mode dev --once
 ```
 
 ### 9. Release candidate v1
-La RC v1 queda descrita en:
-
-- `docs/RELEASE_V1_RC.md`
-- `docs/SUPPORT_MATRIX.md`
-- `docs/RELEASE_CHECKLIST.md`
+El flujo de RC v1 se valida con los scripts reproducibles y smoke tests de este repositorio.
 
 Build reproducible de RC:
 ```bash
@@ -153,3 +149,5 @@ Smoke tests de RC:
 ./scripts/test/test_release_rc.sh
 RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh
 ```
+
+Nota sobre storage: el backend operativo por defecto para `*FILE` y `*DTAQ` es `sled`. `BerkeleyDb` queda como camino opt-in para builds que habiliten `--features berkeleydb` y expliciten `L400_STORAGE_BACKEND=berkeleydb`.

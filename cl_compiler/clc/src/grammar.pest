@@ -1,6 +1,6 @@
 // Gramática Básica para CL (Control Language) de OS/400
 
-WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" | COMMENT }
 COMMENT    = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 
 // Un archivo CL contiene múltiples comandos separados por espacios/líneas

@@ -1,10 +1,14 @@
+use std::collections::HashMap;
 use std::env;
 use std::path::Path;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use thiserror::Error;
 
 pub const L400_STORAGE_BACKEND_ATTR: &str = "user.l400.storage_backend";
 pub const L400_RECORD_LEN_ATTR: &str = "user.l400.record_len";
 pub const L400_BASE_PF_ATTR: &str = "user.l400.base_pf";
+static SLED_DB_CACHE: OnceLock<Mutex<HashMap<PathBuf, sled::Db>>> = OnceLock::new();
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StorageBackend {
@@ -43,13 +47,7 @@ pub fn default_storage_backend() -> StorageBackend {
     env::var("L400_STORAGE_BACKEND")
         .ok()
         .and_then(|value| StorageBackend::parse(&value))
-        .unwrap_or({
-            if cfg!(target_env = "musl") {
-                StorageBackend::Sled
-            } else {
-                StorageBackend::BerkeleyDb
-            }
-        })
+        .unwrap_or(StorageBackend::Sled)
 }
 
 pub fn write_storage_backend(path: &Path, backend: StorageBackend) -> Result<(), StorageError> {
@@ -69,6 +67,18 @@ pub fn read_storage_backend(path: &Path) -> Result<Option<StorageBackend>, Stora
         }
         None => Ok(None),
     }
+}
+
+pub fn open_sled_db(path: &Path) -> Result<sled::Db, sled::Error> {
+    let cache = SLED_DB_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = cache.lock().expect("sled db cache poisoned");
+    if let Some(db) = cache.get(path) {
+        return Ok(db.clone());
+    }
+
+    let db = sled::open(path)?;
+    cache.insert(path.to_path_buf(), db.clone());
+    Ok(db)
 }
 
 pub fn write_string_attr(path: &Path, attr: &str, value: &str) -> Result<(), StorageError> {
@@ -119,11 +129,6 @@ mod tests {
 
     #[test]
     fn default_backend_matches_current_target() {
-        let backend = default_storage_backend();
-        if cfg!(target_env = "musl") {
-            assert_eq!(backend, StorageBackend::Sled);
-        } else {
-            assert_eq!(backend, StorageBackend::BerkeleyDb);
-        }
+        assert_eq!(default_storage_backend(), StorageBackend::Sled);
     }
 }

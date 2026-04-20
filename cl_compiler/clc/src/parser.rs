@@ -8,14 +8,16 @@ pub struct CLParser;
 
 pub fn parse_file(source: &str) -> Result<Program, pest::error::Error<Rule>> {
     let mut commands = Vec::new();
+    let source = strip_block_comments(source);
 
-    let mut parsed = CLParser::parse(Rule::file, source)?;
-    let file_node = parsed.next().unwrap();
-
-    for command_node in file_node.into_inner() {
-        if command_node.as_rule() != Rule::command {
+    for line in source.lines() {
+        let line = line.trim();
+        if line.is_empty() {
             continue;
         }
+
+        let mut parsed = CLParser::parse(Rule::command, line)?;
+        let command_node = parsed.next().unwrap();
 
         let mut inner = command_node.into_inner();
         let name = inner.next().unwrap().as_str().to_uppercase();
@@ -46,6 +48,37 @@ pub fn parse_file(source: &str) -> Result<Program, pest::error::Error<Rule>> {
     Ok(Program { commands })
 }
 
+fn strip_block_comments(source: &str) -> String {
+    let mut result = String::with_capacity(source.len());
+    let chars: Vec<char> = source.chars().collect();
+    let mut index = 0;
+    let mut in_comment = false;
+
+    while index < chars.len() {
+        let current = chars[index];
+        let next = chars.get(index + 1).copied();
+
+        if !in_comment && current == '/' && next == Some('*') {
+            in_comment = true;
+            index += 2;
+            continue;
+        }
+
+        if in_comment && current == '*' && next == Some('/') {
+            in_comment = false;
+            index += 2;
+            continue;
+        }
+
+        if !in_comment {
+            result.push(current);
+        }
+        index += 1;
+    }
+
+    result
+}
+
 fn parse_value(node: pest::iterators::Pair<Rule>) -> Value {
     match node.as_rule() {
         Rule::string_literal => {
@@ -56,5 +89,20 @@ fn parse_value(node: pest::iterators::Pair<Rule>) -> Value {
         Rule::identifier => Value::Identifier(node.as_str().to_uppercase()),
         Rule::value => parse_value(node.into_inner().next().unwrap()),
         _ => unreachable!(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_file_ignores_block_comments() {
+        let program = parse_file("/* comentario inicial */\nPGM\n/* comentario medio */\nENDPGM\n")
+            .expect("parse_file falló");
+
+        assert_eq!(program.commands.len(), 2);
+        assert_eq!(program.commands[0].name, "PGM");
+        assert_eq!(program.commands[1].name, "ENDPGM");
     }
 }

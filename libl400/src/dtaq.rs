@@ -1,8 +1,8 @@
 use crate::bdb_native::{BdbError, BdbHandle};
 use crate::object::{catalog_object, ObjectError};
 use crate::storage::{
-    default_storage_backend, read_storage_backend, write_storage_backend, StorageBackend,
-    StorageError,
+    default_storage_backend, open_sled_db, read_storage_backend, write_storage_backend,
+    StorageBackend, StorageError,
 };
 use crate::zfs::{get_objtype, validate_objtype, ZfsError};
 use sled::{Db, Tree};
@@ -43,7 +43,7 @@ pub struct DataQueue {
 }
 
 fn open_sled_dtaq(path: &Path) -> Result<DataQueueStorage, DtaqError> {
-    let db = sled::open(path)?;
+    let db = open_sled_db(path)?;
     let tree = db.open_tree("DTAQ")?;
     Ok(DataQueueStorage::Sled { db, tree })
 }
@@ -153,18 +153,10 @@ impl DataQueue {
                 Some((_k, v)) => Ok(v.to_vec()),
                 None => Err(DtaqError::Empty),
             },
-            DataQueueStorage::BerkeleyDb { db } => {
-                let mut records = db.read_all()?;
-                if records.is_empty() {
-                    return Err(DtaqError::Empty);
-                }
-                let (key, value) = records.remove(0);
-                db.delete(&key).map_err(|err| match err {
-                    BdbError::NotFound => DtaqError::Empty,
-                    other => DtaqError::Bdb(other),
-                })?;
-                Ok(value)
-            }
+            DataQueueStorage::BerkeleyDb { db } => match db.pop_first()? {
+                Some(value) => Ok(value),
+                None => Err(DtaqError::Empty),
+            },
         }
     }
 

@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
 fn main() {
-    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
-    println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_ENV");
+    let has_berkeleydb = std::env::var_os("CARGO_FEATURE_BERKELEYDB").is_some();
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_BERKELEYDB");
     println!("cargo:rerun-if-changed=src/bdb_shim.c");
 
-    if target_env == "musl" {
+    if !has_berkeleydb {
         return;
     }
 
