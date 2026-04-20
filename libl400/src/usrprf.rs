@@ -41,10 +41,10 @@ pub fn create_user_profile(name: &str, description: Option<&str>) -> Result<(), 
     if !user_exists(&lower_name) {
         let mut cmd = Command::new("useradd");
         cmd.arg("-r") // System account
-           .arg("-s")
-           .arg("/bin/false") // No shell by default unless specified otherwise
-           .arg(&lower_name);
-        
+            .arg("-s")
+            .arg("/bin/false") // No shell by default unless specified otherwise
+            .arg(&lower_name);
+
         let output = cmd.output()?;
         if !output.status.success() {
             return Err(UsrPrfError::System(format!(

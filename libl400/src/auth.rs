@@ -100,7 +100,11 @@ pub fn revoke_object_authority(path: &Path, user: &str) -> Result<(), AuthError>
 }
 
 /// Chequea si un usuario tiene al menos el permiso requerido
-pub fn check_authority(path: &Path, user: &str, required: L400Authority) -> Result<bool, AuthError> {
+pub fn check_authority(
+    path: &Path,
+    user: &str,
+    required: L400Authority,
+) -> Result<bool, AuthError> {
     let auths = get_object_authorities(path)?;
 
     // El permiso explícito del usuario tiene mayor prioridad

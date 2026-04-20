@@ -58,7 +58,7 @@ pub fn read_storage_backend(path: &Path) -> Result<Option<StorageBackend>, Stora
             let value = String::from_utf8(raw)
                 .map_err(|_| StorageError::InvalidBackend("invalid UTF-8".to_string()))?;
             let backend =
-                StorageBackend::parse(&value).ok_or_else(|| StorageError::InvalidBackend(value))?;
+                StorageBackend::parse(&value).ok_or(StorageError::InvalidBackend(value))?;
             Ok(Some(backend))
         }
         None => Ok(None),

@@ -351,7 +351,7 @@ pub extern "C" fn l400_wrkmbrpdm(file: *const c_char) {
     match crate::object::list_members(&lib_path, &file_name) {
         Ok(members) if members.is_empty() => println!("  No hay miembros."),
         Ok(members) => {
-            println!("  {:16} {:10} {}", "MBR", "TYPE", "TEXT");
+            println!("  {:16} {:10} TEXT", "MBR", "TYPE");
             println!("  {}", "-".repeat(48));
             for member in members {
                 println!("  {:16} {:10} {}", member.name, member.type_, member.text);

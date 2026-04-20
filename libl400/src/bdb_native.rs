@@ -16,9 +16,11 @@ pub struct DB {
 }
 
 #[repr(C)]
-pub struct DBC {
+pub struct Dbc {
     _private: [u8; 0],
 }
+
+type BdbRecord = (Vec<u8>, Vec<u8>);
 
 unsafe extern "C" {
     fn l400_bdb_open(
@@ -43,16 +45,16 @@ unsafe extern "C" {
         out_len: *mut c_uint,
     ) -> c_int;
     fn l400_bdb_del(db: *mut DB, key: *const c_void, key_len: c_uint) -> c_int;
-    fn l400_bdb_cursor_open(db: *mut DB, out_cursor: *mut *mut DBC) -> c_int;
+    fn l400_bdb_cursor_open(db: *mut DB, out_cursor: *mut *mut Dbc) -> c_int;
     fn l400_bdb_cursor_get(
-        cursor: *mut DBC,
+        cursor: *mut Dbc,
         out_key: *mut *mut c_void,
         out_key_len: *mut c_uint,
         out_data: *mut *mut c_void,
         out_data_len: *mut c_uint,
         flags: c_uint,
     ) -> c_int;
-    fn l400_bdb_cursor_close(cursor: *mut DBC) -> c_int;
+    fn l400_bdb_cursor_close(cursor: *mut Dbc) -> c_int;
     fn l400_bdb_free(ptr: *mut c_void);
 }
 
@@ -144,7 +146,7 @@ impl BdbHandle {
         Ok(())
     }
 
-    pub fn read_all(&self) -> Result<Vec<(Vec<u8>, Vec<u8>)>, BdbError> {
+    pub fn read_all(&self) -> Result<Vec<BdbRecord>, BdbError> {
         let mut cursor = std::ptr::null_mut();
         let ret = unsafe { l400_bdb_cursor_open(self.raw, &mut cursor) };
         if ret != 0 {

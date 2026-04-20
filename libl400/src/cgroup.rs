@@ -312,7 +312,7 @@ pub fn list_jobs_at(base: &Path) -> Result<Vec<WorkloadJob>, CgroupError> {
             jobs.push(failed_job);
         }
     }
-    jobs.sort_by(|left, right| left.pid.cmp(&right.pid));
+    jobs.sort_by_key(|left| left.pid);
     Ok(jobs)
 }
 

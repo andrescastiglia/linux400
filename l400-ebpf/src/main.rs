@@ -12,7 +12,8 @@ use core::ffi::c_void;
 use l400_ebpf_common::{
     L400_POLICY_VERSION, STAT_DENIED_INVALID_TAG, STAT_EXEC_ALLOWED_NATIVE, STAT_EXEC_ALLOWED_PGM,
     STAT_EXEC_CHECK_ALLOWED, STAT_EXEC_CHECK_DENIED, STAT_EXEC_DECISION_MISSING,
-    STAT_EXEC_DENIED_WRONG_TYPE, STAT_EXEC_DENIED_INVALID_FORMAT, STAT_EXEC_DENIED_EXCLUDE, STAT_OBJTYPE_BASE, STAT_OPEN_ALLOWED, VALID_OBJ_TYPES,
+    STAT_EXEC_DENIED_EXCLUDE, STAT_EXEC_DENIED_INVALID_FORMAT, STAT_EXEC_DENIED_WRONG_TYPE,
+    STAT_OBJTYPE_BASE, STAT_OPEN_ALLOWED, VALID_OBJ_TYPES,
 };
 
 #[map(name = "L400_STATS")]
@@ -125,7 +126,7 @@ fn lookup_file_objattr(file: *mut c_void) -> bool {
     if err == 2 && attr_value[0] == b'C' && attr_value[1] == b'L' {
         return true;
     }
-    
+
     // Also handle null-terminated strings just in case
     if attr_value[0] == b'C' && attr_value[1] == 0 {
         return true;
@@ -170,10 +171,10 @@ fn lookup_file_public_auth_exclude(file: *mut c_void) -> bool {
 
     // Substring search
     for i in 0..len {
-        if i + target.len() <= len && &attr_value[i..i+target.len()] == target {
+        if i + target.len() <= len && &attr_value[i..i + target.len()] == target {
             return true;
         }
-        if i + target2.len() <= len && &attr_value[i..i+target2.len()] == target2 {
+        if i + target2.len() <= len && &attr_value[i..i + target2.len()] == target2 {
             return true;
         }
     }
@@ -258,14 +259,16 @@ fn try_bprm_creds_from_file(ctx: LsmContext) -> Result<i32, i32> {
                     inc_stat(STAT_EXEC_ALLOWED_PGM);
                     info!(
                         &ctx,
-                        "Policy {}: ejecución permitida para objeto *PGM nativo", L400_POLICY_VERSION
+                        "Policy {}: ejecución permitida para objeto *PGM nativo",
+                        L400_POLICY_VERSION
                     );
                     EXEC_ALLOW_PGM
                 } else {
                     inc_stat(STAT_EXEC_DENIED_INVALID_FORMAT);
                     warn!(
                         &ctx,
-                        "Policy {}: ejecución denegada, el *PGM no tiene firma de toolchain válida", L400_POLICY_VERSION
+                        "Policy {}: ejecución denegada, el *PGM no tiene firma de toolchain válida",
+                        L400_POLICY_VERSION
                     );
                     EXEC_DENY_INVALID_FORMAT
                 }
@@ -292,7 +295,10 @@ fn try_bprm_creds_from_file(ctx: LsmContext) -> Result<i32, i32> {
 
     match decision {
         EXEC_ALLOW_NATIVE | EXEC_ALLOW_PGM => Ok(0),
-        EXEC_DENY_INVALID_TAG | EXEC_DENY_WRONG_TYPE | EXEC_DENY_INVALID_FORMAT | EXEC_DENY_EXCLUDE => Err(EACCES),
+        EXEC_DENY_INVALID_TAG
+        | EXEC_DENY_WRONG_TYPE
+        | EXEC_DENY_INVALID_FORMAT
+        | EXEC_DENY_EXCLUDE => Err(EACCES),
         _ => Ok(0),
     }
 }
@@ -314,7 +320,10 @@ pub fn bprm_check_security(ctx: LsmContext) -> i32 {
                 );
                 0
             }
-            EXEC_DENY_INVALID_TAG | EXEC_DENY_WRONG_TYPE | EXEC_DENY_INVALID_FORMAT | EXEC_DENY_EXCLUDE => {
+            EXEC_DENY_INVALID_TAG
+            | EXEC_DENY_WRONG_TYPE
+            | EXEC_DENY_INVALID_FORMAT
+            | EXEC_DENY_EXCLUDE => {
                 inc_stat(STAT_EXEC_CHECK_DENIED);
                 warn!(
                     &ctx,

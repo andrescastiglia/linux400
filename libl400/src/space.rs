@@ -36,9 +36,10 @@ impl ObjectMapping {
         }
 
         let untagged_ptr = untag_pointer_mut(self.ptr);
-        
+
         // msync
-        let ret = unsafe { libc::msync(untagged_ptr as *mut libc::c_void, self.size, libc::MS_SYNC) };
+        let ret =
+            unsafe { libc::msync(untagged_ptr as *mut libc::c_void, self.size, libc::MS_SYNC) };
         if ret != 0 {
             return Err(SpaceError::MmapFailed(format!(
                 "msync failed with error: {}",
@@ -74,7 +75,7 @@ impl ObjectMapping {
 pub fn map_object(path: &Path) -> Result<ObjectMapping, SpaceError> {
     let obj = describe_object(path)?;
     let file = OpenOptions::new().read(true).write(true).open(path)?;
-    
+
     let metadata = file.metadata()?;
     let size = metadata.len() as usize;
 
@@ -133,7 +134,8 @@ mod tests {
             "*FILE",
             Some("PF"),
             Some("Test mapped file"),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Escribir algo inicial
         {
@@ -143,10 +145,10 @@ mod tests {
 
         // Mapear
         let mut mapping = map_object(&obj_path).unwrap();
-        
+
         assert!(!mapping.ptr.is_null());
         assert_eq!(mapping.size, 12);
-        
+
         // Verificar el Tag (bits 48-63)
         let tag = get_space_bits(mapping.ptr).unwrap();
         assert_eq!(objtype_from_tag(tag), "*FILE");

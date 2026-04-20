@@ -202,7 +202,9 @@ impl ObjectBrowser {
                 source_label
             )
             .into()]),
-            Line::from(vec!["Opt  Object      Type      Attribute   Owner       *PUBLIC   Text".into()]),
+            Line::from(vec![
+                "Opt  Object      Type      Attribute   Owner       *PUBLIC   Text".into(),
+            ]),
         ];
         let text = Text::from(lines);
 
@@ -211,7 +213,15 @@ impl ObjectBrowser {
     }
 
     fn render_objects(&mut self, frame: &mut Frame, area: Rect) {
-        let header = ["", "Object", "Type", "Attribute", "Owner", "*PUBLIC", "Text"];
+        let header = [
+            "",
+            "Object",
+            "Type",
+            "Attribute",
+            "Owner",
+            "*PUBLIC",
+            "Text",
+        ];
         let widths = [4u16, 12, 10, 10, 12, 10, 20];
 
         let rows: Vec<Row> = self

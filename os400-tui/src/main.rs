@@ -4,8 +4,8 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use l400::{
-    assign_to_workload, create_l400_slices, register_current_job, remove_job, update_job_status,
-    WorkloadType, cgroup::JobStatus,
+    assign_to_workload, cgroup::JobStatus, create_l400_slices, register_current_job, remove_job,
+    update_job_status, WorkloadType,
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;

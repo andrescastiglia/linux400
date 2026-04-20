@@ -1,8 +1,8 @@
 use clap::Parser;
 use l400::cgroup::{assign_to_workload, register_job, update_job_status, JobStatus, WorkloadType};
+use std::env;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::env;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Submit Job (SBMJOB) - Linux/400", long_about = None)]
@@ -81,7 +81,8 @@ fn main() {
     } else {
         // Somos el SBMJOB original que invoca el usuario.
         // Hacemos fork/spawn de nosotros mismos con --daemon.
-        
+
+        #[allow(clippy::zombie_processes)]
         let child = Command::new(env::current_exe().unwrap())
             .arg(&args.cmd)
             .args(&args.args)

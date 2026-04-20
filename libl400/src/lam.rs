@@ -298,7 +298,7 @@ mod tests {
     fn test_objtype_encoding() {
         assert_eq!(tag_for_objtype("*PGM"), 1);
         assert_eq!(tag_for_objtype("*FILE"), 2);
-        
+
         assert_eq!(objtype_from_tag(1), "*PGM");
         assert_eq!(objtype_from_tag(2), "*FILE");
         assert_eq!(objtype_from_tag(99), "*UNKNOWN");
