@@ -27,8 +27,8 @@ EOF
 }
 
 require_root() {
-    if [ "$(id -u)" -ne 0 ]; then
-        echo "ERROR: este instalador requiere root." >&2
+    if [ "$(id -un)" != "qsecofr" ]; then
+        echo "ERROR: este instalador requiere ejecutarse como qsecofr." >&2
         exit 1
     fi
 }
@@ -334,6 +334,7 @@ EOF
 
     rm -rf "${TARGET_MNT}/home/l400" 2>/dev/null || true
     mkdir -p "${TARGET_MNT}/home/qsecofr"
+    # Asume que qsecofr tiene UID/GID 1000, si no, ajusta según corresponda
     chown -R 1000:1000 "${TARGET_MNT}/home/qsecofr" 2>/dev/null || true
 }
 
