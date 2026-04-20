@@ -185,16 +185,20 @@ ensure_default_user() {
 
     mkdir -p "${ROOTFS_DIR}/home/${default_user}"
 
+    # Asegura que qsecofr sea root (uid=0, gid=0)
     sed -i '/^l400:/d' "${group_file}" 2>/dev/null || true
-    grep -q "^${default_user}:" "${group_file}" 2>/dev/null || \
-        echo "${default_user}:x:1000:" >> "${group_file}"
+    if grep -q "^${default_user}:" "${group_file}" 2>/dev/null; then
+        sed -i "s#^${default_user}:[^:]*:[^:]*#${default_user}:x:0#" "${group_file}"
+    else
+        echo "${default_user}:x:0:" >> "${group_file}"
+    fi
 
     sed -i '/^l400:/d' "${passwd_file}" 2>/dev/null || true
     if grep -q "^${default_user}:" "${passwd_file}" 2>/dev/null; then
-        sed -i "s#^${default_user}:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:.*#${default_user}:x:1000:1000:Linux/400 Security Officer:/home/${default_user}:${session_shell}#" \
+        sed -i "s#^${default_user}:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:.*#${default_user}:x:0:0:Linux/400 Security Officer:/home/${default_user}:${session_shell}#" \
             "${passwd_file}"
     else
-        echo "${default_user}:x:1000:1000:Linux/400 Security Officer:/home/${default_user}:${session_shell}" >> "${passwd_file}"
+        echo "${default_user}:x:0:0:Linux/400 Security Officer:/home/${default_user}:${session_shell}" >> "${passwd_file}"
     fi
 
     sed -i '/^l400:/d' "${shadow_file}" 2>/dev/null || true
