@@ -1,293 +1,272 @@
-# Plan de Implementación: STRPDM, STRSEU, STRSQL y WRKMBRPDM
+# Plan de implementacion pendiente de Linux/400
 
-## Objetivo
+Este plan parte del estado real del repo: ya existen runtime de objetos, TUI, compiladores, eBPF LSM, loader, demos y scripts de release. El foco ahora es convertir ese esqueleto funcional en un entorno OS/400-style operable: entrar al sistema, administrar objetos/trabajos/perfiles, desarrollar desde pantalla verde y conservar estado de forma persistente.
 
-Implementar los cuatro entornos interactivos del cheatsheet como pantallas TUI reales dentro de `os400-tui`, siguiendo el patrón existente (`Screen` trait + `ScreenId`):
+## Base ya implementada
 
-- **STRPDM** — Programming Development Manager: navegador de objetos de desarrollo (bibliotecas → archivos fuente → miembros).
-- **STRSEU** — Source Entry Utility: editor de texto minimalista para miembros de archivos fuente.
-- **STRSQL** — Interactive SQL: intérprete de sentencias SQL sobre archivos `*FILE` PF/LF del runtime.
-- **WRKMBRPDM** — Work with Members in PDM: lista y gestiona miembros dentro de un archivo fuente específico.
+- `libl400`: catalogo de objetos por xattrs, bibliotecas, PF/LF, DTAQ, source members, storage backend, cgroups, auth y FFI.
+- `l400-ebpf-common`: contrato `no_std` de tipos y version de politica.
+- `l400-ebpf`: hooks LSM `file_open`, `bprm_creds_from_file`, `bprm_check_security`.
+- `l400-loader`: modos `full`, `degraded`, `dev` y `loader-status`.
+- `os400-tui`: sign-on, menu principal, linea de comandos, objetos, trabajos, DTAQ, STRPDM, WRKMBRPDM, STRSEU, STRSQL.
+- `clc`: parser CL y backend C con llamadas reales a `libl400`.
+- `c400c`: compilacion C a ELF catalogado como `*PGM`.
+- Release/live: userspace, initramfs, ISO, instalador textual y smoke tests.
 
-Estos cuatro comandos también deben emitir código real en el codegen de `clc` (en lugar del mensaje de "no disponible en modo batch").
+## Objetivo de la siguiente etapa
 
----
+Que un usuario pueda arrancar una ISO o instalacion, autenticarse como perfil Linux/400, entrar al menu principal y operar el sistema sin shell para las tareas minimas:
 
-## Análisis del patrón existente
+- crear y navegar bibliotecas;
+- crear/listar/renombrar/borrar objetos;
+- editar y compilar un fuente CL/C;
+- ejecutar programas `*PGM`;
+- enviar/listar jobs batch;
+- revisar logs, estado del loader, jobs y storage;
+- preservar `/l400` entre reinicios.
 
-Cada pantalla sigue este contrato:
+## Fase 1: Persistencia y bootstrap del sistema
 
-```
-os400-tui/src/screens/
-  ├── mod.rs           ← ScreenId enum + Screen trait
-  ├── main_menu.rs     ← ejemplo de pantalla con estado + navegación
-  ├── object_browser.rs ← ejemplo de tabla con TableState
-  └── work_mgmt.rs     ← ejemplo de datos en vivo del runtime
-```
+**Problema:** la experiencia OS/400-style depende de que existan bibliotecas y objetos base. Ademas, el flujo instalado todavia puede montar `/l400` como `tmpfs`, suficiente para demos pero no para sistema real.
 
-**Para agregar una pantalla nueva se necesita:**
-1. Crear `os400-tui/src/screens/<nombre>.rs` implementando `Screen`.
-2. Agregar la variante en `ScreenId`.
-3. Registrar el módulo en `mod.rs`.
-4. Agregar la construcción en `main.rs` (switch de pantallas activas).
-5. Conectar la navegación desde donde corresponda (menú, `CommandLine`, etc.).
+Trabajo:
 
----
+- Crear comando o rutina idempotente `l400-bootstrap`.
+- Provisionar `QSYS`, `QGPL`, `QUSRSYS`, `QTEMP`, `QCLSRC`.
+- Crear objetos base: `QEZJOBLOG *DTAQ`, source file `QCLSRC *FILE SRC`, perfiles iniciales y placeholders de comandos.
+- Decidir backend persistente para `/l400`:
+  - preferido: ZFS dataset con `xattr=sa`;
+  - fallback: ext4/xfs con xattrs, marcado como modo no-ZFS.
+- Actualizar `install_linux400.sh` e initramfs para no reemplazar `/l400` instalado por `tmpfs`.
+- Agregar validacion visible en `l400-support-report`.
+
+Criterio de aceptacion:
+
+- tras reiniciar una instalacion, `WRKOBJ`, `STRPDM` y `WRKMBRPDM QGPL/QCLSRC` muestran estado persistente;
+- `l400-support-report --write` indica backend de `/l400` y si es persistente.
+
+## Fase 2: Comandos minimos de operacion y administracion
+
+**Problema:** el dispatcher existe, pero varios comandos son listados basicos o no estan empaquetados.
+
+Trabajo:
 
-## Propuesta de flujo de navegación
+- Empaquetar `sbmjob` y publicar symlink `SBMJOB`.
+- Unificar `WRKACTJOB` y `WRKSYSSTS` para leer `L400_RUN_DIR/jobs`, no rutas de catalogo inconsistentes.
+- Completar filtros de `WRKOBJ OBJ(...) OBJTYPE(...) LIB(...)`.
+- Agregar comandos de objetos minimos:
+  - `DLTOBJ`
+  - `CPYOBJ`
+  - `DSPOBJD`
+  - `CHGOBJD`
+- Agregar comandos de autorizacion:
+  - `DSPOBJAUT`
+  - `GRTOBJAUT`
+  - `RVKOBJAUT`
+- Convertir `PWRDWNSYS OPTION(*IMMED|*RESTART)` en accion real cuando corre como root, con confirmacion en TUI.
+- Hacer `WRKUSRPRF` accionable: crear, listar, mostrar y desactivar perfiles Linux/400.
 
-```
-MainMenu
-  └─ [7] STRPDM ──→ PdmBrowser (lista bibliotecas)
-                        └─ Enter sobre lib ──→ WrkMbrPdm (lista archivos fuente)
-                                                   └─ F15/Enter ──→ Strseu (editor de miembro)
-                                                   └─ F16       ──→ Strsql (SQL interactivo)
-CommandLine
-  ├─ STRPDM  ──→ PdmBrowser
-  ├─ STRSEU  ──→ Strseu  (requiere parámetro FILE/MBR)
-  ├─ STRSQL  ──→ Strsql
-  └─ WRKMBRPDM → WrkMbrPdm (requiere FILE)
-```
+Criterio de aceptacion:
+
+- todos los comandos anteriores funcionan desde TUI command line y desde symlink shell-friendly;
+- los comandos destructivos tienen confirmacion o modo explicitamente irreversible;
+- hay tests para parser de parametros y rutas felices/error.
 
----
+## Fase 3: Library list, perfil y sesion
 
-## Trabajo por componente
+**Problema:** `ADDLIBLE` y `CHGCURLIB` usan variables de entorno del proceso; la TUI no mantiene todavia una sesion rica estilo OS/400.
 
----
+Trabajo:
 
-### Componente 1 — Routing y ScreenId
+- Introducir `SessionContext` en `os400-tui` con:
+  - user profile;
+  - current library;
+  - library list;
+  - last message/status;
+  - job id.
+- Persistir library list de sesion donde corresponda (`L400_RUN_DIR/sessions` o similar).
+- Mostrar current library real en el header del menu.
+- Hacer que `WRKOBJ`, `STRSQL`, `STRSEU` y `WRKMBRPDM` usen el contexto de sesion.
+- Mapear perfil Linux/400 a usuario Linux sin permitir operar como `root`.
+
+Criterio de aceptacion:
 
-#### [MODIFY] `os400-tui/src/screens/mod.rs`
+- `CHGCURLIB QGPL` cambia lo que muestran pantallas y comandos sin reiniciar la TUI;
+- `ADDLIBLE` afecta resolucion de objetos en esa sesion;
+- sign-off limpia job/sesion.
 
-Agregar variantes al enum `ScreenId`:
-
-```rust
-PdmBrowser,    // STRPDM
-WrkMbrPdm,     // WRKMBRPDM
-StrSeu,        // STRSEU
-StrSql,        // STRSQL
-```
+## Fase 4: Work management real
 
-#### [MODIFY] `os400-tui/src/main.rs`
+**Problema:** hay cgroups y job registry, pero faltan colas, opciones y administracion.
 
-Instanciar las nuevas pantallas en el dispatcher de `ScreenId`.
+Trabajo:
 
-#### [MODIFY] `os400-tui/src/screens/main_menu.rs`
+- Integrar `SBMJOB CMD(...) JOB(...) JOBQ(...)` al dispatcher.
+- Registrar jobs en estados `JOBQ`, `ACTIVE`, `COMPLETED`, `FAILED`.
+- Agregar acciones de `WRKACTJOB`: ver detalle, terminar job, refrescar, filtrar por subsystem.
+- Agregar descripcion de subsistemas:
+  - `QINTER`
+  - `QBATCH`
+- Hacer que `os400-tui` y jobs batch registren comando, usuario, timestamps y salida/log.
+- Exponer cgroup params desde pantalla de sistema.
+
+Criterio de aceptacion:
+
+- `SBMJOB` ejecuta un comando en background, aparece en `WRKACTJOB` y termina con estado correcto;
+- la TUI sigue usable si cgroups no estan disponibles, mostrando modo degradado.
+
+## Fase 5: Archivos PF/LF/DTAQ mas cercanos a OS/400
+
+**Problema:** PF/LF/DTAQ existen, pero el modelo de datos es minimo (`KEY/DATA`).
 
-- Agregar opción `7` al menú principal: `"Programming Development Manager"` → `STRPDM`.
-- Conectar `handle_option("7")` → `ScreenId::PdmBrowser`.
+Trabajo:
 
-#### [MODIFY] `os400-tui/src/screens/cmd_line.rs`
+- Definir metadata de esquema para PF:
+  - record length;
+  - campos;
+  - tipo/longitud;
+  - texto;
+  - keyed fields.
+- Agregar miembros PF reales y comandos:
+  - `CRTPF`
+  - `CRTLF`
+  - `DSPPFM`
+  - `CLRPFM`
+  - `ADDPFM` o equivalente minimo.
+- Mantener LF automaticamente al escribir/borrar registros de PF.
+- Agregar RRN/arrival sequence de forma explicita.
+- Extender DTAQ:
+  - `CRTDTAQ`
+  - `SNDDTAQ`
+  - `RCVDTAQ`
+  - `DSPDTAQ`
+  - wait time y mensajes de longitud variable.
 
-Reconocer los nuevos comandos en la línea de comandos: `STRPDM`, `STRSEU`, `STRSQL`, `WRKMBRPDM`.
+Criterio de aceptacion:
 
----
+- una demo crea PF con esquema, inserta registros, consulta por LF y muestra datos desde TUI;
+- DTAQ puede enviarse/recibirse desde comando batch y verse en TUI.
 
-### Componente 2 — STRPDM (`pdm_browser.rs`)
+## Fase 6: STRSQL utilizable
+
+**Problema:** `STRSQL` soporta `SELECT` minimo, suficiente para demo pero no para administracion.
+
+Trabajo:
+
+- Reemplazar parseo manual por parser SQL pequeño o crate dedicado.
+- Soportar:
+  - `SELECT` con columnas, `WHERE`, `ORDER BY`, `LIMIT`;
+  - `INSERT`;
+  - `UPDATE`;
+  - `DELETE`;
+  - `CREATE TABLE` como alias a `CRTPF` cuando sea razonable.
+- Mostrar errores con codigo/mensaje estilo pantalla verde.
+- Agregar paginacion horizontal/vertical de resultados.
 
-#### [NEW] `os400-tui/src/screens/pdm_browser.rs`
-
-**Descripción:** Lista las bibliotecas catalogadas en el root de L400. Permite al usuario seleccionar una para navegar sus archivos fuente con `WRKMBRPDM`.
-
-**Estado interno:**
-```rust
-pub struct PdmBrowser {
-    libraries: Vec<String>,
-    state: ListState,
-}
-```
-
-**Comportamiento:**
-- Al cargar: llama `list_objects(resolve_l400_root())` y filtra tipo `*LIB`.
-- `Enter` sobre una biblioteca → `ScreenResult::goto(ScreenId::WrkMbrPdm)` pasando el nombre de la lib en `data`.
-- `F5` refresca la lista.
-- `F3`/`F12` → `ScreenId::MainMenu`.
-
-**Layout:**
-```
-╔═ STRPDM - Programming Development Manager ══════════════╗
-║  Select library and press Enter. F5=Refresh              ║
-╠══════════════════════════════════════════════════════════╣
-║  > QGPL                                                  ║
-║    MYLIB                                                  ║
-║    QSYS                                                   ║
-╠══════════════════════════════════════════════════════════╣
-║ F3=Exit  F5=Refresh  F12=Cancel  Enter=Select            ║
-╚══════════════════════════════════════════════════════════╝
-```
-
----
-
-### Componente 3 — WRKMBRPDM (`wrk_mbr_pdm.rs`)
-
-#### [NEW] `os400-tui/src/screens/wrk_mbr_pdm.rs`
-
-**Descripción:** Lista los miembros de un archivo fuente específico dentro de una biblioteca. Permite editar un miembro con SEU (F15) o entrar a SQL (F16).
-
-**Estado interno:**
-```rust
-pub struct WrkMbrPdm {
-    library: String,
-    file: String,
-    members: Vec<MemberInfo>,
-    state: TableState,
-}
-
-pub struct MemberInfo {
-    pub name: String,
-    pub type_: String,     // CLP, RPGLE, SQLRPGLE, etc.
-    pub text: String,
-}
-```
-
-**Comportamiento:**
-- Al cargar: llama `list_members(lib_path, file_name)` (nueva función en `libl400/src/db.rs` o `object.rs`).
-- `Enter`/`F15` sobre un miembro → `ScreenId::StrSeu` con `data = "LIB/FILE/MBR"`.
-- `F16` → `ScreenId::StrSql`.
-- `F3`/`F12` → `ScreenId::PdmBrowser`.
-- `F6` → crear nuevo miembro (interacción con prompt inline o mediante `CommandLine`).
-
-**Layout:**
-```
-╔═ WRKMBRPDM - Work with Members ═══════════════════════════╗
-║  File: QGPL/QCLSRC    F5=Refresh  F6=Create  F16=STRSQL   ║
-╠═══════════════════════════════════════════════════════════╣
-║  Mbr         Type      Text                               ║
-║  ──────────────────────────────────────────────────────   ║
-║  HELLO       CLP       Hello world program                ║
-║  DEMO        CLP       Demo CL program                    ║
-╠═══════════════════════════════════════════════════════════╣
-║ F3=Exit  F5=Refresh  F6=Create  F15=Edit  F16=STRSQL      ║
-╚═══════════════════════════════════════════════════════════╝
-```
-
-**Nueva función en libl400:** `list_members(lib: &Path, file: &str) -> Result<Vec<MemberInfo>, ObjectError>` — escanea el sub-directorio o la sled/BDB database correspondiente al archivo fuente.
-
----
-
-### Componente 4 — STRSEU (`str_seu.rs`)
-
-#### [NEW] `os400-tui/src/screens/str_seu.rs`
-
-**Descripción:** Editor de texto minimalista estilo SEU para miembros CLP/RPGLE. Soporta edición básica de líneas, guardado con `F3`, y resalta números de línea al estilo OS/400.
-
-**Estado interno:**
-```rust
-pub struct StrSeu {
-    member_path: PathBuf,
-    lines: Vec<String>,
-    cursor_row: usize,
-    cursor_col: usize,
-    scroll_offset: usize,
-    modified: bool,
-}
-```
-
-**Comportamiento:**
-- Al cargar: lee el contenido del miembro desde disco (o crea vacío si es nuevo).
-- Edición de texto con teclas de movimiento y escritura.
-- `F3` → guarda y vuelve a `ScreenId::WrkMbrPdm`.
-- `F12` → descarta cambios y vuelve.
-- `F5` → recarga desde disco.
-- Números de línea al margen izquierdo (formato OS/400: `0001.00`).
-
-**Layout:**
-```
-╔═ STRSEU - Source Entry Utility ══ QGPL/QCLSRC/HELLO.CLP ╗
-║  Columns 1-72        Browse/Copy Mode  F3=Save  F12=Exit  ║
-╠═══════════════════════════════════════════════════════════╣
-║ 0001.00 PGM                                               ║
-║ 0002.00     SNDPGMMSG MSG('Hello from L400!')             ║
-║ 0003.00 ENDPGM                                            ║
-║_                                                          ║
-╠═══════════════════════════════════════════════════════════╣
-║ F3=Save  F5=Reload  F12=Cancel                            ║
-╚═══════════════════════════════════════════════════════════╝
-```
-
----
-
-### Componente 5 — STRSQL (`str_sql.rs`)
-
-#### [NEW] `os400-tui/src/screens/str_sql.rs`
-
-**Descripción:** Intérprete SQL interactivo que ejecuta sentencias sobre los archivos PF/LF catalogados en `libl400`. Usa el backend Berkeley DB existente.
-
-**Estado interno:**
-```rust
-pub struct StrSql {
-    input: String,
-    history: Vec<String>,
-    results: Vec<Vec<String>>,
-    columns: Vec<String>,
-    error: Option<String>,
-    scroll: usize,
-}
-```
-
-**Comportamiento:**
-- El usuario escribe una sentencia SQL en el área de entrada inferior.
-- `Enter` ejecuta la consulta contra `libl400::db`.
-- Los resultados se muestran en una tabla ratatui con `TableState`.
-- `F3`/`F12` → vuelve al origen (PdmBrowser o MainMenu).
-- `F5` limpia los resultados.
-- Soporta inicialmente: `SELECT * FROM <file>`, `SELECT <cols> FROM <file> WHERE <cond>`.
-
-**Layout:**
-```
-╔═ STRSQL - Interactive SQL ════════════════════════════════╗
-║  Type SQL statement and press Enter.                       ║
-╠═══════════════════════════════════════════════════════════╣
-║  COL1       COL2       COL3                               ║
-║  ──────────────────────────────────────────────────────   ║
-║  AAAAA      00001      Lorem ipsum                        ║
-║  BBBBB      00002      Dolor sit amet                     ║
-╠═══════════════════════════════════════════════════════════╣
-║ SQL> SELECT * FROM QGPL/MYFILE_                           ║
-╠═══════════════════════════════════════════════════════════╣
-║ F3=Exit  F5=Clear  F12=Cancel                             ║
-╚═══════════════════════════════════════════════════════════╝
-```
-
-**Parseo SQL mínimo:** regex o split básico para `SELECT`, `FROM`, `WHERE`. No se requiere un parser SQL completo; el backend real de consultas ya está en `libl400::db::PhysicalFile::read_all / LogicalFile`.
-
----
-
-### Componente 6 — codegen `clc` para los nuevos comandos
-
-#### [MODIFY] `cl_compiler/clc/src/compiler.rs`
-
-Reemplazar el bloque de fallback "no disponible en modo batch" por llamadas reales:
-
-```c
-"STRPDM"    → l400_strpdm();
-"STRSEU"    → l400_strseu(FILE, MBR);
-"STRSQL"    → l400_strsql();
-"WRKMBRPDM" → l400_wrkmbrpdm(FILE);
-```
-
-#### [MODIFY] `libl400/src/ffi_commands.rs`
-
-Agregar:
-- `l400_strpdm()` → imprime lista de bibliotecas (modo batch).
-- `l400_strseu(file, mbr)` → imprime contenido del miembro.
-- `l400_strsql()` → modo batch: acepta SQL de stdin.
-- `l400_wrkmbrpdm(file)` → lista miembros del archivo.
-
----
-
-## Criterio de aceptación
-
-- Las cuatro pantallas TUI se navegan desde el menú principal (`7=STRPDM`) y desde `CommandLine`.
-- `STRSEU` permite editar y guardar un miembro `.clp` que luego puede compilarse con `clc`.
-- `STRSQL` ejecuta `SELECT * FROM <file>` y muestra resultados en tabla.
-- `WRKMBRPDM` lista miembros y permite abrir `STRSEU` sobre ellos.
-- Los tests de `cargo test -p os400-tui` y `cargo test -p clc` pasan.
-
----
-
-## Notas
-
-- `STRSEU` no necesita ser un editor vi/emacs. Con soporte de `Insert`/`Delete` char, cursor libre y guardado F3 es suficiente para la primera iteración.
-- `STRSQL` inicialmente sólo soporta `SELECT`. `INSERT`/`UPDATE`/`DELETE` vienen en una iteración posterior.
-- Los miembros de archivos fuente se almacenan como archivos planos dentro del directorio del objeto `*FILE` (o como entradas nombradas en la sled/BDB del PF). El naming convention es `<MEMBER>` dentro de `<LIB>/<FILE>/`.
+Criterio de aceptacion:
+
+- `STRSQL "SELECT * FROM QGPL/CUSTOMERS WHERE KEY='C001'"` funciona igual en TUI y batch;
+- INSERT/UPDATE/DELETE actualizan PF y LF de forma consistente.
+
+## Fase 7: Compilador CL y toolchain
+
+**Problema:** `clc` compila comandos simples, pero falta lenguaje de control real.
+
+Trabajo:
+
+- Extender grammar/AST:
+  - variables `DCL`;
+  - `CHGVAR`;
+  - `IF/THEN/ELSE`;
+  - `DO/ENDDO`;
+  - `MONMSG`;
+  - `CALL`;
+  - parametros de programa.
+- Generar C o LLVM con control de flujo real.
+- Agregar resolucion de objetos por library list.
+- Catalogar source y program objects de forma uniforme.
+- Definir comando `CRTCLPGM` o mapear `CRTPGM` a flujo de compilacion.
+
+Criterio de aceptacion:
+
+- un CL de ejemplo crea biblioteca, cambia curlib, compila/llama programa, maneja error con `MONMSG`;
+- tests unitarios cubren parser y codegen de cada estructura nueva.
+
+## Fase 8: TUI OS/400-style completa para operaciones minimas
+
+**Problema:** las pantallas existen, pero faltan opciones numericas y prompt F4 real.
+
+Trabajo:
+
+- Implementar prompt F4 por comando con campos editables.
+- Agregar columna `Opt` accionable en ObjectBrowser, WRKACTJOB, WRKMBRPDM y DTAQ.
+- Unificar barra de ayuda y mensajes de estado.
+- Agregar pantallas:
+  - `WRKLIB`
+  - `DSPOBJD`
+  - `WRKUSRPRF`
+  - `WRKSYSSTS`
+  - `WRKSYSVAL`
+  - `WRKSPLF` o spool/outq minimo si se decide incluir `*OUTQ`.
+- Evitar datos fallback silenciosos: si no hay runtime real, mostrar "sin catalogo" o "modo demo" explicitamente.
+
+Criterio de aceptacion:
+
+- un operador puede administrar el sistema minimo desde TUI sin shell;
+- las teclas F y opciones se comportan de forma consistente entre pantallas.
+
+## Fase 9: Seguridad, auditoria y politica kernel
+
+**Problema:** la politica eBPF valida tipos y ejecucion, pero la autorizacion de objetos todavia vive principalmente en runtime.
+
+Trabajo:
+
+- Definir una matriz de autorizaciones por objeto/comando.
+- Agregar auditoria en `QHST`/DTAQ para:
+  - acceso denegado;
+  - ejecucion de `*PGM`;
+  - cambios de autorizacion;
+  - cambios de perfil.
+- Evaluar como pasar identidad/autoridad al eBPF sin complejidad excesiva.
+- Firmar o marcar toolchain output mas robustamente que `objattr=C|CL`.
+- Agregar comandos de verificacion de politica.
+
+Criterio de aceptacion:
+
+- `*PUBLIC:*EXCLUDE` se respeta de forma consistente en runtime y ejecucion;
+- los denegados quedan visibles en logs/TUI.
+
+## Fase 10: Release, CI y matriz de plataformas
+
+Trabajo:
+
+- CI para:
+  - `cargo test -p l400`;
+  - `cargo test -p clc`;
+  - `cargo test -p os400-tui`;
+  - smoke scripts;
+  - build userspace;
+  - build eBPF cuando el toolchain este disponible.
+- QEMU smoke install obligatorio antes de RC.
+- Matriz de soporte:
+  - dev sin BPF/ZFS;
+  - degraded con cgroups pero sin eBPF;
+  - full con BPF LSM, BTF, ZFS `xattr=sa`.
+- Documentar upgrade/migration de `/l400`.
+
+Criterio de aceptacion:
+
+- `./scripts/test/test_release_rc.sh` queda como gate minimo;
+- `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh` valida instalacion y persistencia.
+
+## Prioridad recomendada
+
+1. Persistencia `/l400` + bootstrap.
+2. Unificar job registry y empaquetar `SBMJOB`.
+3. Completar comandos administrativos minimos.
+4. SessionContext real en TUI.
+5. PF/LF/DTAQ con comandos operativos.
+6. CL con control de flujo.
+7. Seguridad/autorizacion integrada con eBPF.
+
+La razon de este orden es practica: primero hay que poder arrancar, conservar estado y administrar lo minimo desde el menu. Despues vale la pena profundizar compatibilidad semantica de archivos, SQL, CL y enforcement.
