@@ -13,13 +13,14 @@ use crate::screens::str_sql::StrSql;
 use crate::screens::work_mgmt::WorkManagement;
 use crate::screens::wrk_mbr_pdm::WrkMbrPdm;
 use crate::screens::{Screen, ScreenId};
+use crate::session::SessionContext;
 
 pub struct App {
     current_screen: Box<dyn Screen>,
     current_screen_id: ScreenId,
     should_exit: bool,
     previous_screen: Option<ScreenId>,
-    session_user: Option<String>,
+    session: SessionContext,
 }
 
 impl App {
@@ -29,7 +30,7 @@ impl App {
             current_screen_id: ScreenId::SignOn,
             should_exit: false,
             previous_screen: None,
-            session_user: None,
+            session: SessionContext::new(std::process::id() as u64),
         }
     }
 
@@ -84,29 +85,29 @@ impl App {
         let origin = self.current_screen_id;
         self.previous_screen = Some(origin);
         if next == ScreenId::SignOn {
-            self.session_user = None;
+            self.session.sign_off();
         }
         if next == ScreenId::MainMenu {
             if let Some(user) = data.clone() {
-                self.session_user = Some(user);
+                self.session.sign_on(&user);
             }
         }
         self.current_screen_id = next;
 
         self.current_screen = match next {
             ScreenId::SignOn => Box::new(SignOnScreen::new()),
-            ScreenId::MainMenu => Box::new(MainMenu::with_user(self.session_user.clone())),
+            ScreenId::MainMenu => Box::new(MainMenu::with_session(self.session.clone())),
             ScreenId::WorkManagement => Box::new(WorkManagement::new()),
-            ScreenId::ObjectBrowser => Box::new(ObjectBrowser::new()),
+            ScreenId::ObjectBrowser => Box::new(ObjectBrowser::with_session(self.session.clone())),
             ScreenId::DataQueueViewer => Box::new(DataQueueViewer::new()),
-            ScreenId::CommandLine => Box::new(CommandLine::new()),
-            ScreenId::PdmBrowser => Box::new(PdmBrowser::new()),
+            ScreenId::CommandLine => Box::new(CommandLine::with_session(self.session.clone())),
+            ScreenId::PdmBrowser => Box::new(PdmBrowser::with_session(self.session.clone())),
             ScreenId::WrkMbrPdm => {
-                let (library, file) = parse_library_file_spec(data.as_deref());
+                let (library, file) = parse_library_file_spec(data.as_deref(), &self.session);
                 Box::new(WrkMbrPdm::new(library, file))
             }
             ScreenId::StrSeu => {
-                let (library, file, member) = parse_member_spec(data.as_deref());
+                let (library, file, member) = parse_member_spec(data.as_deref(), &self.session);
                 let return_data = if origin == ScreenId::WrkMbrPdm {
                     Some(format!("{library}/{file}"))
                 } else {
@@ -121,17 +122,25 @@ impl App {
                 ))
             }
             ScreenId::StrSql => {
-                let context = data.as_deref().map(normalize_library_file_spec);
+                let context = data
+                    .as_deref()
+                    .map(|value| normalize_library_file_spec(value, &self.session));
                 let return_data = if origin == ScreenId::WrkMbrPdm {
                     context.clone()
                 } else {
                     None
                 };
-                Box::new(StrSql::with_context(context, origin, return_data))
+                Box::new(StrSql::with_session(
+                    context,
+                    origin,
+                    return_data,
+                    self.session.clone(),
+                ))
             }
             ScreenId::Exit => {
                 self.should_exit = true;
-                Box::new(MainMenu::with_user(self.session_user.clone()))
+                self.session.sign_off();
+                Box::new(MainMenu::with_session(self.session.clone()))
             }
         };
     }
@@ -145,12 +154,12 @@ impl Default for App {
 
 pub type AppResult<T> = anyhow::Result<T>;
 
-fn normalize_library_file_spec(spec: &str) -> String {
-    let (library, file) = parse_library_file_spec(Some(spec));
+fn normalize_library_file_spec(spec: &str, session: &SessionContext) -> String {
+    let (library, file) = parse_library_file_spec(Some(spec), session);
     format!("{library}/{file}")
 }
 
-fn parse_library_file_spec(spec: Option<&str>) -> (String, String) {
+fn parse_library_file_spec(spec: Option<&str>, session: &SessionContext) -> (String, String) {
     let spec = spec.unwrap_or("").trim();
     if let Some((library, file)) = spec.split_once('/') {
         let library = library.trim().to_uppercase();
@@ -159,13 +168,13 @@ fn parse_library_file_spec(spec: Option<&str>) -> (String, String) {
             return (library, file);
         }
     } else if !spec.is_empty() {
-        return (spec.to_uppercase(), "QCLSRC".to_string());
+        return (session.snapshot().current_library, spec.to_uppercase());
     }
 
-    ("QSYS".to_string(), "QCLSRC".to_string())
+    (session.snapshot().current_library, "QCLSRC".to_string())
 }
 
-fn parse_member_spec(spec: Option<&str>) -> (String, String, String) {
+fn parse_member_spec(spec: Option<&str>, session: &SessionContext) -> (String, String, String) {
     let spec = spec.unwrap_or("").trim();
     let parts = spec
         .split('/')
@@ -180,17 +189,17 @@ fn parse_member_spec(spec: Option<&str>) -> (String, String, String) {
             member.to_uppercase(),
         ),
         [file, member] => (
-            "QSYS".to_string(),
+            session.snapshot().current_library,
             file.to_uppercase(),
             member.to_uppercase(),
         ),
         [member] => (
-            "QSYS".to_string(),
+            session.snapshot().current_library,
             "QCLSRC".to_string(),
             member.to_uppercase(),
         ),
         _ => (
-            "QSYS".to_string(),
+            session.snapshot().current_library,
             "QCLSRC".to_string(),
             "NEWMBR.CLP".to_string(),
         ),

@@ -8,24 +8,25 @@ use ratatui::{
 };
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
+use crate::session::SessionContext;
 use crate::style::*;
 
 pub struct MainMenu {
     selected_index: usize,
     pending_option: String,
-    current_user: String,
+    session: SessionContext,
 }
 
 impl MainMenu {
     pub fn new() -> Self {
-        Self::with_user(None)
+        Self::with_session(SessionContext::new(std::process::id() as u64))
     }
 
-    pub fn with_user(user: Option<String>) -> Self {
+    pub fn with_session(session: SessionContext) -> Self {
         Self {
             selected_index: 0,
             pending_option: String::new(),
-            current_user: user.unwrap_or_else(|| "QSECOFR".to_string()),
+            session,
         }
     }
 
@@ -181,6 +182,7 @@ impl Screen for MainMenu {
 impl MainMenu {
     fn render_header(&self, frame: &mut Frame, area: Rect) {
         let title = Line::from(vec![" L400 Main Menu ".into()]);
+        let session = self.session.snapshot();
 
         let block = Block::default()
             .title(title)
@@ -196,14 +198,22 @@ impl MainMenu {
                 "System: ".into(),
                 "L400   ".into(),
                 "User: ".into(),
-                self.current_user.clone().into(),
+                session.user_profile.into(),
                 "   ".into(),
                 "Library: ".into(),
-                "QSYS   ".into(),
+                session.current_library.into(),
+                "   ".into(),
+                "Job: ".into(),
+                session.job_id.to_string().into(),
+                "   ".into(),
                 "Selection: ".into(),
                 self.pending_option.clone().into(),
             ]),
-            Line::from(vec![status.into()]),
+            Line::from(vec![
+                status.into(),
+                "   ".into(),
+                session.last_message.unwrap_or_default().into(),
+            ]),
         ]);
 
         let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 2);

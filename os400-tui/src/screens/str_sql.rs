@@ -8,6 +8,7 @@ use ratatui::{
 };
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
+use crate::session::SessionContext;
 use crate::style::*;
 
 pub struct StrSql {
@@ -22,17 +23,24 @@ pub struct StrSql {
     default_library: Option<String>,
     return_to: ScreenId,
     return_data: Option<String>,
+    session: SessionContext,
 }
 
 impl StrSql {
     pub fn new() -> Self {
-        Self::with_context(None, ScreenId::MainMenu, None)
+        Self::with_session(
+            None,
+            ScreenId::MainMenu,
+            None,
+            SessionContext::new(std::process::id() as u64),
+        )
     }
 
-    pub fn with_context(
+    pub fn with_session(
         context: Option<String>,
         return_to: ScreenId,
         return_data: Option<String>,
+        session: SessionContext,
     ) -> Self {
         let (default_library, input) = match context {
             Some(context) => {
@@ -42,7 +50,7 @@ impl StrSql {
                     format!("SELECT * FROM {library}/{file}"),
                 )
             }
-            None => (None, String::new()),
+            None => (Some(session.snapshot().current_library), String::new()),
         };
 
         let cursor = input.len();
@@ -58,6 +66,7 @@ impl StrSql {
             default_library,
             return_to,
             return_data,
+            session,
         }
     }
 
@@ -83,7 +92,13 @@ impl StrSql {
         self.error = None;
         self.table_state.select(None);
 
-        match run_select_query(&statement, self.default_library.as_deref()) {
+        self.session.apply_env();
+        let snapshot = self.session.snapshot();
+        let default_library = self
+            .default_library
+            .as_deref()
+            .unwrap_or(snapshot.current_library.as_str());
+        match run_select_query(&statement, Some(default_library)) {
             Ok(result) => {
                 self.columns = result.columns;
                 self.results = result.rows;
@@ -211,8 +226,13 @@ impl Screen for StrSql {
 
 impl StrSql {
     fn render_header(&self, frame: &mut Frame, area: Rect) {
+        let snapshot = self.session.snapshot();
+        let library = self
+            .default_library
+            .as_deref()
+            .unwrap_or(snapshot.current_library.as_str());
         let block = Block::default()
-            .title(" STRSQL - Interactive SQL ")
+            .title(format!(" STRSQL - Interactive SQL  Library: {} ", library))
             .style(STYLE_HEADER)
             .borders(Borders::ALL)
             .border_style(STYLE_BORDER);

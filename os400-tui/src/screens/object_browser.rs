@@ -9,6 +9,7 @@ use ratatui::{
 };
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
+use crate::session::SessionContext;
 use crate::style::*;
 
 pub struct ObjectInfo {
@@ -26,16 +27,23 @@ pub struct ObjectBrowser {
     objects: Vec<ObjectInfo>,
     state: TableState,
     using_runtime_data: bool,
+    session: SessionContext,
 }
 
 impl ObjectBrowser {
     pub fn new() -> Self {
-        let (objects, using_runtime_data) = Self::load_objects("QSYS");
+        Self::with_session(SessionContext::new(std::process::id() as u64))
+    }
+
+    pub fn with_session(session: SessionContext) -> Self {
+        let current_library = session.snapshot().current_library;
+        let (objects, using_runtime_data) = Self::load_objects(&current_library);
         Self {
-            current_library: "QSYS".to_string(),
+            current_library,
             objects,
             state: TableState::default(),
             using_runtime_data,
+            session,
         }
     }
 
@@ -122,6 +130,7 @@ impl ObjectBrowser {
     }
 
     fn refresh(&mut self) {
+        self.current_library = self.session.snapshot().current_library;
         let (objects, using_runtime_data) = Self::load_objects(&self.current_library);
         self.objects = objects;
         self.using_runtime_data = using_runtime_data;

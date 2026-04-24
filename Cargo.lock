@@ -1362,6 +1362,7 @@ dependencies = [
  "libc",
  "ratatui",
  "sha-crypt",
+ "tempfile",
 ]
 
 [[package]]

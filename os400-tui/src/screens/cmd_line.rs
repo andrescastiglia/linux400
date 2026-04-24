@@ -9,6 +9,7 @@ use ratatui::{
 use std::process::Command;
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
+use crate::session::SessionContext;
 use crate::style::*;
 
 pub struct CommandLine {
@@ -18,10 +19,15 @@ pub struct CommandLine {
     cursor_position: usize,
     output: Vec<String>,
     show_output: bool,
+    session: SessionContext,
 }
 
 impl CommandLine {
     pub fn new() -> Self {
+        Self::with_session(SessionContext::new(std::process::id() as u64))
+    }
+
+    pub fn with_session(session: SessionContext) -> Self {
         Self {
             command: String::new(),
             history: vec![
@@ -33,6 +39,7 @@ impl CommandLine {
             cursor_position: 0,
             output: Vec::new(),
             show_output: false,
+            session,
         }
     }
 
@@ -55,6 +62,17 @@ impl CommandLine {
         self.output.clear();
         self.output.push(format!("CMD: {}", cmd));
         self.output.push("".to_string());
+
+        if self.handle_session_command(&cmd) {
+            if !self.history.iter().any(|h| h == &cmd) {
+                self.history.insert(0, cmd.clone());
+            }
+            self.show_output = true;
+            self.command.clear();
+            self.cursor_position = 0;
+            self.history_index = 0;
+            return ScreenResult::none();
+        }
 
         match cmd.as_str() {
             "WRKACTJOB" => {
@@ -96,8 +114,12 @@ impl CommandLine {
                     .push("  DSPSYSVAL - Display system value".to_string());
             }
             _ => {
+                let state = self.session.snapshot();
                 match Command::new("l400cmd")
                     .args(cmd.split_whitespace())
+                    .env("L400_USER", &state.user_profile)
+                    .env("L400_CURLIB", &state.current_library)
+                    .env("L400_LIBLIST", state.library_list.join(":"))
                     .output()
                 {
                     Ok(output) => {
@@ -163,7 +185,7 @@ impl CommandLine {
                 match file.filter(|value| !value.trim().is_empty()) {
                     Some(file) => Some(ScreenResult::with_data(
                         ScreenId::WrkMbrPdm,
-                        normalize_file_spec(&file),
+                        normalize_file_spec(&file, &self.session),
                     )),
                     None => {
                         self.show_usage_error("Usage: WRKMBRPDM FILE(QGPL/QCLSRC)");
@@ -189,7 +211,7 @@ impl CommandLine {
                         ScreenId::StrSeu,
                         format!(
                             "{}/{}",
-                            normalize_file_spec(&file),
+                            normalize_file_spec(&file, &self.session),
                             member.trim().to_uppercase()
                         ),
                     )),
@@ -207,6 +229,53 @@ impl CommandLine {
         self.output.clear();
         self.output.push(message.to_string());
         self.show_output = true;
+    }
+
+    fn handle_session_command(&mut self, command: &str) -> bool {
+        let tokens = command.split_whitespace().collect::<Vec<_>>();
+        let Some(action) = tokens.first().map(|value| value.to_uppercase()) else {
+            return false;
+        };
+        match action.as_str() {
+            "CHGCURLIB" => {
+                if let Some(library) = extract_command_arg(&tokens[1..], "CURLIB")
+                    .or_else(|| extract_command_arg(&tokens[1..], "LIB"))
+                    .or_else(|| tokens.get(1).map(|value| value.to_string()))
+                {
+                    self.session.set_current_library(&library);
+                    self.output.push(format!(
+                        "Current library changed to {}",
+                        library.to_uppercase()
+                    ));
+                } else {
+                    self.output.push("Usage: CHGCURLIB LIB(QGPL)".to_string());
+                }
+                true
+            }
+            "ADDLIBLE" => {
+                if let Some(library) = extract_command_arg(&tokens[1..], "LIB")
+                    .or_else(|| tokens.get(1).map(|value| value.to_string()))
+                {
+                    self.session.add_library(&library);
+                    self.output
+                        .push(format!("{} added to library list", library.to_uppercase()));
+                } else {
+                    self.output.push("Usage: ADDLIBLE LIB(QGPL)".to_string());
+                }
+                true
+            }
+            "DSPLIBL" => {
+                let state = self.session.snapshot();
+                self.output
+                    .push(format!("Current library: {}", state.current_library));
+                self.output.push("Library list:".to_string());
+                for library in state.library_list {
+                    self.output.push(format!("  {library}"));
+                }
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -317,7 +386,7 @@ fn extract_command_arg(tokens: &[&str], key: &str) -> Option<String> {
     })
 }
 
-fn normalize_file_spec(spec: &str) -> String {
+fn normalize_file_spec(spec: &str, session: &SessionContext) -> String {
     let spec = spec.trim();
     if let Some((library, file)) = spec.split_once('/') {
         format!(
@@ -326,7 +395,11 @@ fn normalize_file_spec(spec: &str) -> String {
             file.trim().to_uppercase()
         )
     } else {
-        format!("QSYS/{}", spec.to_uppercase())
+        format!(
+            "{}/{}",
+            session.snapshot().current_library,
+            spec.to_uppercase()
+        )
     }
 }
 

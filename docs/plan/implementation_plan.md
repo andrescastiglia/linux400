@@ -81,20 +81,23 @@ Criterio de aceptacion:
 
 ## Fase 3: Library list, perfil y sesion
 
+**Estado:** implementada en base. Queda pendiente validacion interactiva completa en ISO/TUI y evolucionar el contexto hacia una sesion multi-job mas rica.
+
 **Problema:** `ADDLIBLE` y `CHGCURLIB` usan variables de entorno del proceso; la TUI no mantiene todavia una sesion rica estilo OS/400.
 
 Trabajo:
 
-- Introducir `SessionContext` en `os400-tui` con:
+- [x] Introducir `SessionContext` en `os400-tui` con:
   - user profile;
   - current library;
   - library list;
   - last message/status;
   - job id.
-- Persistir library list de sesion donde corresponda (`L400_RUN_DIR/sessions` o similar).
-- Mostrar current library real en el header del menu.
-- Hacer que `WRKOBJ`, `STRSQL`, `STRSEU` y `WRKMBRPDM` usen el contexto de sesion.
-- Mapear perfil Linux/400 a usuario Linux sin permitir operar como `root`.
+- [x] Persistir library list de sesion en `L400_RUN_DIR/sessions`.
+- [x] Mostrar current library real en el header del menu.
+- [x] Hacer que `WRKOBJ`, `STRSQL`, `STRSEU` y `WRKMBRPDM` usen el contexto de sesion.
+- [x] Mapear perfil Linux/400 a usuario Linux sin permitir operar como `root`.
+- [ ] Validar en ISO/TUI real que sign-off limpia la sesion y que las pantallas se refrescan como operador espera.
 
 Criterio de aceptacion:
 

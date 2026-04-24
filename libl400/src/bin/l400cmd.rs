@@ -163,7 +163,7 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
         "CHGCURLIB" => dispatch_unary_required(
             command,
             args,
-            &["LIB"],
+            &["LIB", "CURLIB"],
             "CHGCURLIB LIB(QGPL)",
             ffi_commands::l400_chgcurlib,
         ),
