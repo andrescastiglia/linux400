@@ -100,8 +100,10 @@ Autoridades comunes:
 
 | Comando | Descripcion | Ejemplo |
 | --- | --- | --- |
-| `WRKACTJOB` | Lista trabajos activos o registrados. | `WRKACTJOB` |
-| `SBMJOB` | Envia un comando ejecutable a batch. | `SBMJOB CMD(WRKSYSSTS) JOB(MYJOB)` |
+| `WRKACTJOB` | Lista trabajos activos o registrados; permite filtrar y ver detalle. | `WRKACTJOB SBS(QBATCH) STATUS(ACTIVE)` |
+| `WRKACTJOB OPTION(*DETAIL)` | Muestra detalle de un trabajo por `PID` o `JOB`. | `WRKACTJOB JOB(MYJOB) OPTION(*DETAIL)` |
+| `WRKACTJOB OPTION(*END)` | Termina un trabajo activo por `PID` o `JOB`. | `WRKACTJOB PID(1234) OPTION(*END)` |
+| `SBMJOB` | Envia un comando ejecutable a batch. | `SBMJOB CMD(WRKSYSSTS) JOB(MYJOB) JOBQ(QBATCH)` |
 | `WRKJOB` | Muestra detalle de un trabajo. | `WRKJOB JOB(1234/QSECOFR/MYJOB)` |
 | `ENDJOB` | Finaliza un trabajo. | `ENDJOB JOB(1234/QSECOFR/MYJOB) OPTION(*IMMED)` |
 | `WRKJOBQ` | Trabaja con colas de trabajos. | `WRKJOBQ JOBQ(QBATCH)` |

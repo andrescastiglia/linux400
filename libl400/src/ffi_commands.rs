@@ -127,6 +127,24 @@ pub extern "C" fn l400_wrksyssts() {
     if let Ok(jobs) = crate::cgroup::list_jobs() {
         println!("  Jobs registrados: {}", jobs.len());
     }
+    println!("  Subsistemas:");
+    for (name, text) in crate::cgroup::subsystem_descriptions() {
+        println!("    {:8} {}", name, text);
+    }
+    match crate::cgroup::get_workload_params(crate::WorkloadType::Interactive) {
+        Ok(params) => println!(
+            "  QINTER cgroup: cpu.weight={} memory.max={} pids.max={}",
+            params.cpu_weight, params.memory_max, params.pids_max
+        ),
+        Err(_) => println!("  QINTER cgroup: modo degradado/no disponible"),
+    }
+    match crate::cgroup::get_workload_params(crate::WorkloadType::Batch) {
+        Ok(params) => println!(
+            "  QBATCH cgroup: cpu.weight={} memory.max={} pids.max={}",
+            params.cpu_weight, params.memory_max, params.pids_max
+        ),
+        Err(_) => println!("  QBATCH cgroup: modo degradado/no disponible"),
+    }
 
     println!("================================================");
 }
@@ -134,24 +152,114 @@ pub extern "C" fn l400_wrksyssts() {
 /// WRKACTJOB — Lista jobs activos del job registry
 #[no_mangle]
 pub extern "C" fn l400_wrkactjob() {
+    l400_wrkactjob_spec(std::ptr::null());
+}
+
+#[no_mangle]
+pub extern "C" fn l400_wrkactjob_spec(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let subsystem_filter = fields
+        .get("SBS")
+        .or_else(|| fields.get("SUBSYSTEM"))
+        .map(|value| value.to_uppercase());
+    let status_filter = fields.get("STATUS").map(|value| value.to_uppercase());
+    let option = fields
+        .get("OPTION")
+        .map(|value| value.to_uppercase())
+        .unwrap_or_else(|| "*LIST".to_string());
+    let target_pid = fields
+        .get("PID")
+        .and_then(|value| value.parse::<u64>().ok());
+    let target_job = fields.get("JOB").map(|value| value.to_uppercase());
+
     println!("=== WRKACTJOB - Trabajos Activos ===");
     match crate::cgroup::list_jobs() {
         Ok(jobs) if jobs.is_empty() => println!("  No hay trabajos activos."),
         Ok(jobs) => {
+            let jobs = jobs
+                .into_iter()
+                .filter(|job| {
+                    subsystem_filter
+                        .as_deref()
+                        .map(|filter| job.subsystem.eq_ignore_ascii_case(filter))
+                        .unwrap_or(true)
+                })
+                .filter(|job| {
+                    status_filter
+                        .as_deref()
+                        .map(|filter| job.status.to_string().eq_ignore_ascii_case(filter))
+                        .unwrap_or(true)
+                })
+                .filter(|job| {
+                    target_pid.map(|pid| job.pid == pid).unwrap_or(true)
+                        && target_job
+                            .as_deref()
+                            .map(|name| job.name.eq_ignore_ascii_case(name))
+                            .unwrap_or(true)
+                })
+                .collect::<Vec<_>>();
+
+            if option == "*END" || option == "END" {
+                match jobs.first() {
+                    Some(job) => match crate::cgroup::end_job(job.pid) {
+                        Ok(_) => println!("  Job {} PID={} terminado.", job.name, job.pid),
+                        Err(error) => println!("  Error terminando job: {}", error),
+                    },
+                    None => println!("  No se encontro job para terminar."),
+                }
+                println!("====================================");
+                return;
+            }
+
+            if option == "*DETAIL" || option == "DETAIL" || option == "5" {
+                match jobs.first() {
+                    Some(job) => {
+                        println!("  Job . . . . . . . . . : {}", job.name);
+                        println!("  User  . . . . . . . . : {}", job.user);
+                        println!("  PID . . . . . . . . . : {}", job.pid);
+                        println!("  Status  . . . . . . . : {}", job.status);
+                        println!("  Subsystem . . . . . . : {}", job.subsystem);
+                        println!("  Command . . . . . . . : {}", job.command);
+                        println!(
+                            "  Submitted . . . . . . : {}",
+                            job.submitted_at.as_deref().unwrap_or("-")
+                        );
+                        println!(
+                            "  Started . . . . . . . : {}",
+                            job.started_at.as_deref().unwrap_or("-")
+                        );
+                        println!(
+                            "  Ended . . . . . . . . : {}",
+                            job.ended_at.as_deref().unwrap_or("-")
+                        );
+                        println!(
+                            "  Log . . . . . . . . . : {}",
+                            job.log_path
+                                .as_ref()
+                                .map(|path| path.display().to_string())
+                                .unwrap_or_else(|| "-".to_string())
+                        );
+                    }
+                    None => println!("  No se encontro job para mostrar."),
+                }
+                println!("====================================");
+                return;
+            }
+
             println!(
-                "  {:20} {:10} {:8} {:8} COMMAND",
-                "JOB", "ESTADO", "PID", "SBS"
+                "  {:20} {:10} {:8} {:8} {:10} COMMAND",
+                "JOB", "ESTADO", "PID", "SBS", "USER"
             );
-            println!("  {}", "-".repeat(74));
+            println!("  {}", "-".repeat(86));
             for j in &jobs {
                 println!(
-                    "  {:20} {:10} {:8} {:8} {}",
-                    j.name,
-                    format!("{:?}", j.status),
-                    j.pid,
-                    j.subsystem,
-                    j.command
+                    "  {:20} {:10} {:8} {:8} {:10} {}",
+                    j.name, j.status, j.pid, j.subsystem, j.user, j.command
                 );
+            }
+            if jobs.is_empty() {
+                println!("  No hay trabajos para el filtro indicado.");
             }
         }
         Err(e) => println!("  Error al listar jobs: {}", e),

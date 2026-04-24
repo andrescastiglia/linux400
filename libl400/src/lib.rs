@@ -17,10 +17,11 @@ pub mod zfs;
 
 pub use bootstrap::{bootstrap_l400_root, BootstrapError, BootstrapReport};
 pub use cgroup::{
-    assign_to_workload, cleanup_l400_slices, create_l400_slices, get_current_workload,
-    get_workload_params, is_cgroup_v2_available, list_jobs, register_current_job, register_job,
-    remove_job, set_cpu_priority, set_memory_limit, update_job_status, CgroupError, CgroupParams,
-    WorkloadJob, WorkloadType,
+    assign_to_workload, cleanup_l400_slices, create_l400_slices, end_job, get_current_workload,
+    get_workload_params, is_cgroup_v2_available, job_log_path, list_jobs, register_current_job,
+    register_job, remove_job, set_cpu_priority, set_memory_limit, subsystem_description,
+    subsystem_descriptions, update_job_status, CgroupError, CgroupParams, WorkloadJob,
+    WorkloadType,
 };
 pub use db::{
     create_lf, create_pf, run_select_query, DbError, LogicalFile, PhysicalFile, QueryResult,

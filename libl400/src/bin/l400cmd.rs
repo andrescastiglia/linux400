@@ -89,10 +89,11 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             ffi_commands::l400_wrksyssts();
             ExitCode::SUCCESS
         }
-        "WRKACTJOB" => {
-            ffi_commands::l400_wrkactjob();
-            ExitCode::SUCCESS
-        }
+        "WRKACTJOB" => dispatch_spec(
+            args,
+            &["SBS", "SUBSYSTEM", "STATUS", "OPTION", "PID", "JOB"],
+            ffi_commands::l400_wrkactjob_spec,
+        ),
         "WRKSYSVAL" => {
             ffi_commands::l400_wrksysval();
             ExitCode::SUCCESS
@@ -209,17 +210,23 @@ fn dispatch_spec(
 }
 
 fn dispatch_sbmjob(args: &[String]) -> ExitCode {
-    let cmd = extract_named_arg(args, &["CMD"])
-        .or_else(|| positional_args(args, &["CMD", "JOB"]).first().cloned());
+    let cmd = extract_named_arg(args, &["CMD"]).or_else(|| {
+        positional_args(args, &["CMD", "JOB", "JOBQ"])
+            .first()
+            .cloned()
+    });
     let Some(cmd) = cmd else {
         eprintln!("ERROR: SBMJOB requiere CMD(...).");
-        eprintln!("Uso: SBMJOB CMD(WRKSYSSTS) JOB(MYJOB)");
+        eprintln!("Uso: SBMJOB CMD(WRKSYSSTS) JOB(MYJOB) JOBQ(QBATCH)");
         return ExitCode::from(2);
     };
     let job = extract_named_arg(args, &["JOB"]).unwrap_or_else(|| "QBATCH".to_string());
+    let jobq = extract_named_arg(args, &["JOBQ"]).unwrap_or_else(|| "QBATCH".to_string());
     match Command::new("sbmjob")
         .arg("--job")
         .arg(job)
+        .arg("--jobq")
+        .arg(jobq)
         .arg(cmd)
         .status()
     {

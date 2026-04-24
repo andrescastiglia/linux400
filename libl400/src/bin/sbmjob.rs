@@ -1,6 +1,9 @@
 use clap::Parser;
-use l400::cgroup::{assign_to_workload, register_job, update_job_status, JobStatus, WorkloadType};
+use l400::cgroup::{
+    assign_to_workload, job_log_path, register_job, update_job_status, JobStatus, WorkloadType,
+};
 use std::env;
+use std::fs::OpenOptions;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
@@ -23,6 +26,10 @@ struct Args {
     #[arg(short, long, default_value = "QBATCH")]
     job: String,
 
+    /// Cola de trabajos/subsistema
+    #[arg(long, default_value = "QBATCH")]
+    jobq: String,
+
     /// Usuario del trabajo (user)
     #[arg(short, long)]
     user: Option<String>,
@@ -39,6 +46,14 @@ fn current_user_name() -> String {
 fn main() {
     let args = Args::parse();
     let user = args.user.unwrap_or_else(current_user_name);
+    let jobq = args.jobq.trim().to_uppercase();
+    if jobq != "QBATCH" {
+        eprintln!(
+            "SBMJOB Error: JOBQ({}) no soportada; use JOBQ(QBATCH).",
+            jobq
+        );
+        std::process::exit(2);
+    }
 
     if args.daemon {
         // Somos el proceso daemon que maneja la ejecución real en QBATCH
@@ -52,7 +67,7 @@ fn main() {
 
         let cmd_str = format!("{} {}", args.cmd, args.args.join(" "));
 
-        // 2. Registrar el trabajo en el Job Registry como Active
+        // 2. Registrar el trabajo en el Job Registry como JOBQ y luego ACTIVE.
         if let Err(e) = register_job(
             pid,
             &args.job,
@@ -63,12 +78,27 @@ fn main() {
         ) {
             eprintln!("SBMJOB Error: No se pudo registrar el job: {}", e);
         }
+        let _ = update_job_status(pid, JobStatus::Active);
 
         // 3. Ejecutar el comando de usuario
+        let log_path = job_log_path(pid);
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let log_stdout = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok();
+        let log_stderr = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok();
         let status = Command::new(&args.cmd)
             .args(&args.args)
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
+            .stdout(log_stdout.map(Stdio::from).unwrap_or_else(Stdio::null))
+            .stderr(log_stderr.map(Stdio::from).unwrap_or_else(Stdio::null))
             .status();
 
         let final_status = match status {
@@ -89,6 +119,8 @@ fn main() {
             .arg("--daemon")
             .arg("--job")
             .arg(&args.job)
+            .arg("--jobq")
+            .arg(&jobq)
             .arg("--user")
             .arg(&user)
             .stdout(Stdio::null())
@@ -100,8 +132,9 @@ fn main() {
             .expect("SBMJOB falló al inicializar el proceso batch");
 
         println!(
-            "Trabajo {} enviado a la cola de trabajos QBATCH. PID={}",
+            "Trabajo {} enviado a la cola de trabajos {}. PID={}",
             args.job,
+            jobq,
             child.id()
         );
     }

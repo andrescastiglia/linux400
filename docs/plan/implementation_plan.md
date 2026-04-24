@@ -107,18 +107,21 @@ Criterio de aceptacion:
 
 ## Fase 4: Work management real
 
+**Estado:** implementada en base. Queda pendiente validacion interactiva en ISO/TUI y endurecer terminacion/logs para entornos multiusuario reales.
+
 **Problema:** hay cgroups y job registry, pero faltan colas, opciones y administracion.
 
 Trabajo:
 
-- Integrar `SBMJOB CMD(...) JOB(...) JOBQ(...)` al dispatcher.
-- Registrar jobs en estados `JOBQ`, `ACTIVE`, `COMPLETED`, `FAILED`.
-- Agregar acciones de `WRKACTJOB`: ver detalle, terminar job, refrescar, filtrar por subsystem.
-- Agregar descripcion de subsistemas:
+- [x] Integrar `SBMJOB CMD(...) JOB(...) JOBQ(...)` al dispatcher.
+- [x] Registrar jobs en estados `JOBQ`, `ACTIVE`, `COMPLETED`, `FAILED`.
+- [x] Agregar acciones de `WRKACTJOB`: ver detalle, terminar job, refrescar, filtrar por subsystem.
+- [x] Agregar descripcion de subsistemas:
   - `QINTER`
   - `QBATCH`
-- Hacer que `os400-tui` y jobs batch registren comando, usuario, timestamps y salida/log.
-- Exponer cgroup params desde pantalla de sistema.
+- [x] Hacer que `os400-tui` y jobs batch registren comando, usuario, timestamps y salida/log.
+- [x] Exponer cgroup params desde pantalla de sistema.
+- [ ] Validar acciones de terminacion y detalle desde TUI dentro de la ISO.
 
 Criterio de aceptacion:
 
