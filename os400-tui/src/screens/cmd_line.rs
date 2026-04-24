@@ -6,6 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
+use std::process::Command;
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::style::*;
@@ -95,8 +96,29 @@ impl CommandLine {
                     .push("  DSPSYSVAL - Display system value".to_string());
             }
             _ => {
-                self.output
-                    .push(format!("Command '{}' executed successfully", cmd));
+                match Command::new("l400cmd")
+                    .args(cmd.split_whitespace())
+                    .output()
+                {
+                    Ok(output) => {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        for line in stdout.lines().chain(stderr.lines()) {
+                            self.output.push(line.to_string());
+                        }
+                        if self.output.len() == 2 {
+                            self.output.push(format!(
+                                "Command '{}' completed with status {}",
+                                cmd,
+                                output.status.code().unwrap_or_default()
+                            ));
+                        }
+                    }
+                    Err(error) => {
+                        self.output
+                            .push(format!("Command '{}' could not run: {}", cmd, error));
+                    }
+                }
             }
         }
 

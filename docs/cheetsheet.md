@@ -38,7 +38,7 @@ Enter=Select/Run
 | `WRKSYSVAL` | Muestra valores de sistema relevantes para Linux/400. | `WRKSYSVAL` |
 | `CHGSYSVAL` | Cambia un valor de sistema. | `CHGSYSVAL SYSVAL(QAUTOCFG) VALUE(*NO)` |
 | `DSPLOG` | Muestra mensajes recientes del sistema o QHST equivalente. | `DSPLOG` |
-| `PWRDWNSYS` | Solicita apagado o reinicio del sistema. | `PWRDWNSYS OPTION(*IMMED)` |
+| `PWRDWNSYS` | Solicita apagado o reinicio del sistema; accion real requiere root y confirmacion. | `PWRDWNSYS OPTION(*IMMED) CONFIRM(*YES)` |
 | `l400-bootstrap` | Inicializa bibliotecas y objetos base del catalogo Linux/400. | `l400-bootstrap --root /l400` |
 | `l400-support-report` | Reporta capacidades de plataforma: loader, BPF, cgroups, ZFS/xattrs. | `l400-support-report --write` |
 
@@ -63,7 +63,7 @@ Enter=Select/Run
 | `DSPOBJD` | Muestra descripcion y metadatos de un objeto. | `DSPOBJD OBJ(QGPL/MYPGM) OBJTYPE(*PGM)` |
 | `CRTDUPOBJ` | Duplica un objeto dentro de una biblioteca o hacia otra. | `CRTDUPOBJ OBJ(A) FROMLIB(QGPL) OBJTYPE(*PGM) TOLIB(TEST)` |
 | `CPYOBJ` | Copia un objeto preservando metadatos Linux/400. | `CPYOBJ OBJ(QGPL/A) TOOBJ(QGPL/B)` |
-| `DLTOBJ` | Elimina un objeto catalogado. | `DLTOBJ OBJ(QGPL/OLDPGM) OBJTYPE(*PGM)` |
+| `DLTOBJ` | Elimina un objeto catalogado. | `DLTOBJ OBJ(QGPL/OLDPGM) OBJTYPE(*PGM) CONFIRM(*YES)` |
 | `RNMOBJ` | Renombra un objeto. | `RNMOBJ OBJ(OLDPGM) NEWNAME(NEWPGM)` |
 | `CHGOBJD` | Cambia texto u otros metadatos de objeto. | `CHGOBJD OBJ(QGPL/MYPGM) TEXT('Demo')` |
 | `WRKOBJOWN` | Lista objetos por propietario. | `WRKOBJOWN USER(QSECOFR)` |
@@ -74,7 +74,7 @@ Enter=Select/Run
 | --- | --- | --- |
 | `DSPOBJAUT` | Muestra autorizaciones de un objeto. | `DSPOBJAUT OBJ(QGPL/MYPGM) OBJTYPE(*PGM)` |
 | `GRTOBJAUT` | Otorga autorizacion sobre un objeto. | `GRTOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR) AUT(*USE)` |
-| `RVKOBJAUT` | Revoca autorizacion sobre un objeto. | `RVKOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR) AUT(*USE)` |
+| `RVKOBJAUT` | Revoca autorizacion sobre un objeto. | `RVKOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR)` |
 | `CHGOWN` | Cambia propietario logico de un objeto. | `CHGOWN OBJ(QGPL/MYFILE) OWNER(QPGMR)` |
 
 Autoridades comunes:
@@ -90,7 +90,7 @@ Autoridades comunes:
 
 | Comando | Descripcion | Ejemplo |
 | --- | --- | --- |
-| `WRKUSRPRF` | Lista o busca perfiles de usuario. | `WRKUSRPRF USRPRF(*ALL)` |
+| `WRKUSRPRF` | Lista, muestra, crea o desactiva perfiles de usuario Linux/400. | `WRKUSRPRF USRPRF(TESTUSR) ACTION(*CREATE)` |
 | `CRTUSRPRF` | Crea un perfil de usuario Linux/400. | `CRTUSRPRF USRPRF(QPGMR)` |
 | `CHGUSRPRF` | Cambia atributos de un perfil. | `CHGUSRPRF USRPRF(QPGMR) STATUS(*DISABLED)` |
 | `DLTUSRPRF` | Elimina un perfil. | `DLTUSRPRF USRPRF(TESTUSR)` |
@@ -101,7 +101,7 @@ Autoridades comunes:
 | Comando | Descripcion | Ejemplo |
 | --- | --- | --- |
 | `WRKACTJOB` | Lista trabajos activos o registrados. | `WRKACTJOB` |
-| `SBMJOB` | Envia un comando o programa a batch. | `SBMJOB CMD(CALL PGM(MYPGM)) JOB(MYJOB)` |
+| `SBMJOB` | Envia un comando ejecutable a batch. | `SBMJOB CMD(WRKSYSSTS) JOB(MYJOB)` |
 | `WRKJOB` | Muestra detalle de un trabajo. | `WRKJOB JOB(1234/QSECOFR/MYJOB)` |
 | `ENDJOB` | Finaliza un trabajo. | `ENDJOB JOB(1234/QSECOFR/MYJOB) OPTION(*IMMED)` |
 | `WRKJOBQ` | Trabaja con colas de trabajos. | `WRKJOBQ JOBQ(QBATCH)` |

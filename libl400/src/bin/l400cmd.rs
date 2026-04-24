@@ -15,7 +15,15 @@ const COMMAND_BINARIES: &[&str] = &[
     "DSPLOG",
     "WRKUSRPRF",
     "PWRDWNSYS",
+    "SBMJOB",
     "WRKOBJ",
+    "DLTOBJ",
+    "CPYOBJ",
+    "DSPOBJD",
+    "CHGOBJD",
+    "DSPOBJAUT",
+    "GRTOBJAUT",
+    "RVKOBJAUT",
     "CRTLIB",
     "DLTLIB",
     "ADDLIBLE",
@@ -93,13 +101,43 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             ffi_commands::l400_dsplog();
             ExitCode::SUCCESS
         }
-        "WRKUSRPRF" => dispatch_unary(args, &["USRPRF"], None, ffi_commands::l400_wrkusrprf),
-        "PWRDWNSYS" => dispatch_unary(args, &["OPTION"], None, ffi_commands::l400_pwrdwnsys),
-        "WRKOBJ" => dispatch_unary(
+        "WRKUSRPRF" => dispatch_spec(args, &["USRPRF", "ACTION"], ffi_commands::l400_wrkusrprf),
+        "PWRDWNSYS" => dispatch_spec(args, &["OPTION", "CONFIRM"], ffi_commands::l400_pwrdwnsys),
+        "WRKOBJ" => dispatch_spec(
             args,
-            &["OBJ", "FILTER", "OBJTYPE"],
-            None,
+            &["OBJ", "FILTER", "OBJTYPE", "LIB"],
             ffi_commands::l400_wrkobj,
+        ),
+        "DLTOBJ" => dispatch_spec(
+            args,
+            &["OBJ", "OBJTYPE", "LIB", "CONFIRM"],
+            ffi_commands::l400_dltobj,
+        ),
+        "CPYOBJ" => dispatch_spec(
+            args,
+            &["OBJ", "TOOBJ", "LIB", "TOLIB", "OBJTYPE"],
+            ffi_commands::l400_cpyobj,
+        ),
+        "DSPOBJD" => dispatch_spec(args, &["OBJ", "OBJTYPE", "LIB"], ffi_commands::l400_dspobjd),
+        "CHGOBJD" => dispatch_spec(
+            args,
+            &["OBJ", "OBJTYPE", "LIB", "TEXT", "OBJATTR"],
+            ffi_commands::l400_chgobjd,
+        ),
+        "DSPOBJAUT" => dispatch_spec(
+            args,
+            &["OBJ", "LIB", "OBJTYPE"],
+            ffi_commands::l400_dspobjaut,
+        ),
+        "GRTOBJAUT" => dispatch_spec(
+            args,
+            &["OBJ", "LIB", "OBJTYPE", "USER", "AUT"],
+            ffi_commands::l400_grtobjaut,
+        ),
+        "RVKOBJAUT" => dispatch_spec(
+            args,
+            &["OBJ", "LIB", "OBJTYPE", "USER"],
+            ffi_commands::l400_rvkobjaut,
         ),
         "CRTLIB" => dispatch_unary_required(
             command,
@@ -152,6 +190,7 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             "WRKMBRPDM FILE(QGPL/QCLSRC)",
             ffi_commands::l400_wrkmbrpdm,
         ),
+        "SBMJOB" => dispatch_sbmjob(args),
         _ => {
             eprintln!("ERROR: comando Linux/400 no reconocido: {command}");
             print_usage(Some(command));
@@ -160,19 +199,35 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
     }
 }
 
-fn dispatch_unary(
+fn dispatch_spec(
     args: &[String],
     keys: &[&str],
-    default: Option<&str>,
     callback: extern "C" fn(*const c_char),
 ) -> ExitCode {
-    let value =
-        extract_named_arg(args, keys).or_else(|| positional_args(args, keys).first().cloned());
-    match value.or_else(|| default.map(str::to_string)) {
-        Some(value) => call_with_cstring(&value, callback),
-        None => {
-            callback(std::ptr::null());
-            ExitCode::SUCCESS
+    let spec = command_spec(args, keys);
+    call_with_cstring(&spec, callback)
+}
+
+fn dispatch_sbmjob(args: &[String]) -> ExitCode {
+    let cmd = extract_named_arg(args, &["CMD"])
+        .or_else(|| positional_args(args, &["CMD", "JOB"]).first().cloned());
+    let Some(cmd) = cmd else {
+        eprintln!("ERROR: SBMJOB requiere CMD(...).");
+        eprintln!("Uso: SBMJOB CMD(WRKSYSSTS) JOB(MYJOB)");
+        return ExitCode::from(2);
+    };
+    let job = extract_named_arg(args, &["JOB"]).unwrap_or_else(|| "QBATCH".to_string());
+    match Command::new("sbmjob")
+        .arg("--job")
+        .arg(job)
+        .arg(cmd)
+        .status()
+    {
+        Ok(status) if status.success() => ExitCode::SUCCESS,
+        Ok(status) => ExitCode::from(status.code().unwrap_or(1) as u8),
+        Err(error) => {
+            eprintln!("ERROR: no se pudo ejecutar sbmjob: {error}");
+            ExitCode::from(1)
         }
     }
 }
@@ -358,6 +413,23 @@ fn extract_named_arg(args: &[String], keys: &[&str]) -> Option<String> {
     None
 }
 
+fn command_spec(args: &[String], keys: &[&str]) -> String {
+    let mut parts = Vec::new();
+    for key in keys {
+        if let Some(value) = extract_named_arg(args, &[*key]) {
+            let normalized_key = if *key == "FILTER" { "OBJ" } else { key };
+            parts.push(format!("{}={}", normalized_key.to_uppercase(), value));
+        }
+    }
+
+    let positionals = positional_args(args, keys);
+    if !positionals.is_empty() && !parts.iter().any(|part| part.starts_with("OBJ=")) {
+        parts.push(format!("OBJ={}", positionals[0]));
+    }
+
+    parts.join(" ")
+}
+
 fn parse_named_arg(token: &str, key: &str) -> Option<String> {
     if token.len() > key.len() + 2
         && token[..key.len()].eq_ignore_ascii_case(key)
@@ -420,7 +492,7 @@ fn print_usage(bad_command: Option<&str>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_named_arg, positional_args};
+    use super::{command_spec, parse_named_arg, positional_args};
 
     #[test]
     fn parse_named_arg_supports_parentheses() {
@@ -448,5 +520,29 @@ mod tests {
         ];
 
         assert_eq!(positional_args(&args, &["FILE", "MBR"]), vec!["EXTRA"]);
+    }
+
+    #[test]
+    fn command_spec_keeps_wrkobj_filters() {
+        let args = vec![
+            "OBJ(QSYS/WRK*)".to_string(),
+            "OBJTYPE(*CMD)".to_string(),
+            "LIB(QSYS)".to_string(),
+        ];
+
+        assert_eq!(
+            command_spec(&args, &["OBJ", "OBJTYPE", "LIB"]),
+            "OBJ=QSYS/WRK* OBJTYPE=*CMD LIB=QSYS"
+        );
+    }
+
+    #[test]
+    fn command_spec_maps_positional_object() {
+        let args = vec!["QGPL/DEMO".to_string(), "CONFIRM(*YES)".to_string()];
+
+        assert_eq!(
+            command_spec(&args, &["OBJ", "CONFIRM"]),
+            "CONFIRM=*YES OBJ=QGPL/DEMO"
+        );
     }
 }

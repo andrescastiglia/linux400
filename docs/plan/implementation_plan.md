@@ -50,24 +50,28 @@ Criterio de aceptacion:
 
 ## Fase 2: Comandos minimos de operacion y administracion
 
+**Estado:** implementada en base. Queda pendiente validacion end-to-end desde ISO/TUI real y pantallas de confirmacion dedicadas para acciones destructivas.
+
 **Problema:** el dispatcher existe, pero varios comandos son listados basicos o no estan empaquetados.
 
 Trabajo:
 
-- Empaquetar `sbmjob` y publicar symlink `SBMJOB`.
-- Unificar `WRKACTJOB` y `WRKSYSSTS` para leer `L400_RUN_DIR/jobs`, no rutas de catalogo inconsistentes.
-- Completar filtros de `WRKOBJ OBJ(...) OBJTYPE(...) LIB(...)`.
-- Agregar comandos de objetos minimos:
+- [x] Empaquetar `sbmjob` y publicar symlink `SBMJOB`.
+- [x] Unificar `WRKACTJOB` y `WRKSYSSTS` para leer `L400_RUN_DIR/jobs`, no rutas de catalogo inconsistentes.
+- [x] Completar filtros de `WRKOBJ OBJ(...) OBJTYPE(...) LIB(...)`.
+- [x] Agregar comandos de objetos minimos:
   - `DLTOBJ`
   - `CPYOBJ`
   - `DSPOBJD`
   - `CHGOBJD`
-- Agregar comandos de autorizacion:
+- [x] Agregar comandos de autorizacion:
   - `DSPOBJAUT`
   - `GRTOBJAUT`
   - `RVKOBJAUT`
-- Convertir `PWRDWNSYS OPTION(*IMMED|*RESTART)` en accion real cuando corre como root, con confirmacion en TUI.
-- Hacer `WRKUSRPRF` accionable: crear, listar, mostrar y desactivar perfiles Linux/400.
+- [x] Convertir `PWRDWNSYS OPTION(*IMMED|*RESTART)` en accion real cuando corre como root, con confirmacion explicita `CONFIRM(*YES)`.
+- [x] Hacer `WRKUSRPRF` accionable: crear, listar, mostrar y desactivar perfiles Linux/400.
+- [x] Ejecutar comandos no interactivos desde la linea de comandos de la TUI via `l400cmd`.
+- [ ] Agregar confirmaciones visuales dedicadas en TUI para comandos destructivos.
 
 Criterio de aceptacion:
 

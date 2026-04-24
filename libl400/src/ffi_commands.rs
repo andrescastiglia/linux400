@@ -5,7 +5,8 @@
 use std::ffi::CStr;
 use std::io::Read;
 use std::os::raw::c_char;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn c_str_to_string(s: *const c_char) -> String {
     if s.is_null() {
@@ -28,6 +29,56 @@ fn resolve_file_spec(file_spec: &str) -> (String, String) {
             trimmed.to_uppercase(),
         )
     }
+}
+
+fn parse_command_fields(input: &str) -> std::collections::HashMap<String, String> {
+    let mut fields = std::collections::HashMap::new();
+    for token in input.split_whitespace() {
+        if let Some((key, value)) = token.split_once('=') {
+            fields.insert(key.trim().to_uppercase(), value.trim().to_string());
+        }
+    }
+    fields
+}
+
+fn resolve_object_spec(
+    root: &Path,
+    object_spec: &str,
+    library_override: Option<&str>,
+) -> (String, String, PathBuf) {
+    let trimmed = object_spec.trim();
+    if let Some((library, object)) = trimmed.split_once('/') {
+        let library = library.trim().to_uppercase();
+        let object = object.trim().to_uppercase();
+        let path = root.join(&library).join(&object);
+        return (library, object, path);
+    }
+
+    let library = library_override
+        .map(|value| value.trim().to_uppercase())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            std::env::var("L400_CURLIB")
+                .ok()
+                .map(|value| value.trim().to_uppercase())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| "QGPL".to_string());
+    let object = trimmed.to_uppercase();
+    let path = root.join(&library).join(&object);
+    (library, object, path)
+}
+
+fn matches_pattern(value: &str, pattern: &str) -> bool {
+    let pattern = pattern.trim().to_uppercase();
+    if pattern.is_empty() || pattern == "*ALL" || pattern == "*" {
+        return true;
+    }
+    let value = value.to_uppercase();
+    if let Some(prefix) = pattern.strip_suffix('*') {
+        return value.starts_with(prefix);
+    }
+    value == pattern
 }
 
 // l400_sndpgmmsg está definida en ffi.rs — no se duplica aquí.
@@ -73,10 +124,7 @@ pub extern "C" fn l400_wrksyssts() {
         }
     }
 
-    // Jobs activos
-    let root = crate::object::resolve_l400_root();
-    let job_path = root.join("QSYS").join("JOBQ");
-    if let Ok(jobs) = crate::cgroup::list_jobs_at(&job_path) {
+    if let Ok(jobs) = crate::cgroup::list_jobs() {
         println!("  Jobs registrados: {}", jobs.len());
     }
 
@@ -87,19 +135,22 @@ pub extern "C" fn l400_wrksyssts() {
 #[no_mangle]
 pub extern "C" fn l400_wrkactjob() {
     println!("=== WRKACTJOB - Trabajos Activos ===");
-    let root = crate::object::resolve_l400_root();
-    let job_path = root.join("QSYS").join("JOBQ");
-    match crate::cgroup::list_jobs_at(&job_path) {
+    match crate::cgroup::list_jobs() {
         Ok(jobs) if jobs.is_empty() => println!("  No hay trabajos activos."),
         Ok(jobs) => {
-            println!("  {:20} {:10} {:8}", "JOB", "ESTADO", "PID");
-            println!("  {}", "-".repeat(42));
+            println!(
+                "  {:20} {:10} {:8} {:8} COMMAND",
+                "JOB", "ESTADO", "PID", "SBS"
+            );
+            println!("  {}", "-".repeat(74));
             for j in &jobs {
                 println!(
-                    "  {:20} {:10} {:8}",
+                    "  {:20} {:10} {:8} {:8} {}",
                     j.name,
                     format!("{:?}", j.status),
-                    j.pid
+                    j.pid,
+                    j.subsystem,
+                    j.command
                 );
             }
         }
@@ -145,20 +196,73 @@ pub extern "C" fn l400_dsplog() {
 /// WRKUSRPRF — Gestiona perfiles de usuario
 #[no_mangle]
 pub extern "C" fn l400_wrkusrprf(usrprf: *const c_char) {
-    let filter = c_str_to_string(usrprf);
-    println!(
-        "=== WRKUSRPRF - Perfiles de Usuario (filtro: {}) ===",
-        filter
-    );
-    let qsys = Path::new("/l400/QSYS");
+    let spec = c_str_to_string(usrprf);
+    let fields = parse_command_fields(&spec);
+    let action = fields
+        .get("ACTION")
+        .map(String::as_str)
+        .unwrap_or("*LIST")
+        .to_uppercase();
+    let filter = fields
+        .get("USRPRF")
+        .cloned()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| {
+            if spec.trim().is_empty() {
+                "*ALL".to_string()
+            } else {
+                spec.trim().to_string()
+            }
+        })
+        .to_uppercase();
+    let root = crate::object::resolve_l400_root();
+    let qsys = root.join("QSYS");
+
+    println!("=== WRKUSRPRF - Perfiles de Usuario ===");
+    if matches!(action.as_str(), "*CREATE" | "CREATE") {
+        match crate::object::create_object_with_metadata(
+            &qsys,
+            &filter,
+            "*USRPRF",
+            Some("USRPRF"),
+            Some("Linux/400 user profile"),
+        ) {
+            Ok(_) => println!("  Perfil {} creado.", filter),
+            Err(error) => println!("  Error creando perfil {}: {}", filter, error),
+        }
+        println!("========================================");
+        return;
+    }
+
+    if matches!(action.as_str(), "*DISABLE" | "DISABLE") {
+        let path = qsys.join(&filter);
+        match xattr::set(&path, "user.l400.disabled", b"yes") {
+            Ok(_) => println!("  Perfil {} desactivado.", filter),
+            Err(error) => println!("  Error desactivando perfil {}: {}", filter, error),
+        }
+        println!("========================================");
+        return;
+    }
+
     if qsys.exists() {
-        if let Ok(entries) = std::fs::read_dir(qsys) {
+        if let Ok(entries) = std::fs::read_dir(&qsys) {
+            println!("  {:16} {:8} TEXT", "USRPRF", "STATUS");
+            println!("  {}", "-".repeat(48));
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_uppercase();
-                if name.ends_with(".USRPRF") {
-                    let display = name.trim_end_matches(".USRPRF");
-                    if filter == "*ALL" || display.contains(&filter) {
-                        println!("  {}", display);
+                let path = entry.path();
+                if let Ok(object) = crate::object::describe_object(&path) {
+                    if object.objtype == "*USRPRF" && matches_pattern(&name, &filter) {
+                        let disabled = xattr::get(&path, "user.l400.disabled")
+                            .ok()
+                            .flatten()
+                            .is_some();
+                        println!(
+                            "  {:16} {:8} {}",
+                            name,
+                            if disabled { "*DISABLED" } else { "*ENABLED" },
+                            object.text.as_deref().unwrap_or("")
+                        );
                     }
                 }
             }
@@ -172,22 +276,38 @@ pub extern "C" fn l400_wrkusrprf(usrprf: *const c_char) {
 /// PWRDWNSYS — Apaga o reinicia el sistema
 #[no_mangle]
 pub extern "C" fn l400_pwrdwnsys(option: *const c_char) {
-    let opt = c_str_to_string(option);
+    let spec = c_str_to_string(option);
+    let fields = parse_command_fields(&spec);
+    let opt = fields
+        .get("OPTION")
+        .cloned()
+        .unwrap_or_else(|| spec.trim().to_string())
+        .to_uppercase();
+    let confirmed = fields
+        .get("CONFIRM")
+        .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
+        .unwrap_or(false);
     println!(
         "[PWRDWNSYS] Solicitando parada del sistema (OPTION={})",
         opt
     );
+    if !confirmed {
+        println!("[PWRDWNSYS] Requiere CONFIRM(*YES) para ejecutar una accion real.");
+        return;
+    }
+    if unsafe { libc::geteuid() } != 0 {
+        println!("[PWRDWNSYS] Accion real requiere root.");
+        return;
+    }
     match opt.as_str() {
         "*IMMED" => {
-            println!("[PWRDWNSYS] Parada inmediata — requiere root.");
-            // En un entorno real: Command::new("shutdown").arg("-h").arg("now").status()
+            let _ = Command::new("shutdown").arg("-h").arg("now").status();
         }
         "*RESTART" => {
-            println!("[PWRDWNSYS] Reinicio del sistema — requiere root.");
-            // Command::new("shutdown").arg("-r").arg("now").status()
+            let _ = Command::new("shutdown").arg("-r").arg("now").status();
         }
         _ => {
-            println!("[PWRDWNSYS] Parada controlada (*CNTRLD) — no implementada en modo batch.");
+            println!("[PWRDWNSYS] OPTION debe ser *IMMED o *RESTART.");
         }
     }
 }
@@ -199,29 +319,247 @@ pub extern "C" fn l400_pwrdwnsys(option: *const c_char) {
 /// WRKOBJ — Busca y lista objetos del catálogo
 #[no_mangle]
 pub extern "C" fn l400_wrkobj(obj_filter: *const c_char) {
-    let filter = c_str_to_string(obj_filter);
-    println!("=== WRKOBJ - Objetos (filtro: {}) ===", filter);
+    let spec = c_str_to_string(obj_filter);
+    let fields = parse_command_fields(&spec);
+    let obj_filter = fields
+        .get("OBJ")
+        .cloned()
+        .unwrap_or_else(|| "*ALL".to_string());
+    let objtype_filter = fields
+        .get("OBJTYPE")
+        .cloned()
+        .unwrap_or_else(|| "*ALL".to_string());
+    let lib_filter = fields.get("LIB").cloned().unwrap_or_else(|| {
+        obj_filter
+            .split_once('/')
+            .map(|(library, _)| library.to_string())
+            .unwrap_or_else(|| "*ALL".to_string())
+    });
+    let object_pattern = obj_filter
+        .split_once('/')
+        .map(|(_, object)| object.to_string())
+        .unwrap_or(obj_filter);
+
+    println!(
+        "=== WRKOBJ - Objetos OBJ({}) OBJTYPE({}) LIB({}) ===",
+        object_pattern, objtype_filter, lib_filter
+    );
     let root = crate::object::resolve_l400_root();
-    let qsys = root.join("QSYS");
-    if let Ok(objects) = crate::object::list_objects(&qsys) {
-        if objects.is_empty() {
-            println!("  No hay objetos en QSYS.");
-        } else {
-            println!("  {:20} {:10} {:10}", "OBJETO", "TIPO", "ATRIB");
-            println!("  {}", "-".repeat(44));
-            for obj in &objects {
-                println!(
-                    "  {:20} {:10} {:10}",
-                    obj.name,
-                    obj.objtype,
-                    obj.attribute.as_deref().unwrap_or("-")
-                );
+    match crate::object::list_libraries(&root) {
+        Ok(libraries) => {
+            let mut printed = 0usize;
+            println!(
+                "  {:10} {:20} {:10} {:10}",
+                "LIB", "OBJETO", "TIPO", "ATRIB"
+            );
+            println!("  {}", "-".repeat(58));
+            for library in libraries {
+                if !matches_pattern(&library, &lib_filter) {
+                    continue;
+                }
+                let lib_path = root.join(&library);
+                if let Ok(objects) = crate::object::list_objects(&lib_path) {
+                    for obj in objects {
+                        if !matches_pattern(&obj.name, &object_pattern)
+                            || !matches_pattern(&obj.objtype, &objtype_filter)
+                        {
+                            continue;
+                        }
+                        printed += 1;
+                        println!(
+                            "  {:10} {:20} {:10} {:10}",
+                            library,
+                            obj.name,
+                            obj.objtype,
+                            obj.attribute.as_deref().unwrap_or("-")
+                        );
+                    }
+                }
+            }
+            if printed == 0 {
+                println!("  No hay objetos para el filtro indicado.");
             }
         }
-    } else {
-        println!("  QSYS no disponible como catálogo.");
+        Err(error) => println!("  Error al listar bibliotecas: {}", error),
     }
     println!("=====================================");
+}
+
+#[no_mangle]
+pub extern "C" fn l400_dltobj(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(obj) = fields.get("OBJ") else {
+        println!("[DLTOBJ] Uso: DLTOBJ OBJ(QGPL/MYOBJ) CONFIRM(*YES)");
+        return;
+    };
+    let confirmed = fields
+        .get("CONFIRM")
+        .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
+        .unwrap_or(false);
+    if !confirmed {
+        println!("[DLTOBJ] Requiere CONFIRM(*YES).");
+        return;
+    }
+    let root = crate::object::resolve_l400_root();
+    let (_library, object, path) =
+        resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    match crate::object::delete_object(&path) {
+        Ok(_) => println!("[DLTOBJ] {} eliminado.", object),
+        Err(error) => println!("[DLTOBJ] Error eliminando {}: {}", object, error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_cpyobj(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let (Some(obj), Some(toobj)) = (fields.get("OBJ"), fields.get("TOOBJ")) else {
+        println!("[CPYOBJ] Uso: CPYOBJ OBJ(QGPL/A) TOOBJ(QGPL/B)");
+        return;
+    };
+    let root = crate::object::resolve_l400_root();
+    let (_, src_name, src) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    let (_, dst_name, dst) =
+        resolve_object_spec(&root, toobj, fields.get("TOLIB").map(String::as_str));
+    match crate::object::copy_object(&src, &dst) {
+        Ok(_) => println!("[CPYOBJ] {} copiado a {}.", src_name, dst_name),
+        Err(error) => println!("[CPYOBJ] Error copiando {}: {}", src_name, error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_dspobjd(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(obj) = fields.get("OBJ") else {
+        println!("[DSPOBJD] Uso: DSPOBJD OBJ(QGPL/MYOBJ)");
+        return;
+    };
+    let root = crate::object::resolve_l400_root();
+    let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    match crate::object::describe_object(&path) {
+        Ok(object) => {
+            println!("=== DSPOBJD - Descripcion de Objeto ===");
+            println!(
+                "  Library . . . . . . . . . : {}",
+                object.library.unwrap_or_default()
+            );
+            println!("  Object  . . . . . . . . . : {}", object.name);
+            println!("  Type  . . . . . . . . . . : {}", object.objtype);
+            println!(
+                "  Attribute . . . . . . . . : {}",
+                object.attribute.unwrap_or_default()
+            );
+            println!(
+                "  Text  . . . . . . . . . . : {}",
+                object.text.unwrap_or_default()
+            );
+            println!(
+                "  Owner . . . . . . . . . . : {}",
+                object.owner.unwrap_or_default()
+            );
+            println!(
+                "  Public authority . . . . : {}",
+                object.public_auth.unwrap_or_default()
+            );
+            println!("=======================================");
+        }
+        Err(error) => println!("[DSPOBJD] Error: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_chgobjd(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(obj) = fields.get("OBJ") else {
+        println!("[CHGOBJD] Uso: CHGOBJD OBJ(QGPL/MYOBJ) TEXT(Demo)");
+        return;
+    };
+    let root = crate::object::resolve_l400_root();
+    let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    match crate::object::describe_object(&path) {
+        Ok(object) => {
+            let text = fields
+                .get("TEXT")
+                .map(String::as_str)
+                .or(object.text.as_deref());
+            let attr = fields
+                .get("OBJATTR")
+                .map(String::as_str)
+                .or(object.attribute.as_deref());
+            match crate::object::catalog_object(&path, &object.objtype, attr, text) {
+                Ok(_) => println!("[CHGOBJD] Objeto actualizado."),
+                Err(error) => println!("[CHGOBJD] Error actualizando objeto: {}", error),
+            }
+        }
+        Err(error) => println!("[CHGOBJD] Error: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_dspobjaut(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(obj) = fields.get("OBJ") else {
+        println!("[DSPOBJAUT] Uso: DSPOBJAUT OBJ(QGPL/MYOBJ)");
+        return;
+    };
+    let root = crate::object::resolve_l400_root();
+    let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    match crate::auth::get_object_authorities(&path) {
+        Ok(auths) if auths.is_empty() => println!("[DSPOBJAUT] Sin autorizaciones explicitas."),
+        Ok(auths) => {
+            println!("=== DSPOBJAUT - Autoridades ===");
+            println!("  {:16} AUT", "USER");
+            println!("  {}", "-".repeat(30));
+            let mut rows = auths.into_iter().collect::<Vec<_>>();
+            rows.sort_by(|left, right| left.0.cmp(&right.0));
+            for (user, authority) in rows {
+                println!("  {:16} {}", user, authority);
+            }
+            println!("===============================");
+        }
+        Err(error) => println!("[DSPOBJAUT] Error: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_grtobjaut(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let (Some(obj), Some(user), Some(aut)) =
+        (fields.get("OBJ"), fields.get("USER"), fields.get("AUT"))
+    else {
+        println!("[GRTOBJAUT] Uso: GRTOBJAUT OBJ(QGPL/MYOBJ) USER(QPGMR) AUT(*USE)");
+        return;
+    };
+    let root = crate::object::resolve_l400_root();
+    let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    match aut.parse() {
+        Ok(authority) => match crate::auth::grant_object_authority(&path, user, authority) {
+            Ok(_) => println!("[GRTOBJAUT] Autoridad {} otorgada a {}.", aut, user),
+            Err(error) => println!("[GRTOBJAUT] Error: {}", error),
+        },
+        Err(error) => println!("[GRTOBJAUT] Error: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_rvkobjaut(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let (Some(obj), Some(user)) = (fields.get("OBJ"), fields.get("USER")) else {
+        println!("[RVKOBJAUT] Uso: RVKOBJAUT OBJ(QGPL/MYOBJ) USER(QPGMR)");
+        return;
+    };
+    let root = crate::object::resolve_l400_root();
+    let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    match crate::auth::revoke_object_authority(&path, user) {
+        Ok(_) => println!("[RVKOBJAUT] Autoridad revocada para {}.", user),
+        Err(error) => println!("[RVKOBJAUT] Error: {}", error),
+    }
 }
 
 /// CRTLIB — Crea una biblioteca (*LIB)
