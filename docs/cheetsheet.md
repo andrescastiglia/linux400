@@ -39,6 +39,7 @@ Enter=Select/Run
 | `CHGSYSVAL` | Cambia un valor de sistema. | `CHGSYSVAL SYSVAL(QAUTOCFG) VALUE(*NO)` |
 | `DSPLOG` | Muestra mensajes recientes del sistema o QHST equivalente. | `DSPLOG` |
 | `PWRDWNSYS` | Solicita apagado o reinicio del sistema. | `PWRDWNSYS OPTION(*IMMED)` |
+| `l400-bootstrap` | Inicializa bibliotecas y objetos base del catalogo Linux/400. | `l400-bootstrap --root /l400` |
 | `l400-support-report` | Reporta capacidades de plataforma: loader, BPF, cgroups, ZFS/xattrs. | `l400-support-report --write` |
 
 ## Bibliotecas

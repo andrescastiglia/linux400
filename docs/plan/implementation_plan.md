@@ -27,18 +27,21 @@ Que un usuario pueda arrancar una ISO o instalacion, autenticarse como perfil Li
 
 ## Fase 1: Persistencia y bootstrap del sistema
 
+**Estado:** implementada en base. Queda pendiente validacion end-to-end en una instalacion real/QEMU tras reinicio.
+
 **Problema:** la experiencia OS/400-style depende de que existan bibliotecas y objetos base. Ademas, el flujo instalado todavia puede montar `/l400` como `tmpfs`, suficiente para demos pero no para sistema real.
 
 Trabajo:
 
-- Crear comando o rutina idempotente `l400-bootstrap`.
-- Provisionar `QSYS`, `QGPL`, `QUSRSYS`, `QTEMP`, `QCLSRC`.
-- Crear objetos base: `QEZJOBLOG *DTAQ`, source file `QCLSRC *FILE SRC`, perfiles iniciales y placeholders de comandos.
-- Decidir backend persistente para `/l400`:
+- [x] Crear comando o rutina idempotente `l400-bootstrap`.
+- [x] Provisionar `QSYS`, `QGPL`, `QUSRSYS`, `QTEMP` y `QGPL/QCLSRC`.
+- [x] Crear objetos base: `QEZJOBLOG *DTAQ`, source file `QCLSRC *FILE SRC`, perfiles iniciales y placeholders de comandos.
+- [x] Decidir backend persistente para `/l400`:
   - preferido: ZFS dataset con `xattr=sa`;
   - fallback: ext4/xfs con xattrs, marcado como modo no-ZFS.
-- Actualizar `install_linux400.sh` e initramfs para no reemplazar `/l400` instalado por `tmpfs`.
-- Agregar validacion visible en `l400-support-report`.
+- [x] Actualizar `install_linux400.sh` e initramfs para no reemplazar `/l400` instalado por `tmpfs`.
+- [x] Agregar validacion visible en `l400-support-report`.
+- [ ] Validar en QEMU/instalacion real que el estado sobrevive a reboot.
 
 Criterio de aceptacion:
 

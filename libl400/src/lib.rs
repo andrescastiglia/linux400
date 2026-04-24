@@ -1,5 +1,6 @@
 pub mod auth;
 mod bdb_native;
+pub mod bootstrap;
 pub mod cgroup;
 pub mod db;
 pub mod dtaq;
@@ -14,6 +15,7 @@ pub mod usrprf;
 pub mod util;
 pub mod zfs;
 
+pub use bootstrap::{bootstrap_l400_root, BootstrapError, BootstrapReport};
 pub use cgroup::{
     assign_to_workload, cleanup_l400_slices, create_l400_slices, get_current_workload,
     get_workload_params, is_cgroup_v2_available, list_jobs, register_current_job, register_job,

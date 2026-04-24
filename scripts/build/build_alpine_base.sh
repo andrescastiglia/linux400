@@ -88,7 +88,7 @@ download_minrootfs() {
 }
 
 ensure_userspace() {
-    if [ ! -x "${USERSPACE_DIR}/bin/os400-tui" ]; then
+    if [ ! -x "${USERSPACE_DIR}/bin/os400-tui" ] || [ ! -x "${USERSPACE_DIR}/bin/l400-bootstrap" ]; then
         "${L400_SRC_DIR}/scripts/build/build_userspace.sh"
     fi
 }
@@ -228,6 +228,7 @@ install_userspace() {
     cp "${USERSPACE_DIR}/bin/c400c" "${ROOTFS_DIR}/opt/l400/bin/"
     cp "${USERSPACE_DIR}/bin/clc" "${ROOTFS_DIR}/opt/l400/bin/"
     cp "${USERSPACE_DIR}/bin/l400cmd" "${ROOTFS_DIR}/opt/l400/bin/"
+    cp "${USERSPACE_DIR}/bin/l400-bootstrap" "${ROOTFS_DIR}/opt/l400/bin/"
     cp "${USERSPACE_DIR}/lib/libl400.a" "${ROOTFS_DIR}/lib/l400/"
     if [ -f "${USERSPACE_DIR}/lib/libl400.so" ]; then
         cp "${USERSPACE_DIR}/lib/libl400.so" "${ROOTFS_DIR}/lib/l400/"
@@ -257,6 +258,7 @@ install_userspace() {
     ln -sf /opt/l400/bin/c400c "${ROOTFS_DIR}/usr/local/bin/c400c"
     ln -sf /opt/l400/bin/clc "${ROOTFS_DIR}/usr/local/bin/clc"
     ln -sf /opt/l400/bin/l400cmd "${ROOTFS_DIR}/usr/local/bin/l400cmd"
+    ln -sf /opt/l400/bin/l400-bootstrap "${ROOTFS_DIR}/usr/local/bin/l400-bootstrap"
 
     for command_name in "${COMMAND_BINARIES[@]}"; do
         ln -sf /opt/l400/bin/l400cmd "${ROOTFS_DIR}/opt/l400/bin/${command_name}"

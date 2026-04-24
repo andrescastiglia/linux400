@@ -55,7 +55,7 @@ if [ "${PROFILE}" = "release" ]; then
 fi
 
 echo ">> Compilando librería base..."
-cargo build -p l400 --lib --bin l400cmd "${COMMON_CARGO_ARGS[@]}"
+cargo build -p l400 --lib --bin l400cmd --bin l400-bootstrap "${COMMON_CARGO_ARGS[@]}"
 
 echo ">> Compilando loader eBPF..."
 cargo build -p l400-loader "${COMMON_CARGO_ARGS[@]}"
@@ -130,6 +130,7 @@ copy_required "${TARGET_DIR}/l400-loader" "${BIN_DIR}/l400-loader"
 copy_required "${TARGET_DIR}/c400c" "${BIN_DIR}/c400c"
 copy_required "${TARGET_DIR}/clc" "${BIN_DIR}/clc"
 copy_required "${TARGET_DIR}/l400cmd" "${BIN_DIR}/l400cmd"
+copy_required "${TARGET_DIR}/l400-bootstrap" "${BIN_DIR}/l400-bootstrap"
 copy_required "$(find_artifact libl400.a)" "${LIB_DIR}/libl400.a"
 if libl400_so="$(find_artifact libl400.so 2>/dev/null)"; then
     copy_optional "${libl400_so}" "${LIB_DIR}/libl400.so"

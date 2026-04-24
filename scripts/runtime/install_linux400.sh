@@ -240,6 +240,31 @@ copy_rootfs() {
     ) | tar -xpf - -C "${TARGET_MNT}"
 }
 
+bootstrap_l400_root() {
+    local bootstrap_bin=""
+
+    mkdir -p "${TARGET_MNT}/l400"
+
+    if command -v l400-bootstrap >/dev/null 2>&1; then
+        bootstrap_bin="$(command -v l400-bootstrap)"
+    elif [ -x /opt/l400/bin/l400-bootstrap ]; then
+        bootstrap_bin="/opt/l400/bin/l400-bootstrap"
+    elif [ -x "${TARGET_MNT}/usr/local/bin/l400-bootstrap" ]; then
+        bootstrap_bin="${TARGET_MNT}/usr/local/bin/l400-bootstrap"
+    elif [ -x "${TARGET_MNT}/opt/l400/bin/l400-bootstrap" ]; then
+        bootstrap_bin="${TARGET_MNT}/opt/l400/bin/l400-bootstrap"
+    fi
+
+    if [ -z "${bootstrap_bin}" ]; then
+        echo "WARNING: l400-bootstrap no disponible; /l400 instalado queda sin objetos base." >&2
+        return 0
+    fi
+
+    if ! L400_ROOT="${TARGET_MNT}/l400" "${bootstrap_bin}" --quiet; then
+        echo "WARNING: l400-bootstrap fallo para ${TARGET_MNT}/l400; continuando instalacion." >&2
+    fi
+}
+
 install_boot_assets() {
     local iso_boot_dir=""
     local efi_asset=""
@@ -380,6 +405,7 @@ main() {
     mount_target
     trap cleanup_mounts EXIT
     copy_rootfs
+    bootstrap_l400_root
     install_boot_assets
     configure_installed_system
 

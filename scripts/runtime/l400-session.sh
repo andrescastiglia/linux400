@@ -29,6 +29,17 @@ if [ -f "${run_dir}/boot-mode" ]; then
     boot_mode="$(cat "${run_dir}/boot-mode" 2>/dev/null || true)"
 fi
 
+if [ -z "${L400_SKIP_BOOTSTRAP:-}" ]; then
+    bootstrap_bin="/usr/local/bin/l400-bootstrap"
+    if [ ! -x "${bootstrap_bin}" ] && [ -x /opt/l400/bin/l400-bootstrap ]; then
+        bootstrap_bin="/opt/l400/bin/l400-bootstrap"
+    fi
+    if [ -x "${bootstrap_bin}" ]; then
+        "${bootstrap_bin}" --quiet >/dev/null 2>&1 || \
+            echo "Linux/400: no se pudo inicializar el catalogo base." >&2
+    fi
+fi
+
 case "${boot_mode}" in
     rescue)
         exec "${fallback_shell}"

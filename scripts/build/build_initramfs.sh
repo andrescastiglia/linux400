@@ -312,7 +312,6 @@ mount_installed_root() {
         mkdir -p /mnt/newroot/boot/efi
         mount -t vfat "${efi_dev}" /mnt/newroot/boot/efi 2>/dev/null || true
     fi
-    mount -t tmpfs -o mode=0775 tmpfs /mnt/newroot/l400 2>/dev/null || true
     chown 0:0 /mnt/newroot/home/qsecofr 2>/dev/null || true
     chown 0:0 /mnt/newroot/l400 2>/dev/null || true
 
