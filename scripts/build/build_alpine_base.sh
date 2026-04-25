@@ -15,23 +15,62 @@ MINIROOT_URL="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/releases/
 COMMAND_BINARIES=(
     WRKSYSSTS
     WRKACTJOB
+    WRKJOBQ
+    HLDJOB
+    RLSJOB
+    ENDJOB
     WRKSYSVAL
     DSPLOG
+    DSPCMD
+    WRKCMD
+    CRTCMD
     WRKUSRPRF
+    WRKSPLF
+    WRKOUTQ
+    CRTOUTQ
+    DLTOUTQ
+    DSPSPLF
+    DLTSPLF
     PWRDWNSYS
+    SBMJOB
     WRKOBJ
+    DLTOBJ
+    CPYOBJ
+    DSPOBJD
+    CHGOBJD
+    DSPOBJAUT
+    CHKOBJAUT
+    GRTOBJAUT
+    RVKOBJAUT
+    DSPPOLICY
+    DSPAUD
     CRTLIB
     DLTLIB
     ADDLIBLE
     CHGCURLIB
     RNMOBJ
     CRTPGM
+    CRTCLPGM
+    CALL
     GO
     SIGNOFF
     STRPDM
     STRSEU
     STRSQL
     WRKMBRPDM
+    DLTMBR
+    CPYMBR
+    CHGMBRD
+    CRTPF
+    CRTLF
+    DSPPFM
+    CLRPFM
+    ADDPFM
+    WRTPFM
+    CRTDTAQ
+    SNDDTAQ
+    RCVDTAQ
+    DSPDTAQ
 )
 
 copy_binary_with_runtime() {
@@ -88,7 +127,9 @@ download_minrootfs() {
 }
 
 ensure_userspace() {
-    if [ ! -x "${USERSPACE_DIR}/bin/os400-tui" ]; then
+    if [ ! -x "${USERSPACE_DIR}/bin/os400-tui" ] || \
+        [ ! -x "${USERSPACE_DIR}/bin/l400-bootstrap" ] || \
+        [ ! -x "${USERSPACE_DIR}/bin/sbmjob" ]; then
         "${L400_SRC_DIR}/scripts/build/build_userspace.sh"
     fi
 }
@@ -176,23 +217,35 @@ EOF
     fi
 }
 
-ensure_user_l400() {
+ensure_default_user() {
     local passwd_file="${ROOTFS_DIR}/etc/passwd"
     local shadow_file="${ROOTFS_DIR}/etc/shadow"
     local group_file="${ROOTFS_DIR}/etc/group"
+    local session_shell="/usr/local/bin/l400-session"
+    local default_user="qsecofr"
 
-    mkdir -p "${ROOTFS_DIR}/home/l400"
+    mkdir -p "${ROOTFS_DIR}/home/${default_user}"
 
-    grep -q '^l400:' "${group_file}" 2>/dev/null || \
-        echo 'l400:x:1000:' >> "${group_file}"
-
-    if ! grep -q '^l400:' "${passwd_file}" 2>/dev/null; then
-        echo 'l400:x:1000:1000:Linux/400 User:/home/l400:/bin/sh' >> "${passwd_file}"
+    # Asegura que qsecofr sea root (uid=0, gid=0)
+    sed -i '/^l400:/d' "${group_file}" 2>/dev/null || true
+    if grep -q "^${default_user}:" "${group_file}" 2>/dev/null; then
+        sed -i "s#^${default_user}:[^:]*:[^:]*#${default_user}:x:0#" "${group_file}"
+    else
+        echo "${default_user}:x:0:" >> "${group_file}"
     fi
 
-    if ! grep -q '^l400:' "${shadow_file}" 2>/dev/null; then
+    sed -i '/^l400:/d;/^root:/d' "${passwd_file}" 2>/dev/null || true
+    if grep -q "^${default_user}:" "${passwd_file}" 2>/dev/null; then
+        sed -i "s#^${default_user}:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:.*#${default_user}:x:0:0:Linux/400 Security Officer:/home/${default_user}:${session_shell}#" \
+            "${passwd_file}"
+    else
+        echo "${default_user}:x:0:0:Linux/400 Security Officer:/home/${default_user}:${session_shell}" >> "${passwd_file}"
+    fi
+
+    sed -i '/^l400:/d;/^root:/d' "${shadow_file}" 2>/dev/null || true
+    if ! grep -q "^${default_user}:" "${shadow_file}" 2>/dev/null; then
         # Password por defecto: l400
-        echo 'l400:$5$Tb0gqvL3IrC3D4Qx$4xrkxXHqP5cW5M6E1x2hMUPi8JjGCVr8K8Qm7N8Hj7/:20000:0:99999:7:::' >> "${shadow_file}"
+        echo "${default_user}:\$5\$0PUnB4kNAIWwK67r\$v3YFQYo9crkPTFaBSm69uMWk6RaAIaSsNrc2rvpwAd1:20000:0:99999:7:::" >> "${shadow_file}"
     fi
 }
 
@@ -216,6 +269,8 @@ install_userspace() {
     cp "${USERSPACE_DIR}/bin/c400c" "${ROOTFS_DIR}/opt/l400/bin/"
     cp "${USERSPACE_DIR}/bin/clc" "${ROOTFS_DIR}/opt/l400/bin/"
     cp "${USERSPACE_DIR}/bin/l400cmd" "${ROOTFS_DIR}/opt/l400/bin/"
+    cp "${USERSPACE_DIR}/bin/sbmjob" "${ROOTFS_DIR}/opt/l400/bin/"
+    cp "${USERSPACE_DIR}/bin/l400-bootstrap" "${ROOTFS_DIR}/opt/l400/bin/"
     cp "${USERSPACE_DIR}/lib/libl400.a" "${ROOTFS_DIR}/lib/l400/"
     if [ -f "${USERSPACE_DIR}/lib/libl400.so" ]; then
         cp "${USERSPACE_DIR}/lib/libl400.so" "${ROOTFS_DIR}/lib/l400/"
@@ -227,7 +282,10 @@ install_userspace() {
 
     cp "${RUNTIME_DIR}/l400-session.sh" "${ROOTFS_DIR}/usr/local/bin/l400-session"
     cp "${RUNTIME_DIR}/l400-console-autologin.sh" "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin"
+    cp "${RUNTIME_DIR}/l400-installer.sh" "${ROOTFS_DIR}/usr/local/bin/l400-installer"
     cp "${RUNTIME_DIR}/l400-support-report.sh" "${ROOTFS_DIR}/usr/local/bin/l400-support-report"
+    cp "${RUNTIME_DIR}/l400-upgrade-check.sh" "${ROOTFS_DIR}/usr/local/bin/l400-upgrade-check"
+    cp "${RUNTIME_DIR}/l400-migrate.sh" "${ROOTFS_DIR}/usr/local/bin/l400-migrate"
     cp "${RUNTIME_DIR}/install_linux400.sh" "${ROOTFS_DIR}/usr/local/sbin/install-linux400"
 
     cp -r "${L400_SRC_DIR}/scripts/"* "${ROOTFS_DIR}/opt/l400/scripts/" 2>/dev/null || true
@@ -235,7 +293,10 @@ install_userspace() {
     chmod +x \
         "${ROOTFS_DIR}/usr/local/bin/l400-session" \
         "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin" \
+        "${ROOTFS_DIR}/usr/local/bin/l400-installer" \
         "${ROOTFS_DIR}/usr/local/bin/l400-support-report" \
+        "${ROOTFS_DIR}/usr/local/bin/l400-upgrade-check" \
+        "${ROOTFS_DIR}/usr/local/bin/l400-migrate" \
         "${ROOTFS_DIR}/usr/local/sbin/install-linux400"
 
     ln -sf /opt/l400/bin/os400-tui "${ROOTFS_DIR}/usr/local/bin/os400-tui"
@@ -243,6 +304,8 @@ install_userspace() {
     ln -sf /opt/l400/bin/c400c "${ROOTFS_DIR}/usr/local/bin/c400c"
     ln -sf /opt/l400/bin/clc "${ROOTFS_DIR}/usr/local/bin/clc"
     ln -sf /opt/l400/bin/l400cmd "${ROOTFS_DIR}/usr/local/bin/l400cmd"
+    ln -sf /opt/l400/bin/sbmjob "${ROOTFS_DIR}/usr/local/bin/sbmjob"
+    ln -sf /opt/l400/bin/l400-bootstrap "${ROOTFS_DIR}/usr/local/bin/l400-bootstrap"
 
     for command_name in "${COMMAND_BINARIES[@]}"; do
         ln -sf /opt/l400/bin/l400cmd "${ROOTFS_DIR}/opt/l400/bin/${command_name}"
@@ -261,7 +324,7 @@ export LIBRARY_PATH="/lib/l400${LIBRARY_PATH:+:$LIBRARY_PATH}"
 export LD_LIBRARY_PATH="/lib/l400${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 EOF
 
-    cat > "${ROOTFS_DIR}/home/l400/.profile" <<'EOF'
+    cat > "${ROOTFS_DIR}/home/qsecofr/.profile" <<'EOF'
 if [ -f /etc/profile ]; then
     . /etc/profile
 fi
@@ -269,11 +332,7 @@ fi
 exec /usr/local/bin/l400-session
 EOF
 
-    cat > "${ROOTFS_DIR}/etc/motd" <<'EOF'
-Linux/400 Live Environment
-- Usuario por defecto: l400 / l400
-- Instalación a disco: install-linux400 /dev/sdX
-EOF
+    : > "${ROOTFS_DIR}/etc/motd"
 
     echo "linux400" > "${ROOTFS_DIR}/etc/hostname"
 }
@@ -320,7 +379,7 @@ main() {
     maybe_install_extra_packages
     install_host_disk_tools_fallback
     install_host_mtools_fallback
-    ensure_user_l400
+    ensure_default_user
     install_userspace
     configure_shell_environment
     configure_console_login

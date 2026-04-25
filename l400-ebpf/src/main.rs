@@ -2,7 +2,7 @@
 #![no_main]
 
 use aya_ebpf::{
-    helpers::bpf_get_current_pid_tgid,
+    helpers::{bpf_get_current_pid_tgid, bpf_get_current_uid_gid},
     macros::{lsm, map},
     maps::HashMap,
     programs::LsmContext,
@@ -10,7 +10,8 @@ use aya_ebpf::{
 use aya_log_ebpf::{info, warn};
 use core::ffi::c_void;
 use l400_ebpf_common::{
-    L400_POLICY_VERSION, STAT_DENIED_INVALID_TAG, STAT_EXEC_ALLOWED_NATIVE, STAT_EXEC_ALLOWED_PGM,
+    L400_POLICY_VERSION, STAT_DENIED_INVALID_TAG, STAT_EXEC_ALLOWED_NATIVE,
+    STAT_EXEC_ALLOWED_OWNER, STAT_EXEC_ALLOWED_PGM, STAT_EXEC_ALLOWED_USER_AUTH,
     STAT_EXEC_CHECK_ALLOWED, STAT_EXEC_CHECK_DENIED, STAT_EXEC_DECISION_MISSING,
     STAT_EXEC_DENIED_EXCLUDE, STAT_EXEC_DENIED_INVALID_FORMAT, STAT_EXEC_DENIED_WRONG_TYPE,
     STAT_OBJTYPE_BASE, STAT_OPEN_ALLOWED, VALID_OBJ_TYPES,
@@ -24,7 +25,7 @@ static EXEC_GUARD: HashMap<u32, u32> = HashMap::with_max_entries(1024, 0);
 
 #[inline(always)]
 fn inc_stat(key: u32) {
-    if let Some(val) = unsafe { STATS.get_ptr_mut(&key) } {
+    if let Some(val) = STATS.get_ptr_mut(&key) {
         unsafe { *val += 1 };
     } else {
         let _ = STATS.insert(&key, &1, 0);
@@ -182,6 +183,117 @@ fn lookup_file_public_auth_exclude(file: *mut c_void) -> bool {
     false
 }
 
+fn lookup_file_owner_uid_matches(file: *mut c_void, uid: u32) -> bool {
+    let attr_name = b"user.l400.owner_uid\0";
+    let mut attr_value: [u8; 16] = [0; 16];
+    let mut dynptr = bpf_dynptr { val: [0, 0] };
+
+    let err = unsafe {
+        bpf_dynptr_from_mem(
+            attr_value.as_mut_ptr() as *mut c_void,
+            attr_value.len() as u32,
+            0,
+            &mut dynptr as *mut bpf_dynptr,
+        )
+    };
+    if err != 0 {
+        return false;
+    }
+
+    let err =
+        unsafe { bpf_get_file_xattr(file, attr_name.as_ptr(), &mut dynptr as *mut bpf_dynptr) };
+    if err <= 0 || err > 16 {
+        return false;
+    }
+
+    let mut parsed: u32 = 0;
+    let mut i = 0usize;
+    while i < err as usize {
+        let ch = attr_value[i];
+        if ch < b'0' || ch > b'9' {
+            return false;
+        }
+        parsed = parsed.saturating_mul(10).saturating_add((ch - b'0') as u32);
+        i += 1;
+    }
+
+    parsed == uid
+}
+
+fn lookup_file_uid_auth_allows(file: *mut c_void, uid: u32) -> bool {
+    let attr_name = b"user.l400.auth\0";
+    let mut attr_value: [u8; 128] = [0; 128];
+    let mut dynptr = bpf_dynptr { val: [0, 0] };
+
+    let err = unsafe {
+        bpf_dynptr_from_mem(
+            attr_value.as_mut_ptr() as *mut c_void,
+            attr_value.len() as u32,
+            0,
+            &mut dynptr as *mut bpf_dynptr,
+        )
+    };
+    if err != 0 {
+        return false;
+    }
+
+    let err =
+        unsafe { bpf_get_file_xattr(file, attr_name.as_ptr(), &mut dynptr as *mut bpf_dynptr) };
+    if err <= 0 || err > 128 {
+        return false;
+    }
+
+    let mut uid_buf: [u8; 10] = [0; 10];
+    let mut n = uid;
+    let mut digits = 0usize;
+    if n == 0 {
+        uid_buf[0] = b'0';
+        digits = 1;
+    } else {
+        let mut rev: [u8; 10] = [0; 10];
+        while n > 0 && digits < 10 {
+            rev[digits] = b'0' + (n % 10) as u8;
+            n /= 10;
+            digits += 1;
+        }
+        let mut j = 0usize;
+        while j < digits {
+            uid_buf[j] = rev[digits - j - 1];
+            j += 1;
+        }
+    }
+
+    let len = err as usize;
+    let mut i = 0usize;
+    while i < len {
+        if i + 4 + digits + 5 <= len && &attr_value[i..i + 4] == b"UID:" {
+            let uid_start = i + 4;
+            let auth_start = uid_start + digits;
+            if &attr_value[uid_start..auth_start] == &uid_buf[..digits]
+                && attr_value[auth_start] == b':'
+            {
+                let remaining = len - auth_start - 1;
+                let auth = &attr_value[auth_start + 1..len];
+                if remaining >= 4 && &auth[..4] == b"*USE" {
+                    return true;
+                }
+                if remaining >= 4 && &auth[..4] == b"*ALL" {
+                    return true;
+                }
+                if remaining >= 3 && &auth[..3] == b"USE" {
+                    return true;
+                }
+                if remaining >= 3 && &auth[..3] == b"ALL" {
+                    return true;
+                }
+            }
+        }
+        i += 1;
+    }
+
+    false
+}
+
 #[lsm(hook = "file_open", sleepable)]
 pub fn file_open(ctx: LsmContext) -> i32 {
     match try_file_open(ctx) {
@@ -234,7 +346,7 @@ fn try_bprm_creds_from_file(ctx: LsmContext) -> Result<i32, i32> {
         return Ok(0);
     }
 
-    let pid = unsafe { bpf_get_current_pid_tgid() as u32 };
+    let pid = bpf_get_current_pid_tgid() as u32;
     let decision = match lookup_file_objtype(file) {
         ObjTypeLookup::Untagged => {
             inc_stat(STAT_EXEC_ALLOWED_NATIVE);
@@ -249,12 +361,30 @@ fn try_bprm_creds_from_file(ctx: LsmContext) -> Result<i32, i32> {
             inc_stat(STAT_OBJTYPE_BASE + index as u32);
             if prefix == *b"*PGM" {
                 if lookup_file_public_auth_exclude(file) {
-                    inc_stat(STAT_EXEC_DENIED_EXCLUDE);
-                    warn!(
-                        &ctx,
-                        "Policy {}: ejecución denegada por *PUBLIC:*EXCLUDE", L400_POLICY_VERSION
-                    );
-                    EXEC_DENY_EXCLUDE
+                    let uid = (bpf_get_current_uid_gid() & 0xffff_ffff) as u32;
+                    if lookup_file_owner_uid_matches(file, uid) {
+                        inc_stat(STAT_EXEC_ALLOWED_OWNER);
+                        info!(
+                            &ctx,
+                            "Policy {}: ejecución permitida para owner UID", L400_POLICY_VERSION
+                        );
+                        EXEC_ALLOW_PGM
+                    } else if lookup_file_uid_auth_allows(file, uid) {
+                        inc_stat(STAT_EXEC_ALLOWED_USER_AUTH);
+                        info!(
+                            &ctx,
+                            "Policy {}: ejecución permitida por autoridad UID", L400_POLICY_VERSION
+                        );
+                        EXEC_ALLOW_PGM
+                    } else {
+                        inc_stat(STAT_EXEC_DENIED_EXCLUDE);
+                        warn!(
+                            &ctx,
+                            "Policy {}: ejecución denegada por *PUBLIC:*EXCLUDE",
+                            L400_POLICY_VERSION
+                        );
+                        EXEC_DENY_EXCLUDE
+                    }
                 } else if lookup_file_objattr(file) {
                     inc_stat(STAT_EXEC_ALLOWED_PGM);
                     info!(
@@ -305,7 +435,7 @@ fn try_bprm_creds_from_file(ctx: LsmContext) -> Result<i32, i32> {
 
 #[lsm(hook = "bprm_check_security")]
 pub fn bprm_check_security(ctx: LsmContext) -> i32 {
-    let pid = unsafe { bpf_get_current_pid_tgid() as u32 };
+    let pid = bpf_get_current_pid_tgid() as u32;
     let decision = unsafe { EXEC_GUARD.get(&pid).copied() };
 
     if let Some(decision) = decision {

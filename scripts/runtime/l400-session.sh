@@ -1,14 +1,43 @@
 #!/bin/sh
-# l400-session.sh - Lanza la TUI por defecto para sesiones interactivas del usuario l400
+# l400-session.sh - Lanza la TUI por defecto para sesiones interactivas del usuario qsecofr
 
 set -eu
 
-fallback_shell="${SHELL:-/bin/sh}"
+fallback_shell="/bin/sh"
+os400_tui_bin="/usr/local/bin/os400-tui"
 boot_mode=""
 run_dir="${L400_RUN_DIR:-/run/l400}"
 
+trap '' INT QUIT TSTP
+
+export PATH="/usr/local/sbin:/usr/local/bin:/opt/l400/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export L400_ROOT="${L400_ROOT:-/l400}"
+export L400_LIB_PATH="${L400_LIB_PATH:-/lib/l400}"
+export LIBRARY_PATH="/lib/l400${LIBRARY_PATH:+:$LIBRARY_PATH}"
+export LD_LIBRARY_PATH="/lib/l400${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+if [ -f /etc/profile.d/l400-env.sh ]; then
+    # Carga el entorno Linux/400 incluso cuando busybox login invoca este script como shell.
+    . /etc/profile.d/l400-env.sh
+fi
+
+if [ "$#" -gt 0 ]; then
+    exec "${fallback_shell}" "$@"
+fi
+
 if [ -f "${run_dir}/boot-mode" ]; then
     boot_mode="$(cat "${run_dir}/boot-mode" 2>/dev/null || true)"
+fi
+
+if [ -z "${L400_SKIP_BOOTSTRAP:-}" ]; then
+    bootstrap_bin="/usr/local/bin/l400-bootstrap"
+    if [ ! -x "${bootstrap_bin}" ] && [ -x /opt/l400/bin/l400-bootstrap ]; then
+        bootstrap_bin="/opt/l400/bin/l400-bootstrap"
+    fi
+    if [ -x "${bootstrap_bin}" ]; then
+        "${bootstrap_bin}" --quiet >/dev/null 2>&1 || \
+            echo "Linux/400: no se pudo inicializar el catalogo base." >&2
+    fi
 fi
 
 case "${boot_mode}" in
@@ -30,26 +59,47 @@ if [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
 fi
 
 current_tty="$(tty 2>/dev/null || true)"
-case "${current_tty}" in
-    /dev/ttyS*)
-        exec "${fallback_shell}"
-        ;;
-esac
-
 if [ "${TERM:-dumb}" = "dumb" ]; then
-    exec "${fallback_shell}"
+    case "${current_tty}" in
+        /dev/ttyS*)
+            export TERM="vt100"
+            ;;
+        /dev/tty*)
+            export TERM="linux"
+            ;;
+        *)
+            exec "${fallback_shell}"
+            ;;
+    esac
 fi
 
 if [ -n "${L400_TUI_ACTIVE:-}" ]; then
-    exec "${fallback_shell}"
+    exit 1
 fi
 
-if command -v os400-tui >/dev/null 2>&1; then
-    export L400_TUI_ACTIVE=1
-    if os400-tui; then
-        exit 0
+if [ ! -x "${os400_tui_bin}" ] && [ -x /opt/l400/bin/os400-tui ]; then
+    os400_tui_bin="/opt/l400/bin/os400-tui"
+fi
+
+while true; do
+    stty sane 2>/dev/null || true
+
+    if [ ! -x "${os400_tui_bin}" ]; then
+        echo "Linux/400: os400-tui no está disponible; reiniciando sesión OS/400." >&2
+        sleep 1
+        continue
     fi
-    echo "Linux/400: os400-tui terminó con error; se abre shell de respaldo." >&2
-fi
 
-exec "${fallback_shell}"
+    export L400_TUI_ACTIVE=1
+    if "${os400_tui_bin}"; then
+        unset L400_TUI_ACTIVE
+        stty sane 2>/dev/null || true
+        sleep 1
+        continue
+    fi
+
+    unset L400_TUI_ACTIVE
+    stty sane 2>/dev/null || true
+    echo "Linux/400: os400-tui terminó inesperadamente; reiniciando sesión OS/400." >&2
+    sleep 1
+done

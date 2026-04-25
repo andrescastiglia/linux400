@@ -3,14 +3,32 @@ set -euo pipefail
 
 L400_SRC_DIR="${L400_SRC_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 RUN_E2E_INSTALL="${RUN_E2E_INSTALL:-0}"
+RUN_BUILD_USERSPACE="${RUN_BUILD_USERSPACE:-1}"
 
 echo "=== Linux/400 RC smoke tests ==="
 
+echo "=== Cargo test gate ==="
+cargo test -p l400
+cargo test -p clc
+cargo test -p os400-tui
+
+if [[ "${RUN_BUILD_USERSPACE}" == "1" ]]; then
+    echo "=== Building userspace ==="
+    "${L400_SRC_DIR}/scripts/build/build_userspace.sh"
+else
+    echo "Skipping userspace build (RUN_BUILD_USERSPACE=${RUN_BUILD_USERSPACE})"
+fi
+
+echo "=== eBPF build gate (optional toolchain) ==="
+"${L400_SRC_DIR}/scripts/test/test_ebpf_build_optional.sh"
+
+echo "=== Runtime smoke scripts ==="
 "${L400_SRC_DIR}/scripts/test/test_objects_v1_demo.sh"
 "${L400_SRC_DIR}/scripts/test/test_toolchain_v1_demo.sh"
 "${L400_SRC_DIR}/scripts/test/test_workload_demo.sh"
 "${L400_SRC_DIR}/scripts/test/test_loader_modes.sh"
 bash "${L400_SRC_DIR}/scripts/test/test_support_profile.sh"
+bash "${L400_SRC_DIR}/scripts/test/test_l400_backup_restore.sh"
 
 if [[ "${RUN_E2E_INSTALL}" == "1" ]]; then
     echo "=== Running QEMU install smoke test ==="

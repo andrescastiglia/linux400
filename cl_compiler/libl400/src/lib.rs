@@ -5,7 +5,13 @@ pub mod db;
 // Wrapper estandar compatible con ABI general C que LLVM vinculará y ejecutará para emular CL
 
 #[no_mangle]
-pub extern "C" fn l400_sndpgmmsg(msg: *const libc::c_char, _tousr: *const libc::c_char) -> i32 {
+/// # Safety
+///
+/// `msg` debe ser un puntero C válido terminado en NUL, o `NULL`.
+pub unsafe extern "C" fn l400_sndpgmmsg(
+    msg: *const libc::c_char,
+    _tousr: *const libc::c_char,
+) -> i32 {
     unsafe {
         if !msg.is_null() {
             let rs_msg = CStr::from_ptr(msg);

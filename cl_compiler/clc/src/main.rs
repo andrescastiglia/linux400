@@ -4,7 +4,7 @@ pub mod compiler;
 pub mod parser;
 
 use clap::Parser;
-use l400::catalog_object;
+use l400::{catalog_object, write_string_attr};
 use std::path::Path;
 use std::process::Command;
 
@@ -90,6 +90,17 @@ fn main() {
 
             match catalog_object(output_path, "*PGM", Some("CL"), Some("CL compiled program")) {
                 Ok(_) => {
+                    let _ = write_string_attr(output_path, "user.l400.toolchain", "clc");
+                    let _ = write_string_attr(
+                        output_path,
+                        "user.l400.toolchain_version",
+                        env!("CARGO_PKG_VERSION"),
+                    );
+                    let _ = write_string_attr(
+                        output_path,
+                        "user.l400.signature",
+                        &format!("linux400-clc-v1:{}", output_path.display()),
+                    );
                     println!("✔ Objeto nativo L400 creado en '{}'", args.output);
                 }
                 Err(e) => {

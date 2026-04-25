@@ -8,18 +8,25 @@ use ratatui::{
 };
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
+use crate::session::SessionContext;
 use crate::style::*;
 
 pub struct PdmBrowser {
     libraries: Vec<String>,
     state: ListState,
+    session: SessionContext,
 }
 
 impl PdmBrowser {
     pub fn new() -> Self {
+        Self::with_session(SessionContext::new(std::process::id() as u64))
+    }
+
+    pub fn with_session(session: SessionContext) -> Self {
         let mut s = Self {
-            libraries: Self::load_libraries(),
+            libraries: Self::load_libraries(&session),
             state: ListState::default(),
+            session,
         };
         if !s.libraries.is_empty() {
             s.state.select(Some(0));
@@ -27,10 +34,32 @@ impl PdmBrowser {
         s
     }
 
-    fn load_libraries() -> Vec<String> {
+    fn load_libraries(session: &SessionContext) -> Vec<String> {
         let root = resolve_l400_root();
         match list_libraries(&root) {
-            Ok(libraries) => libraries,
+            Ok(libraries) => {
+                let mut ordered = Vec::new();
+                for library in session.snapshot().library_list {
+                    if libraries
+                        .iter()
+                        .any(|entry| entry.eq_ignore_ascii_case(&library))
+                        && !ordered
+                            .iter()
+                            .any(|entry: &String| entry.eq_ignore_ascii_case(&library))
+                    {
+                        ordered.push(library);
+                    }
+                }
+                for library in libraries {
+                    if !ordered
+                        .iter()
+                        .any(|entry| entry.eq_ignore_ascii_case(&library))
+                    {
+                        ordered.push(library);
+                    }
+                }
+                ordered
+            }
             Err(_) => vec!["QSYS".to_string(), "QGPL".to_string()],
         }
     }
@@ -55,7 +84,7 @@ impl PdmBrowser {
     }
 
     fn refresh(&mut self) {
-        self.libraries = Self::load_libraries();
+        self.libraries = Self::load_libraries(&self.session);
         if self.libraries.is_empty() {
             self.state.select(None);
         } else {
@@ -90,7 +119,7 @@ impl Screen for PdmBrowser {
                 Constraint::Min(0),
                 Constraint::Length(3),
             ])
-            .split(frame.size());
+            .split(frame.area());
 
         self.render_header(frame, chunks[0]);
         self.render_list(frame, chunks[1]);

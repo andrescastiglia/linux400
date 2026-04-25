@@ -4,6 +4,7 @@
 set -eu
 
 run_dir="${L400_RUN_DIR:-/run/l400}"
+l400_root="${L400_ROOT:-/l400}"
 output_path="${run_dir}/support-profile"
 write_output=0
 
@@ -94,8 +95,45 @@ fi
 
 zfs_xattr_sa="unknown"
 zfs_dataset=""
-if [ "${zfs_tools}" = "yes" ] && [ -d /l400 ]; then
-    zfs_dataset="$(df /l400 2>/dev/null | awk 'NR==2 {print $1}')"
+l400_root_exists="no"
+l400_root_source="unknown"
+l400_root_fstype="unknown"
+l400_root_backend="missing"
+l400_root_persistent="unknown"
+
+if [ -d "${l400_root}" ]; then
+    l400_root_exists="yes"
+    l400_root_source="$(df -P "${l400_root}" 2>/dev/null | awk 'NR==2 {print $1}')"
+    l400_root_fstype="$(df -PT "${l400_root}" 2>/dev/null | awk 'NR==2 {print $2}')"
+    l400_root_source="${l400_root_source:-unknown}"
+    l400_root_fstype="${l400_root_fstype:-unknown}"
+
+    case "${l400_root_fstype}" in
+        zfs)
+            l400_root_backend="zfs"
+            l400_root_persistent="yes"
+            ;;
+        tmpfs|ramfs)
+            l400_root_backend="${l400_root_fstype}"
+            l400_root_persistent="no"
+            ;;
+        overlay|aufs)
+            l400_root_backend="${l400_root_fstype}"
+            l400_root_persistent="no"
+            ;;
+        unknown)
+            l400_root_backend="unknown"
+            l400_root_persistent="unknown"
+            ;;
+        *)
+            l400_root_backend="${l400_root_fstype}"
+            l400_root_persistent="yes"
+            ;;
+    esac
+fi
+
+if [ "${zfs_tools}" = "yes" ] && [ "${l400_root_exists}" = "yes" ]; then
+    zfs_dataset="${l400_root_source}"
     if [ -n "${zfs_dataset}" ] && zfs get -H -o value xattr "${zfs_dataset}" >/tmp/l400-zfs-xattr.$$ 2>/dev/null; then
         zfs_xattr_value="$(cat /tmp/l400-zfs-xattr.$$ 2>/dev/null || true)"
         rm -f /tmp/l400-zfs-xattr.$$
@@ -171,6 +209,12 @@ lam_tbi=${lam_tbi}
 zfs_tools=${zfs_tools}
 zfs_dataset=${zfs_dataset:-unknown}
 zfs_xattr_sa=${zfs_xattr_sa}
+l400_root=${l400_root}
+l400_root_exists=${l400_root_exists}
+l400_root_source=${l400_root_source}
+l400_root_fstype=${l400_root_fstype}
+l400_root_backend=${l400_root_backend}
+l400_root_persistent=${l400_root_persistent}
 required_for_full=${required_for_full}
 effective_mode=${effective_mode}
 loader_error=${loader_error:-none}

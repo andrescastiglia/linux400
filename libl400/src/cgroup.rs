@@ -1,6 +1,7 @@
 use crate::runtime::l400_run_dir;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -28,6 +29,7 @@ pub enum WorkloadType {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobStatus {
     JobQ,
+    Held,
     Active,
     Completed,
     Failed,
@@ -37,6 +39,7 @@ impl std::fmt::Display for JobStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             JobStatus::JobQ => write!(f, "JOBQ"),
+            JobStatus::Held => write!(f, "HELD"),
             JobStatus::Active => write!(f, "ACTIVE"),
             JobStatus::Completed => write!(f, "COMPLETED"),
             JobStatus::Failed => write!(f, "FAILED"),
@@ -50,6 +53,7 @@ impl std::str::FromStr for JobStatus {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
             "JOBQ" => Ok(JobStatus::JobQ),
+            "HELD" | "HLD" => Ok(JobStatus::Held),
             "ACTIVE" => Ok(JobStatus::Active),
             "COMPLETED" => Ok(JobStatus::Completed),
             "FAILED" => Ok(JobStatus::Failed),
@@ -77,6 +81,10 @@ pub struct WorkloadJob {
     pub status: JobStatus,
     pub subsystem: String,
     pub command: String,
+    pub submitted_at: Option<String>,
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+    pub log_path: Option<PathBuf>,
 }
 
 impl Default for CgroupParams {
@@ -144,6 +152,17 @@ fn workload_from_name(value: &str) -> Result<WorkloadType, CgroupError> {
 
 fn job_file(base: &Path, pid: u64) -> PathBuf {
     job_registry_path(base).join(format!("{pid}.job"))
+}
+
+pub fn job_log_path(pid: u64) -> PathBuf {
+    l400_run_dir().join("joblogs").join(format!("{pid}.log"))
+}
+
+fn now_epoch_string() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs().to_string())
+        .unwrap_or_else(|_| "0".to_string())
 }
 
 fn current_user_name() -> String {
@@ -221,8 +240,11 @@ fn write_job_at(
     let subsystem = workload_name(workload);
     let encoded_subsystem = encode_job_value(subsystem);
     let encoded_command = encode_job_value(command);
+    let timestamp = now_epoch_string();
+    let log_path = base.join("joblogs").join(format!("{pid}.log"));
+    let encoded_log_path = encode_job_value(&log_path.display().to_string());
     let payload = format!(
-        "pid={pid}\nname={encoded_name}\nuser={encoded_user}\nworkload={subsystem}\nstatus={status}\nsubsystem={encoded_subsystem}\ncommand={encoded_command}\n"
+        "pid={pid}\nname={encoded_name}\nuser={encoded_user}\nworkload={subsystem}\nstatus={status}\nsubsystem={encoded_subsystem}\ncommand={encoded_command}\nsubmitted_at={timestamp}\nlog_path={encoded_log_path}\n"
     );
     std::fs::write(job_file(base, pid), payload)?;
     Ok(())
@@ -240,12 +262,26 @@ fn update_job_status_at(base: &Path, pid: u64, status: JobStatus) -> Result<(), 
         if line.starts_with("status=") {
             lines.push(format!("status={status}"));
             updated = true;
+        } else if line.starts_with("started_at=") && status == JobStatus::Active {
+            lines.push(format!("started_at={}", now_epoch_string()));
+        } else if line.starts_with("ended_at=")
+            && matches!(status, JobStatus::Completed | JobStatus::Failed)
+        {
+            lines.push(format!("ended_at={}", now_epoch_string()));
         } else {
             lines.push(line.to_string());
         }
     }
     if !updated {
         lines.push(format!("status={status}"));
+    }
+    if status == JobStatus::Active && !lines.iter().any(|line| line.starts_with("started_at=")) {
+        lines.push(format!("started_at={}", now_epoch_string()));
+    }
+    if matches!(status, JobStatus::Completed | JobStatus::Failed)
+        && !lines.iter().any(|line| line.starts_with("ended_at="))
+    {
+        lines.push(format!("ended_at={}", now_epoch_string()));
     }
     lines.push(String::new());
     std::fs::write(path, lines.join("\n"))?;
@@ -260,6 +296,10 @@ fn parse_job(content: &str) -> Result<WorkloadJob, CgroupError> {
     let mut status = None;
     let mut subsystem = None;
     let mut command = None;
+    let mut submitted_at = None;
+    let mut started_at = None;
+    let mut ended_at = None;
+    let mut log_path = None;
 
     for line in content.lines() {
         if let Some((key, value)) = line.split_once('=') {
@@ -271,6 +311,10 @@ fn parse_job(content: &str) -> Result<WorkloadJob, CgroupError> {
                 "status" => status = value.parse().ok(),
                 "subsystem" => subsystem = Some(decode_job_value(value)?),
                 "command" => command = Some(decode_job_value(value)?),
+                "submitted_at" => submitted_at = Some(decode_job_value(value)?),
+                "started_at" => started_at = Some(decode_job_value(value)?),
+                "ended_at" => ended_at = Some(decode_job_value(value)?),
+                "log_path" => log_path = Some(PathBuf::from(decode_job_value(value)?)),
                 _ => {}
             }
         }
@@ -285,6 +329,10 @@ fn parse_job(content: &str) -> Result<WorkloadJob, CgroupError> {
         status: status.ok_or_else(|| CgroupError::InvalidJob("missing status".to_string()))?,
         subsystem: subsystem.unwrap_or_else(|| "UNKNOWN".to_string()),
         command: command.unwrap_or_default(),
+        submitted_at,
+        started_at,
+        ended_at,
+        log_path,
     })
 }
 
@@ -432,6 +480,25 @@ pub fn update_job_status(pid: u64, status: JobStatus) -> Result<(), CgroupError>
     update_job_status_at(&l400_run_dir(), pid, status)
 }
 
+pub fn hold_job(pid: u64) -> Result<(), CgroupError> {
+    update_job_status(pid, JobStatus::Held)
+}
+
+pub fn release_job(pid: u64) -> Result<(), CgroupError> {
+    update_job_status(pid, JobStatus::JobQ)
+}
+
+pub fn end_job(pid: u64) -> Result<(), CgroupError> {
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+    }
+    update_job_status(pid, JobStatus::Failed)
+}
+
 pub fn remove_job(pid: u64) -> Result<(), CgroupError> {
     let path = job_file(&l400_run_dir(), pid);
     if path.exists() {
@@ -442,6 +509,21 @@ pub fn remove_job(pid: u64) -> Result<(), CgroupError> {
 
 pub fn list_jobs() -> Result<Vec<WorkloadJob>, CgroupError> {
     list_jobs_at(&l400_run_dir())
+}
+
+pub fn subsystem_description(name: &str) -> Option<&'static str> {
+    match name.to_uppercase().as_str() {
+        "QINTER" => Some("Interactive green-screen sessions"),
+        "QBATCH" => Some("Submitted batch jobs"),
+        _ => None,
+    }
+}
+
+pub fn subsystem_descriptions() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("QINTER", "Interactive green-screen sessions"),
+        ("QBATCH", "Submitted batch jobs"),
+    ]
 }
 
 pub fn get_current_workload() -> Result<WorkloadType, CgroupError> {
@@ -618,10 +700,13 @@ mod tests {
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].name, "BATCHDEMO");
         assert_eq!(jobs[0].subsystem, "QBATCH");
+        assert!(jobs[0].submitted_at.is_some());
+        assert!(jobs[0].log_path.is_some());
 
         update_job_status_at(root.path(), pid, JobStatus::Completed).unwrap();
         let jobs = list_jobs_at(root.path()).unwrap();
         assert_eq!(jobs[0].status, JobStatus::Completed);
+        assert!(jobs[0].ended_at.is_some());
     }
 
     #[test]
@@ -644,5 +729,17 @@ mod tests {
         assert_eq!(jobs[0].name, "BATCH=DEMO");
         assert_eq!(jobs[0].user, "l400\nops");
         assert_eq!(jobs[0].command, "printf 'a=b\n'");
+    }
+
+    #[test]
+    fn subsystem_descriptions_include_base_subsystems() {
+        assert_eq!(
+            subsystem_description("QINTER"),
+            Some("Interactive green-screen sessions")
+        );
+        assert_eq!(
+            subsystem_description("QBATCH"),
+            Some("Submitted batch jobs")
+        );
     }
 }

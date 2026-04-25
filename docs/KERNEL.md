@@ -1,36 +1,169 @@
-Para implementar la funcionalidad de **OS/400** sobre el núcleo Linux de forma nativa (creando una "personalidad" de sistema de objetos), el kernel no necesita ser modificado en su código base necesariamente, sino que debe ser configurado y extendido mediante características modernas que permitan el **etiquetado de memoria**, la **encapsulación de objetos** y la **gestión de recursos por subsistemas**.
+# Linux/400: objetivo del sistema
 
-Si vas a usar **Rust**, estas son las *features* críticas que debes habilitar y aprovechar en el kernel de tu distribución **Linux/400**:
+Este documento define el objetivo de producto de Linux/400. No describe el estado actual del repositorio ni una lista de modulos implementados; esa fotografia vive en `docs/PROJECT.md`. La brecha entre esta vision y el estado actual vive en `docs/plan/implementation_plan.md`.
 
-### 1. Soporte de Hardware para Punteros Etiquetados (Memory Tagging)
-Para que tus punteros de 64 bits sean manipulables directamente por el software sin que el kernel lance una excepción de segmentación, necesitas habilitar estas características a través de la interfaz `prctl`:
-*   **Intel LAM (Linear Address Masking):** Permite que el procesador ignore los bits superiores (62:48) del puntero. Debes asegurar que el kernel esté compilado con soporte para `ARCH_THREAD_FEATURE_ENABLE` y usar `arch_prctl` para activarlo por proceso.
-*   **ARM TBI (Top Byte Ignore):** En arquitecturas AArch64, el kernel permite que el byte superior sea ignorado por el hardware. Debes configurar el **Tagged Address ABI** del kernel para que acepte estos punteros en llamadas al sistema como `write` o `read`.
+## Vision
 
-### 2. Gestión de Objetos mediante LSM y eBPF
-Para implementar el "Object Manager" que envuelve a ZFS y Berkeley DB, necesitas que el kernel tenga:
-*   **BPF LSM (Linux Security Modules):** Esta es la clave para la **tipificación fuerte**. En lugar de un simple permiso de archivo (`rwx`), un programa eBPF en Rust (usando la biblioteca `Aya`) puede interceptar ganchos (*hooks*) como `file_open` o `bprm_check_security`. El kernel verificará los atributos extendidos (`xattr`) del objeto en ZFS y decidirá si la operación es válida para ese tipo de objeto (`*PGM`, `*USRPRF`, etc.).
-*   **eBPF Struct_ops:** Permite reemplazar operaciones internas del kernel con lógica personalizada en BPF, lo cual es ideal para definir cómo se comportan las colas de datos (`*DTAQ`) o los perfiles de usuario sin escribir módulos de kernel complejos en C.
+Linux/400 busca ofrecer una forma de trabajo tipo OS/400/IBM i sobre Linux: el usuario entra a una pantalla de sign-on, opera desde menus y comandos de pantalla verde, administra objetos y trabajos, desarrolla programas y conserva el estado del sistema sin depender de una shell Unix para las tareas normales.
 
-### 3. Persistencia y Memoria: DAX (Direct Access)
-Para lograr el "look and feel" del **Single-Level Storage (SLS)** sin su complejidad técnica, el kernel debe soportar:
-*   **DAX (Direct Access):** Si utilizas almacenamiento rápido (como NVMe o NVDIMM), DAX permite mapear archivos directamente en el espacio de direcciones de un proceso eliminando el *page cache*. Esto permite que tus programas mapeen objetos de ZFS/BDB con `mmap` y traten el disco como si fuera memoria persistente.
+No se busca compatibilidad binaria con IBM i ni reproducir cada detalle historico. El objetivo es recrear el modelo operativo:
 
-### 4. Subsistemas con cgroups v2 y sched_ext
-Para replicar el comportamiento de **QINTER** (interactivo) y **QBATCH** (lotes) respetando la gestión de memoria de Linux:
-*   **cgroups v2 (Unified Hierarchy):** El kernel debe estar configurado para usar cgroups v2. Esto te permite crear "Slices" de recursos donde definas pesos de CPU (`cpu.weight`) y límites de memoria estrictos para cada subsistema.
-*   **sched_ext (Extensible Scheduler):** Esta característica reciente permite cargar planificadores de CPU personalizados escritos en BPF. Podrías implementar un planificador que priorice trabajos interactivos de SSH (tu menú TUI) sobre los trabajos de batch de forma mucho más granular que el estándar de Linux.
+- sistema orientado a objetos, no a rutas de archivos visibles para el operador;
+- bibliotecas y library list como contexto natural de trabajo;
+- comandos consistentes, promptables y administrables;
+- pantalla verde como interfaz primaria;
+- jobs interactivos y batch visibles y controlables;
+- perfiles, autorizaciones, auditoria y politica explicita;
+- almacenamiento persistente y recuperable;
+- degradacion clara cuando una capacidad de plataforma no esta disponible.
 
-### 5. Almacenamiento de Metadatos: ZFS y xattrs
-Aunque ZFS vive a menudo como un módulo externo, para Linux/400 debe ser parte integral del sistema:
-*   **Atributos Extendidos (xattr):** Debes configurar ZFS con `xattr=sa` (System Attributes) para que el kernel almacene los metadatos de tipo de objeto (`i:objtype`) directamente en los inodos, permitiendo que tus wrappers de Rust accedan a ellos a velocidad de memoria.
+## Experiencia objetivo
 
-### Resumen de Configuración del Kernel (`Kconfig`)
-Para tu distribución Linux/400, asegúrate de tener estas opciones en el `.config` del kernel:
-*   `CONFIG_BPF_LSM=y` (Seguridad de objetos)
-*   `CONFIG_SCHED_CLASS_EXT=y` (Subsistemas dinámicos)
-*   `CONFIG_X86_64_LAM=y` o `CONFIG_ARM64_TAGGED_ADDR_ABI=y` (Punteros etiquetados)
-*   `CONFIG_FS_DAX=y` (Simulación de SLS)
-*   `CONFIG_ZFS=y` (Como backend de objetos)
+Un operador debe poder arrancar una ISO o una instalacion, autenticarse con un perfil Linux/400 y llegar directamente a un menu principal. Desde ahi debe poder:
 
-Con estas características activas, tu compilador de CL en Rust podrá generar binarios que utilicen punteros etiquetados y se ejecuten dentro de subsistemas con recursos garantizados, interactuando con archivos que el sistema "entiende" como objetos tipados.
+- navegar y administrar bibliotecas;
+- crear, copiar, renombrar, describir y borrar objetos;
+- administrar perfiles y autorizaciones;
+- trabajar con jobs interactivos y batch;
+- revisar estado de sistema, logs, auditoria y politica activa;
+- editar miembros fuente;
+- compilar CL/C y ejecutar programas catalogados;
+- trabajar con PF, LF y DTAQ;
+- usar SQL operativo contra archivos Linux/400;
+- apagar o reiniciar el sistema con confirmacion y autoridad adecuada;
+- cerrar sesion sin dejar estado interactivo colgado.
+
+La shell Linux debe quedar como herramienta de soporte, instalacion, desarrollo interno o rescue, no como interfaz principal del sistema.
+
+## Modelo objetivo de objetos
+
+El sistema debe presentar una frontera de objetos Linux/400 con tipos reconocibles:
+
+| Tipo | Objetivo |
+| --- | --- |
+| `*LIB` | Biblioteca y contenedor logico de objetos. |
+| `*PGM` | Programa ejecutable producido por toolchain Linux/400. |
+| `*FILE` | PF, LF y source file. |
+| `*DTAQ` | Data queue persistente para comunicacion y logs. |
+| `*USRPRF` | Perfil de usuario administrable. |
+| `*CMD` | Comando promptable y documentable. |
+| `*SRVPGM` | Servicio/codigo compartido para programas. |
+| `*OUTQ` | Cola de salida/spool. |
+
+Los objetos deben tener metadatos de tipo, atributo, texto, owner, autorizaciones, auditoria y backend de almacenamiento. El operador debe ver esos metadatos mediante comandos y pantallas, no inspeccionando xattrs manualmente.
+
+## Interfaz objetivo
+
+La TUI debe comportarse como la consola primaria del sistema:
+
+- sign-on y sign-off reales;
+- menu principal y menus de trabajo;
+- linea de comandos persistente en la sesion;
+- `F4` como prompt por campos con validacion;
+- teclas F consistentes;
+- opciones numericas por fila;
+- confirmaciones visuales para acciones destructivas;
+- mensajes de estado claros;
+- ausencia de datos demo silenciosos cuando falta runtime real.
+
+Las pantallas minimas objetivo son:
+
+- `WRKOBJ` / `WRKLIB`;
+- `DSPOBJD`;
+- `WRKUSRPRF`;
+- `WRKACTJOB`;
+- `WRKSYSSTS`;
+- `WRKSYSVAL`;
+- `WRKSPLF` / `WRKOUTQ`;
+- `STRPDM`;
+- `WRKMBRPDM`;
+- `STRSEU`;
+- `STRSQL`;
+- visores PF/LF/DTAQ;
+- politica/auditoria (`DSPPOLICY`, `DSPAUD`, autorizaciones).
+
+## Work management objetivo
+
+Linux/400 debe exponer trabajos como unidad operativa:
+
+- jobs interactivos (`QINTER`);
+- jobs batch (`QBATCH`);
+- estado `JOBQ`, `ACTIVE`, `COMPLETED`, `FAILED` y terminado;
+- comando ejecutado, usuario, timestamps, salida/log y subsistema;
+- envio batch por comando;
+- terminacion controlada;
+- degradacion visible cuando cgroups o aislamiento no estan disponibles.
+
+La implementacion puede usar procesos Linux, cgroups y archivos de runtime, pero el operador debe ver trabajos Linux/400.
+
+## Datos objetivo
+
+PF/LF/DTAQ deben ser suficientes para operar demos y flujos administrativos reales:
+
+- PF con record length, miembros, campos, claves, RRN y arrival sequence;
+- LF como indice mantenido automaticamente sobre PF;
+- comandos para crear, limpiar, agregar miembros, escribir y visualizar;
+- DTAQ con mensajes de longitud variable, espera y lectura FIFO;
+- SQL sobre PF con consultas y DML basico;
+- persistencia entre reinicios en instalacion real.
+
+## Toolchain objetivo
+
+El entorno debe permitir desarrollar sin salir de Linux/400:
+
+- source files y miembros;
+- edicion desde TUI;
+- compilacion CL y C;
+- catalogacion como `*PGM`;
+- resolucion por current library y library list;
+- errores formales estilo CPF para que `MONMSG` y auditoria tengan semantica util;
+- marca o firma de toolchain verificable antes de ejecutar.
+
+## Seguridad objetivo
+
+La politica de seguridad debe tener una fuente visible y operable:
+
+- perfiles y owners;
+- autorizaciones `*USE`, `*CHANGE`, `*ALL`, `*EXCLUDE`;
+- fallback `*PUBLIC`;
+- comandos de otorgar, revocar, mostrar y verificar autoridad;
+- auditoria de denegados, ejecuciones y cambios sensibles;
+- enforcement runtime para todos los comandos sensibles;
+- enforcement kernel para la frontera de objetos y ejecucion de `*PGM`;
+- modo degradado explicito cuando el kernel no puede reforzar la politica.
+
+La meta no es meter IBM i dentro del kernel, sino usar el kernel para reforzar aquello que Linux puede proteger mejor: ejecucion, acceso a objetos tipados, aislamiento de procesos y observabilidad.
+
+## Plataforma objetivo
+
+Linux/400 debe correr en tres perfiles:
+
+| Perfil | Objetivo |
+| --- | --- |
+| `dev` | Desarrollo local sin depender de BPF/ZFS/root; todo debe ser testeable en user space. |
+| `degraded` | Sistema instalable y operable sin enforcement kernel completo; la TUI/reportes deben decirlo claramente. |
+| `full` | BPF LSM activo, BTF disponible, cgroups v2, `/l400` persistente con xattrs y preferentemente ZFS `xattr=sa`. |
+
+La plataforma completa debe poder instalarse, reiniciar y conservar `/l400`. El gate de release debe probar instalacion, arranque instalado y persistencia.
+
+## No objetivos
+
+- Compatibilidad binaria con IBM i.
+- Emulacion completa de 5250.
+- Reimplementar TIMI, EBCDIC o todos los comandos historicos.
+- Requerir un fork permanente del kernel.
+- Bloquear herramientas Linux nativas fuera de la frontera Linux/400.
+
+## Definicion de sistema logrado
+
+El objetivo se considera alcanzado cuando una persona puede instalar o arrancar Linux/400, entrar al menu principal y completar un ciclo operativo completo sin shell:
+
+1. crear biblioteca y source file;
+2. crear/editar miembro CL;
+3. compilarlo a `*PGM`;
+4. ejecutar el programa;
+5. enviar un job batch;
+6. revisar jobs/logs/auditoria;
+7. crear PF/LF/DTAQ y operar datos;
+8. administrar autorizaciones;
+9. reiniciar y verificar persistencia de `/l400`.

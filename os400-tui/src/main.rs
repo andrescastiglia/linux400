@@ -49,7 +49,11 @@ fn restore_terminal() -> Result<()> {
     Ok(())
 }
 
-fn run_app<T: ratatui::backend::Backend>(terminal: &mut Terminal<T>) -> Result<()> {
+fn run_app<T>(terminal: &mut Terminal<T>) -> Result<()>
+where
+    T: ratatui::backend::Backend,
+    T::Error: std::error::Error + Send + Sync + 'static,
+{
     let mut app = os400_tui::App::new();
     app.run(terminal)?;
     Ok(())

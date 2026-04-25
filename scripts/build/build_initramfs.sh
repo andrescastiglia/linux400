@@ -298,7 +298,7 @@ mount_installed_root() {
 
     mount "${root_dev}" /mnt/newroot || panic_shell "No se pudo montar la raíz instalada ${root_dev}."
 
-    mkdir -p /mnt/newroot/proc /mnt/newroot/sys /mnt/newroot/dev /mnt/newroot/run /mnt/newroot/home/l400 /mnt/newroot/l400
+    mkdir -p /mnt/newroot/proc /mnt/newroot/sys /mnt/newroot/dev /mnt/newroot/run /mnt/newroot/home/qsecofr /mnt/newroot/l400
     efi_spec="$(get_cmdline_arg l400.efi || true)"
     case "${efi_spec}" in
         /dev/*)
@@ -312,9 +312,8 @@ mount_installed_root() {
         mkdir -p /mnt/newroot/boot/efi
         mount -t vfat "${efi_dev}" /mnt/newroot/boot/efi 2>/dev/null || true
     fi
-    mount -t tmpfs -o mode=0775 tmpfs /mnt/newroot/l400 2>/dev/null || true
-    chown 1000:1000 /mnt/newroot/home/l400 2>/dev/null || true
-    chown 1000:1000 /mnt/newroot/l400 2>/dev/null || true
+    chown 0:0 /mnt/newroot/home/qsecofr 2>/dev/null || true
+    chown 0:0 /mnt/newroot/l400 2>/dev/null || true
 
     echo "${boot_mode}" > /run/l400/boot-mode
 
@@ -376,10 +375,10 @@ mount_live_root() {
         mount --bind /mnt/root-ro /mnt/newroot || panic_shell "No se pudo preparar el rootfs live sin overlay."
     fi
 
-    mkdir -p /mnt/newroot/proc /mnt/newroot/sys /mnt/newroot/dev /mnt/newroot/run /mnt/newroot/home/l400 /mnt/newroot/l400
+    mkdir -p /mnt/newroot/proc /mnt/newroot/sys /mnt/newroot/dev /mnt/newroot/run /mnt/newroot/home/qsecofr /mnt/newroot/l400
     mount -t tmpfs -o mode=0775 tmpfs /mnt/newroot/l400
-    chown 1000:1000 /mnt/newroot/home/l400 2>/dev/null || true
-    chown 1000:1000 /mnt/newroot/l400 2>/dev/null || true
+    chown 0:0 /mnt/newroot/home/qsecofr 2>/dev/null || true
+    chown 0:0 /mnt/newroot/l400 2>/dev/null || true
 
     echo "${boot_mode}" > /run/l400/boot-mode
     mount --move /proc /mnt/newroot/proc

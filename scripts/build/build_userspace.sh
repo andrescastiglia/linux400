@@ -11,35 +11,78 @@ USERSPACE_DIR="${OUTPUT_DIR}/userspace"
 BIN_DIR="${USERSPACE_DIR}/bin"
 LIB_DIR="${USERSPACE_DIR}/lib"
 HOOKS_DIR="${USERSPACE_DIR}/hooks"
+LOG_DIR="${USERSPACE_DIR}/logs"
 ENABLE_CLC_LLVM="${ENABLE_CLC_LLVM:-0}"
+ARTIFACT_PROFILE="${ARTIFACT_PROFILE:-degraded}"
 
-mkdir -p "${BIN_DIR}" "${LIB_DIR}" "${HOOKS_DIR}"
+mkdir -p "${BIN_DIR}" "${LIB_DIR}" "${HOOKS_DIR}" "${LOG_DIR}"
+printf 'artifact_profile=%s\n' "${ARTIFACT_PROFILE}" > "${USERSPACE_DIR}/profile"
 
 COMMAND_BINARIES=(
     WRKSYSSTS
     WRKACTJOB
+    WRKJOBQ
+    HLDJOB
+    RLSJOB
+    ENDJOB
     WRKSYSVAL
     DSPLOG
+    DSPCMD
+    WRKCMD
+    CRTCMD
     WRKUSRPRF
+    WRKSPLF
+    WRKOUTQ
+    CRTOUTQ
+    DLTOUTQ
+    DSPSPLF
+    DLTSPLF
     PWRDWNSYS
+    SBMJOB
     WRKOBJ
+    DLTOBJ
+    CPYOBJ
+    DSPOBJD
+    CHGOBJD
+    DSPOBJAUT
+    CHKOBJAUT
+    GRTOBJAUT
+    RVKOBJAUT
+    DSPPOLICY
+    DSPAUD
     CRTLIB
     DLTLIB
     ADDLIBLE
     CHGCURLIB
     RNMOBJ
     CRTPGM
+    CRTCLPGM
+    CALL
     GO
     SIGNOFF
     STRPDM
     STRSEU
     STRSQL
     WRKMBRPDM
+    DLTMBR
+    CPYMBR
+    CHGMBRD
+    CRTPF
+    CRTLF
+    DSPPFM
+    CLRPFM
+    ADDPFM
+    WRTPFM
+    CRTDTAQ
+    SNDDTAQ
+    RCVDTAQ
+    DSPDTAQ
 )
 
 echo "=== Compilando userspace Linux/400 ==="
 echo "Target : ${TARGET_TRIPLE}"
 echo "Perfil : ${PROFILE}"
+echo "Modo   : ${ARTIFACT_PROFILE}"
 
 if ! rustup target list --installed | grep -qx "${TARGET_TRIPLE}"; then
     echo ">> Instalando target Rust ${TARGET_TRIPLE}..."
@@ -54,7 +97,7 @@ if [ "${PROFILE}" = "release" ]; then
 fi
 
 echo ">> Compilando librería base..."
-cargo build -p l400 --lib --bin l400cmd "${COMMON_CARGO_ARGS[@]}"
+cargo build -p l400 --lib --bin l400cmd --bin sbmjob --bin l400-bootstrap "${COMMON_CARGO_ARGS[@]}"
 
 echo ">> Compilando loader eBPF..."
 cargo build -p l400-loader "${COMMON_CARGO_ARGS[@]}"
@@ -113,11 +156,24 @@ find_artifact() {
     return 1
 }
 
+run_ebpf_build() {
+    local log_file="$1"
+    shift
+
+    if "$@" >"${log_file}" 2>&1; then
+        return 0
+    fi
+
+    return 1
+}
+
 copy_required "${TARGET_DIR}/os400-tui" "${BIN_DIR}/os400-tui"
 copy_required "${TARGET_DIR}/l400-loader" "${BIN_DIR}/l400-loader"
 copy_required "${TARGET_DIR}/c400c" "${BIN_DIR}/c400c"
 copy_required "${TARGET_DIR}/clc" "${BIN_DIR}/clc"
 copy_required "${TARGET_DIR}/l400cmd" "${BIN_DIR}/l400cmd"
+copy_required "${TARGET_DIR}/sbmjob" "${BIN_DIR}/sbmjob"
+copy_required "${TARGET_DIR}/l400-bootstrap" "${BIN_DIR}/l400-bootstrap"
 copy_required "$(find_artifact libl400.a)" "${LIB_DIR}/libl400.a"
 if libl400_so="$(find_artifact libl400.so 2>/dev/null)"; then
     copy_optional "${libl400_so}" "${LIB_DIR}/libl400.so"
@@ -128,20 +184,27 @@ for command_name in "${COMMAND_BINARIES[@]}"; do
 done
 
 echo ">> Compilando bytecode eBPF..."
-if cargo build --manifest-path "${L400_SRC_DIR}/l400-ebpf/Cargo.toml" \
+EBPF_STABLE_LOG="${LOG_DIR}/l400-ebpf-stable.log"
+EBPF_NIGHTLY_LOG="${LOG_DIR}/l400-ebpf-nightly.log"
+if run_ebpf_build "${EBPF_STABLE_LOG}" \
+    cargo build --manifest-path "${L400_SRC_DIR}/l400-ebpf/Cargo.toml" \
     --target bpfel-unknown-none --release; then
     copy_optional \
         "${L400_SRC_DIR}/target/bpfel-unknown-none/release/l400-ebpf" \
         "${HOOKS_DIR}/l400-ebpf"
+    echo "   eBPF compilado con toolchain estable."
 elif rustup component add rust-src --toolchain nightly >/dev/null 2>&1 && \
-    cargo +nightly build -Z build-std=core \
-        --manifest-path "${L400_SRC_DIR}/l400-ebpf/Cargo.toml" \
-        --target bpfel-unknown-none --release; then
+    run_ebpf_build "${EBPF_NIGHTLY_LOG}" \
+        cargo +nightly build -Z build-std=core \
+            --manifest-path "${L400_SRC_DIR}/l400-ebpf/Cargo.toml" \
+            --target bpfel-unknown-none --release; then
     copy_optional \
         "${L400_SRC_DIR}/target/bpfel-unknown-none/release/l400-ebpf" \
         "${HOOKS_DIR}/l400-ebpf"
+    echo "   eBPF compilado con nightly + build-std=core."
 else
     echo "WARNING: no se pudo compilar l400-ebpf; la ISO seguirá sin hook cargable."
+    echo "         Ver logs: ${EBPF_STABLE_LOG} ${EBPF_NIGHTLY_LOG}"
 fi
 
 echo "=== Userspace listo ==="

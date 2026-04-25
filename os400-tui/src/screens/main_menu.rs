@@ -8,18 +8,25 @@ use ratatui::{
 };
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
+use crate::session::SessionContext;
 use crate::style::*;
 
 pub struct MainMenu {
     selected_index: usize,
     pending_option: String,
+    session: SessionContext,
 }
 
 impl MainMenu {
     pub fn new() -> Self {
+        Self::with_session(SessionContext::new(std::process::id() as u64))
+    }
+
+    pub fn with_session(session: SessionContext) -> Self {
         Self {
             selected_index: 0,
             pending_option: String::new(),
+            session,
         }
     }
 
@@ -32,8 +39,12 @@ impl MainMenu {
             ("5", "Data queues  . . . . . . . . . . . . .", "DSPDTAQ"),
             ("6", "Command entry . . . . . . . . . . . .", "CMD"),
             ("7", "Programming Development Manager . . . .", "STRPDM"),
+            ("8", "System status  . . . . . . . . . . .", "WRKSYSSTS"),
+            ("9", "System values  . . . . . . . . . . .", "WRKSYSVAL"),
             (" ", " ", " "),
-            ("10", "System configuration  . . . . . . . .", "CFG"),
+            ("10", "User profiles . . . . . . . . . . .", "WRKUSRPRF"),
+            ("11", "Spool files . . . . . . . . . . . .", "WRKSPLF"),
+            ("12", "Guided daily demo . . . . . . . . .", "DEMO"),
         ]
     }
 
@@ -44,7 +55,11 @@ impl MainMenu {
             "5" => ScreenResult::goto(ScreenId::DataQueueViewer),
             "6" => ScreenResult::goto(ScreenId::CommandLine),
             "7" => ScreenResult::goto(ScreenId::PdmBrowser),
-            "10" => ScreenResult::goto(ScreenId::ObjectBrowser),
+            "8" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKSYSSTS"),
+            "9" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKSYSVAL"),
+            "10" => ScreenResult::goto(ScreenId::UserProfiles),
+            "11" => ScreenResult::goto(ScreenId::SpoolOutq),
+            "12" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKOBJ LIB(QGPL)"),
             _ => ScreenResult::none(),
         }
     }
@@ -126,7 +141,7 @@ impl Screen for MainMenu {
                 Constraint::Min(0),
                 Constraint::Length(3),
             ])
-            .split(frame.size());
+            .split(frame.area());
 
         self.render_header(frame, chunks[0]);
         self.render_menu(frame, chunks[1]);
@@ -135,7 +150,7 @@ impl Screen for MainMenu {
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
         match key.code {
-            KeyCode::F(3) => ScreenResult::exit(),
+            KeyCode::F(3) => ScreenResult::goto(ScreenId::SignOn),
             KeyCode::F(4) => {
                 self.pending_option.clear();
                 ScreenResult::goto(ScreenId::CommandLine)
@@ -175,6 +190,7 @@ impl Screen for MainMenu {
 impl MainMenu {
     fn render_header(&self, frame: &mut Frame, area: Rect) {
         let title = Line::from(vec![" L400 Main Menu ".into()]);
+        let session = self.session.snapshot();
 
         let block = Block::default()
             .title(title)
@@ -189,12 +205,23 @@ impl MainMenu {
             Line::from(vec![
                 "System: ".into(),
                 "L400   ".into(),
+                "User: ".into(),
+                session.user_profile.into(),
+                "   ".into(),
                 "Library: ".into(),
-                "QSYS   ".into(),
+                session.current_library.into(),
+                "   ".into(),
+                "Job: ".into(),
+                session.job_id.to_string().into(),
+                "   ".into(),
                 "Selection: ".into(),
                 self.pending_option.clone().into(),
             ]),
-            Line::from(vec![status.into()]),
+            Line::from(vec![
+                status.into(),
+                "   ".into(),
+                session.last_message.unwrap_or_default().into(),
+            ]),
         ]);
 
         let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 2);
@@ -231,7 +258,7 @@ impl MainMenu {
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
         let help_text = Line::from(vec![
-            "F3=Exit   ".into(),
+            "F3=Signoff   ".into(),
             "F4=Prompt   ".into(),
             "F12=Cancel   ".into(),
             "Enter=Select".into(),
@@ -306,10 +333,10 @@ mod tests {
     }
 
     #[test]
-    fn f3_exits_menu() {
+    fn f3_signs_off_to_login() {
         let mut menu = MainMenu::new();
         let result = menu.handle_key(key(KeyCode::F(3)));
-        assert_eq!(result.next, Some(ScreenId::Exit));
+        assert_eq!(result.next, Some(ScreenId::SignOn));
     }
 
     #[test]
@@ -335,7 +362,8 @@ mod tests {
         let mut menu = MainMenu::new();
         assert_eq!(menu.handle_key(key(KeyCode::Char('1'))).next, None);
         let result = menu.handle_key(key(KeyCode::Char('0')));
-        assert_eq!(result.next, Some(ScreenId::ObjectBrowser));
+        assert_eq!(result.next, Some(ScreenId::UserProfiles));
+        assert_eq!(result.data.as_deref(), None);
     }
 
     #[test]

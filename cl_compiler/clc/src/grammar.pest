@@ -9,8 +9,8 @@ file = { SOI ~ command* ~ EOI }
 // Un comando CL consiste en un identificador, y de forma opcional sus parámetros
 command = { identifier ~ parameters? }
 
-// Identificador del comando (ej. PGM, SNDPGMMSG, ENDPGM)
-identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+// Identificador del comando/objeto (ej. PGM, SNDPGMMSG, QGPL/QCLSRC)
+identifier = @{ (ASCII_ALPHA | ASCII_DIGIT | "_" | "/" | "." | "-")+ }
 
 // Conjunto de parámetros para un comando
 parameters = { parameter+ }
@@ -22,10 +22,13 @@ parameter = { (identifier ~ "(" ~ value_list ~ ")") | value }
 value_list = { value ~ (value)* }
 
 // Valores posibles para un parámetro
-value = { string_literal | keyword | identifier }
+value = { string_literal | variable | keyword | identifier }
 
 // Cadenas de texto en CL (usualmente comienzan y terminan con comilla simple)
 string_literal = @{ "'" ~ (!"'" ~ ANY)* ~ "'" }
 
 // Palabras clave especiales del sistema que comienzan con asterisco (ej. *SYSOPR, *NO)
 keyword = @{ "*" ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+
+// Variables CL (ej. &LIB)
+variable = @{ "&" ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
