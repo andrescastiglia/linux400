@@ -109,8 +109,11 @@ Autoridades comunes:
 | `WRKACTJOB OPTION(*DETAIL)` | Muestra detalle de un trabajo por `PID` o `JOB`. | `WRKACTJOB JOB(MYJOB) OPTION(*DETAIL)` |
 | `WRKACTJOB OPTION(*END)` | Termina un trabajo activo por `PID` o `JOB`. | `WRKACTJOB PID(1234) OPTION(*END)` |
 | `SBMJOB` | Envia un comando ejecutable a batch. | `SBMJOB CMD(WRKSYSSTS) JOB(MYJOB) JOBQ(QBATCH)` |
+| `WRKJOBQ` | Lista trabajos retenidos o en cola. | `WRKJOBQ` |
+| `HLDJOB` | Retiene un trabajo por nombre o PID. | `HLDJOB JOB(MYJOB)` |
+| `RLSJOB` | Libera un trabajo retenido. | `RLSJOB JOB(MYJOB)` |
 | `WRKJOB` | Muestra detalle de un trabajo. | `WRKJOB JOB(1234/QSECOFR/MYJOB)` |
-| `ENDJOB` | Finaliza un trabajo. | `ENDJOB JOB(1234/QSECOFR/MYJOB) OPTION(*IMMED)` |
+| `ENDJOB` | Finaliza un trabajo. | `ENDJOB PID(1234) CONFIRM(*YES)` |
 | `WRKJOBQ` | Trabaja con colas de trabajos. | `WRKJOBQ JOBQ(QBATCH)` |
 | `WRKSBS` | Lista subsistemas. | `WRKSBS` |
 | `STRSBS` | Inicia un subsistema. | `STRSBS SBSD(QINTER)` |
@@ -133,7 +136,9 @@ QBATCH  Trabajos batch
 | `CLRPFM` | Limpia un miembro de PF. | `CLRPFM FILE(QGPL/CUSTOMERS)` |
 | `ADDPFM` | Agrega un miembro a un PF. | `ADDPFM FILE(QGPL/CUSTOMERS) MBR(JAN2026)` |
 | `WRTPFM` | Escribe un registro en un PF por clave o con RRN automatico. | `WRTPFM FILE(QGPL/CUSTOMERS) KEY(C001) DATA(ALICE)` |
-| `RMVM` | Elimina un miembro. | `RMVM FILE(QGPL/CUSTOMERS) MBR(OLD)` |
+| `DLTMBR` | Elimina un miembro con confirmacion. | `DLTMBR FILE(QGPL/QCLSRC) MBR(OLD.CLP) CONFIRM(*YES)` |
+| `CPYMBR` | Copia un miembro. | `CPYMBR FILE(QGPL/QCLSRC) MBR(A.CLP) TOMBR(B.CLP)` |
+| `CHGMBRD` | Cambia texto de un miembro. | `CHGMBRD FILE(QGPL/QCLSRC) MBR(A.CLP) TEXT(Demo)` |
 | `CPYF` | Copia registros entre archivos. | `CPYF FROMFILE(QGPL/A) TOFILE(QGPL/B)` |
 | `RUNQRY` | Ejecuta una consulta simple sobre un archivo. | `RUNQRY QRYFILE(QGPL/CUSTOMERS)` |
 
@@ -174,6 +179,10 @@ c400c --input tests/hola_mundo.c --output /l400/QSYS/HELLOC
 | `WRKOBJ` | `4` | Solicita confirmacion visual y borra el objeto seleccionado. |
 | `WRKOBJ` | `8` | Abre visor de `*DTAQ`. |
 | `WRKACTJOB` | `4` o `F10` | Solicita confirmacion visual y termina el job seleccionado. |
+| `WRKACTJOB` | `9` | Muestra las ultimas lineas del log del job. |
+| `ObjectDetail` | `2/3/4/8` | Cambia texto, copia, borra con confirmacion o muestra autorizaciones. |
+| `PolicyAudit` | `1/2/0` | Filtra denegados, cambios de usuarios o vuelve a todos los eventos. |
+| `SpoolOutq` | `5` | Muestra el primer spool file disponible. |
 | `STRSQL` | `F7/F8` | Desplaza columnas de resultados. |
 
 ## Output queues y spool
@@ -195,6 +204,17 @@ c400c --input tests/hola_mundo.c --output /l400/QSYS/HELLOC
 | `l400-loader --mode degraded` | Intenta cargar politica y continua si no puede. | `l400-loader --mode degraded --once` |
 | `l400-loader --mode dev` | Modo tolerante para desarrollo. | `l400-loader --mode dev --once` |
 | `l400-support-report` | Muestra modo efectivo y capacidades de enforcement. | `l400-support-report` |
+| `l400-upgrade-check` | Valida version metadata, xattrs, persistencia y backup recomendado. | `l400-upgrade-check` |
+| `l400-migrate` | Aplica migraciones versionadas de `/l400`. | `l400-migrate` |
+
+## Operacion diaria guiada
+
+1. Iniciar sesion en la TUI y entrar a `GO MAIN`.
+2. Revisar salud con `WRKSYSSTS` y `l400-support-report --write`.
+3. Trabajar objetos con `WRKOBJ`, usando `5=Display`, `8=Authorities` y `4=Delete`.
+4. Revisar jobs con `WRKACTJOB`; usar `9=Log` para diagnosticar batch.
+5. Revisar salidas con `WRKSPLF` o la opcion de menu `Spool files`.
+6. Antes de upgrade: `l400-upgrade-check`, backup con `rsync -aX`, luego `l400-migrate`.
 
 ## Variables de entorno utiles
 

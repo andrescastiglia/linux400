@@ -11,6 +11,10 @@ use l400::ffi_commands;
 const COMMAND_BINARIES: &[&str] = &[
     "WRKSYSSTS",
     "WRKACTJOB",
+    "WRKJOBQ",
+    "HLDJOB",
+    "RLSJOB",
+    "ENDJOB",
     "WRKSYSVAL",
     "DSPLOG",
     "DSPCMD",
@@ -19,6 +23,10 @@ const COMMAND_BINARIES: &[&str] = &[
     "WRKUSRPRF",
     "WRKSPLF",
     "WRKOUTQ",
+    "CRTOUTQ",
+    "DLTOUTQ",
+    "DSPSPLF",
+    "DLTSPLF",
     "PWRDWNSYS",
     "SBMJOB",
     "WRKOBJ",
@@ -46,6 +54,9 @@ const COMMAND_BINARIES: &[&str] = &[
     "STRSEU",
     "STRSQL",
     "WRKMBRPDM",
+    "DLTMBR",
+    "CPYMBR",
+    "CHGMBRD",
     "CRTPF",
     "CRTLF",
     "DSPPFM",
@@ -114,6 +125,13 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             &["SBS", "SUBSYSTEM", "STATUS", "OPTION", "PID", "JOB"],
             ffi_commands::l400_wrkactjob_spec,
         ),
+        "WRKJOBQ" => {
+            ffi_commands::l400_wrkjobq();
+            ExitCode::SUCCESS
+        }
+        "HLDJOB" => dispatch_spec(args, &["JOB", "PID"], ffi_commands::l400_hldjob),
+        "RLSJOB" => dispatch_spec(args, &["JOB", "PID"], ffi_commands::l400_rlsjob),
+        "ENDJOB" => dispatch_spec(args, &["JOB", "PID", "CONFIRM"], ffi_commands::l400_endjob),
         "WRKSYSVAL" => {
             ffi_commands::l400_wrksysval();
             ExitCode::SUCCESS
@@ -137,6 +155,18 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             ffi_commands::l400_wrkoutq();
             ExitCode::SUCCESS
         }
+        "CRTOUTQ" => dispatch_spec(args, &["OUTQ", "LIB", "TEXT"], ffi_commands::l400_crtoutq),
+        "DLTOUTQ" => dispatch_spec(
+            args,
+            &["OUTQ", "LIB", "CONFIRM"],
+            ffi_commands::l400_dltoutq,
+        ),
+        "DSPSPLF" => dispatch_spec(args, &["SPLF", "FILE"], ffi_commands::l400_dspsplf),
+        "DLTSPLF" => dispatch_spec(
+            args,
+            &["SPLF", "FILE", "CONFIRM"],
+            ffi_commands::l400_dltsplf,
+        ),
         "PWRDWNSYS" => dispatch_spec(args, &["OPTION", "CONFIRM"], ffi_commands::l400_pwrdwnsys),
         "WRKOBJ" => dispatch_spec(
             args,
@@ -246,6 +276,9 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             "WRKMBRPDM FILE(QGPL/QCLSRC)",
             ffi_commands::l400_wrkmbrpdm,
         ),
+        "DLTMBR" => dispatch_spec(args, &["FILE", "MBR", "CONFIRM"], ffi_commands::l400_dltmbr),
+        "CPYMBR" => dispatch_spec(args, &["FILE", "MBR", "TOMBR"], ffi_commands::l400_cpymbr),
+        "CHGMBRD" => dispatch_spec(args, &["FILE", "MBR", "TEXT"], ffi_commands::l400_chgmbrd),
         "SBMJOB" => dispatch_sbmjob(args),
         "CRTPF" => dispatch_spec(
             args,

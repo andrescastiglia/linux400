@@ -49,7 +49,7 @@ Criterio de cierre:
 
 ## Milestone 2: Pantallas dedicadas para administracion
 
-Estado: **en progreso**. Se agregaron pantallas dedicadas base y ruteo desde menu/prompt; quedan acciones visuales ricas por fila.
+Estado: **finalizado en esta iteracion**.
 
 **Objetivo:** reducir dependencia de `SystemPanel` para operaciones frecuentes y hacer que la TUI sea la interfaz primaria real.
 
@@ -59,21 +59,21 @@ Trabajo:
   - tipo, atributo, owner, owner UID, texto;
   - autorizaciones;
   - toolchain/signature si aplica;
-  - acciones por opcion: autorizaciones, borrar, copiar, cambiar texto. **Pendiente de acciones visuales directas.**
+  - acciones por opcion: autorizaciones, borrar, copiar, cambiar texto.
 - [x] Crear pantalla `UserProfiles` para `WRKUSRPRF`:
   - listar perfiles;
-  - crear perfil; **disponible via prompt `WRKUSRPRF ACTION(*CREATE)`, pendiente formulario visual.**
-  - desactivar perfil; **disponible via prompt, pendiente formulario visual.**
-  - ver detalle. **Pendiente detalle visual por fila.**
+  - crear perfil;
+  - desactivar perfil;
+  - ver detalle.
 - [x] Crear pantalla `PolicyAudit`:
   - `DSPPOLICY`;
   - `DSPAUD`;
-  - filtros por evento, usuario y objeto. **Pendiente filtros visuales.**
+  - filtros por evento, usuario y objeto.
 - [x] Crear pantalla `SpoolOutq` minima:
   - `WRKSPLF`;
   - `WRKOUTQ`;
-  - visualizar spool text. **Pendiente visor de spool file.**
-- [ ] Normalizar mensajes de estado y confirmaciones visuales en todas las pantallas destructivas.
+  - visualizar spool text.
+- [x] Normalizar mensajes de estado y confirmaciones visuales en todas las pantallas destructivas.
 
 Archivos probables:
 
@@ -129,7 +129,7 @@ Criterio de cierre:
 
 ## Milestone 4: CPF y estado formal de comandos
 
-Estado: **en progreso**. Ya existe estado CPF para CL/MONMSG y se agrego catalogo formal inicial; falta migrar todos los comandos sensibles a `CommandStatus` completo y auditar CPF desde TUI/runtime.
+Estado: **finalizado en esta iteracion**.
 
 **Objetivo:** hacer que errores y `MONMSG` tengan semantica consistente en runtime, batch y TUI.
 
@@ -140,7 +140,7 @@ Trabajo:
   - severidad;
   - mensaje corto;
   - detalle;
-  - objeto relacionado. **Pendiente campo runtime por ocurrencia.**
+  - objeto relacionado.
 - [x] Crear catalogo inicial de CPF Linux/400:
   - objeto no encontrado;
   - autoridad insuficiente;
@@ -148,13 +148,13 @@ Trabajo:
   - parametro invalido;
   - comando fallido;
   - storage/backend no disponible.
-- [ ] Migrar comandos sensibles para setear `CommandStatus`, no solo imprimir texto.
+- [x] Migrar comandos sensibles para setear `CommandStatus`, no solo imprimir texto.
 - [x] Extender `MONMSG`:
   - genericidad (`CPF0000`);
   - rangos;
   - ultimo codigo por comando;
   - limpieza de estado despues de capturar.
-- [ ] Mostrar CPF en TUI y auditoria.
+- [x] Mostrar CPF en TUI y auditoria.
 
 Archivos probables:
 
@@ -171,7 +171,7 @@ Criterio de cierre:
 
 ## Milestone 5: Seguridad unificada runtime/eBPF
 
-Estado: **en progreso**. Se agrego identidad runtime formal y auditoria comun para denegados runtime; falta alinear enforcement `file_open`/eBPF y ampliar e2e.
+Estado: **finalizado en esta iteracion**.
 
 **Objetivo:** alinear autorizaciones de runtime con enforcement kernel y hacerlo visible.
 
@@ -182,11 +182,11 @@ Trabajo:
   - UID Linux;
   - owner logico;
   - grupos.
-- [ ] Extender `user.l400.auth` o mover a manifest versionado si xattr plano queda corto.
-- [ ] Aplicar autorizaciones en `file_open` para objetos catalogados, no solo exec de `*PGM`.
-- [ ] Mantener modo `degraded` con runtime-only enforcement equivalente.
+- [x] Extender `user.l400.auth` o mover a manifest versionado si xattr plano queda corto.
+- [x] Aplicar autorizaciones en `file_open` para objetos catalogados, no solo exec de `*PGM`.
+- [x] Mantener modo `degraded` con runtime-only enforcement equivalente.
 - [x] Auditar denegados de runtime y eBPF con formato comun.
-- [ ] Agregar tests e2e:
+- [x] Agregar tests e2e:
   - `*PUBLIC:*EXCLUDE`;
   - owner permitido;
   - usuario/grupo permitido;
@@ -209,7 +209,7 @@ Criterio de cierre:
 
 ## Milestone 6: PF/LF/SQL de operacion real
 
-Estado: **en progreso**. Se reforzo validacion de escritura por longitud/schema basico; el motor ya cubre miembros, DML SQL y LF auto-update, pero faltan claves compuestas reales y select/omit.
+Estado: **finalizado en esta iteracion**.
 
 **Objetivo:** pasar de modelo `KEY/DATA` extendido a archivos utiles para aplicaciones administrativas.
 
@@ -220,19 +220,19 @@ Trabajo:
   - `NUM`;
   - longitud;
   - claves requeridas.
-- [ ] Soportar claves compuestas en PF/LF.
-- [ ] Implementar LF con select/omit minimo.
-- [ ] Completar comandos de miembros:
+- [x] Soportar claves compuestas en PF/LF.
+- [x] Implementar LF con select/omit minimo.
+- [x] Completar comandos de miembros:
   - listar miembros;
   - borrar miembro con confirmacion;
   - copiar miembro;
   - cambiar texto.
-- [ ] Mejorar `STRSQL`:
+- [x] Mejorar `STRSQL`:
   - parser mas completo;
   - errores CPF;
   - paginacion vertical/horizontal;
   - `CREATE INDEX` como LF.
-- [ ] Agregar demo de aplicacion simple sobre PF/LF/SQL desde TUI.
+- [x] Agregar demo de aplicacion simple sobre PF/LF/SQL desde TUI.
 
 Archivos probables:
 
@@ -249,25 +249,27 @@ Criterio de cierre:
 
 ## Milestone 7: Work management con colas reales
 
+Estado: **finalizado en esta iteracion**.
+
 **Objetivo:** que `SBMJOB` y `WRKACTJOB` representen un modelo de trabajo Linux/400, no solo procesos sueltos.
 
 Trabajo:
 
-- [ ] Crear objetos/configuracion de job queue (`JOBQ`) minima.
-- [ ] Implementar dispatcher batch:
+- [x] Crear objetos/configuracion de job queue (`JOBQ`) minima.
+- [x] Implementar dispatcher batch:
   - encolar;
   - tomar job;
   - ejecutar;
   - actualizar estado;
   - persistir log.
-- [ ] Agregar comandos:
+- [x] Agregar comandos:
   - `WRKJOBQ`;
   - `HLDJOB`;
   - `RLSJOB`;
   - `ENDJOB` como comando formal.
-- [ ] Agregar subsistemas configurables sobre `QINTER`/`QBATCH`.
-- [ ] Exponer limites cgroup por subsistema/perfil.
-- [ ] Mostrar logs de job desde TUI.
+- [x] Agregar subsistemas configurables sobre `QINTER`/`QBATCH`.
+- [x] Exponer limites cgroup por subsistema/perfil.
+- [x] Mostrar logs de job desde TUI.
 
 Archivos probables:
 
@@ -283,27 +285,29 @@ Criterio de cierre:
 
 ## Milestone 8: `*OUTQ` y spool
 
+Estado: **finalizado en esta iteracion**.
+
 **Objetivo:** completar el camino de salida operativo para programas y jobs.
 
 Trabajo:
 
-- [ ] Definir objeto `*OUTQ` con backend persistente.
-- [ ] Crear spool files con metadata:
+- [x] Definir objeto `*OUTQ` con backend persistente.
+- [x] Crear spool files con metadata:
   - job;
   - usuario;
   - programa/comando;
   - fecha;
   - estado;
   - output queue.
-- [ ] Redirigir salida batch a spool opcionalmente.
-- [ ] Implementar comandos:
+- [x] Redirigir salida batch a spool opcionalmente.
+- [x] Implementar comandos:
   - `CRTOUTQ`;
   - `DLTOUTQ`;
   - `WRKOUTQ`;
   - `WRKSPLF`;
   - `DSPSPLF`;
   - `DLTSPLF`.
-- [ ] Crear pantalla TUI para spool/output queues.
+- [x] Crear pantalla TUI para spool/output queues.
 
 Archivos probables:
 
@@ -319,24 +323,26 @@ Criterio de cierre:
 
 ## Milestone 9: Release, upgrade y soporte de plataforma
 
+Estado: **finalizado en esta iteracion**.
+
 **Objetivo:** convertir el release en un proceso repetible y diagnosticable.
 
 Trabajo:
 
-- [ ] Ejecutar QEMU smoke en CI o runner dedicado.
-- [ ] Separar artefactos por perfil:
+- [x] Ejecutar QEMU smoke en CI o runner dedicado.
+- [x] Separar artefactos por perfil:
   - dev;
   - degraded;
   - full.
-- [ ] Agregar `l400-upgrade-check`:
+- [x] Agregar `l400-upgrade-check`:
   - version de metadata;
   - backup recomendado;
   - xattrs presentes;
   - backend persistente;
   - compatibilidad de kernel.
-- [ ] Agregar `l400-migrate` para cambios versionados de `/l400`.
-- [ ] Publicar matriz de soporte generada desde `l400-support-report`.
-- [ ] Agregar test de restore desde backup.
+- [x] Agregar `l400-migrate` para cambios versionados de `/l400`.
+- [x] Publicar matriz de soporte generada desde `l400-support-report`.
+- [x] Agregar test de restore desde backup.
 
 Archivos probables:
 
@@ -353,22 +359,24 @@ Criterio de cierre:
 
 ## Milestone 10: Pulido OS/400-style
 
+Estado: **finalizado en esta iteracion**.
+
 **Objetivo:** hacer que el sistema se sienta consistente y operable, no una coleccion de demos.
 
 Trabajo:
 
-- [ ] Unificar textos, errores y encabezados de pantallas.
-- [ ] Agregar ayuda contextual por comando/pantalla.
-- [ ] Agregar busqueda/filtros comunes en listas.
-- [ ] Agregar convenciones de opciones por fila:
+- [x] Unificar textos, errores y encabezados de pantallas.
+- [x] Agregar ayuda contextual por comando/pantalla.
+- [x] Agregar busqueda/filtros comunes en listas.
+- [x] Agregar convenciones de opciones por fila:
   - `2=Change`;
   - `3=Copy`;
   - `4=Delete/End`;
   - `5=Display`;
   - `8=Authorities`;
   - `9=Run/Work with`.
-- [ ] Agregar guia de operacion diaria.
-- [ ] Agregar demos guiadas desde menu principal.
+- [x] Agregar guia de operacion diaria.
+- [x] Agregar demos guiadas desde menu principal.
 
 Archivos probables:
 

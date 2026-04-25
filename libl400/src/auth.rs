@@ -91,6 +91,8 @@ impl std::str::FromStr for L400Authority {
 }
 
 pub const L400_AUTH_ATTR: &str = "user.l400.auth";
+pub const L400_AUTH_VERSION_ATTR: &str = "user.l400.auth.version";
+pub const L400_AUTH_MANIFEST_ATTR: &str = "user.l400.auth.manifest";
 
 /// Lee las autorizaciones de un objeto (formato "USER:PERM,PUBLIC:PERM")
 pub fn get_object_authorities(path: &Path) -> Result<HashMap<String, L400Authority>, AuthError> {
@@ -120,6 +122,12 @@ pub fn set_object_authorities(
     }
     let serialized = parts.join(",");
     xattr::set(path, L400_AUTH_ATTR, serialized.as_bytes())?;
+    xattr::set(path, L400_AUTH_VERSION_ATTR, b"1")?;
+    xattr::set(
+        path,
+        L400_AUTH_MANIFEST_ATTR,
+        format!("version=1;entries={serialized}").as_bytes(),
+    )?;
     Ok(())
 }
 
@@ -150,6 +158,23 @@ pub fn check_authority(
     user: &str,
     required: L400Authority,
 ) -> Result<bool, AuthError> {
+    check_authority_with_groups(path, user, &[], required)
+}
+
+pub fn check_authority_for_identity(
+    path: &Path,
+    identity: &L400Identity,
+    required: L400Authority,
+) -> Result<bool, AuthError> {
+    check_authority_with_groups(path, &identity.profile, &identity.groups, required)
+}
+
+fn check_authority_with_groups(
+    path: &Path,
+    user: &str,
+    groups: &[String],
+    required: L400Authority,
+) -> Result<bool, AuthError> {
     let auths = get_object_authorities(path)?;
 
     // El permiso explícito del usuario tiene mayor prioridad
@@ -158,6 +183,15 @@ pub fn check_authority(
             return Ok(false);
         }
         return Ok(auth_level(*auth) >= auth_level(required));
+    }
+
+    for group in groups {
+        if let Some(auth) = auths.get(group) {
+            if *auth == L400Authority::Exclude {
+                return Ok(false);
+            }
+            return Ok(auth_level(*auth) >= auth_level(required));
+        }
     }
 
     // Fallback a permiso público (*PUBLIC)
@@ -201,7 +235,20 @@ pub fn required_operation_for_command(command: &str) -> L400Operation {
 
 pub fn check_command_authority(path: &Path, user: &str, command: &str) -> Result<bool, AuthError> {
     let operation = required_operation_for_command(command);
-    let allowed = check_authority(path, user, required_authority_for_operation(operation))?;
+    let identity = L400Identity {
+        profile: user.trim().to_uppercase(),
+        uid: unsafe { libc::geteuid() },
+        owner: user.trim().to_uppercase(),
+        groups: std::env::var("L400_GROUPS")
+            .unwrap_or_default()
+            .split(':')
+            .map(str::trim)
+            .filter(|group| !group.is_empty())
+            .map(str::to_uppercase)
+            .collect(),
+    };
+    let allowed =
+        check_authority_for_identity(path, &identity, required_authority_for_operation(operation))?;
     if !allowed {
         let _ = crate::audit::audit_event(
             "AUTH_DENIED",
@@ -274,5 +321,35 @@ mod tests {
         grant_object_authority(&pgm, "QPGMR", L400Authority::Use).expect("grant use");
 
         assert!(check_command_authority(&pgm, "QPGMR", "CALL").expect("check authority"));
+    }
+
+    #[test]
+    fn group_authority_allows_runtime_operation_and_writes_manifest() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let lib = create_library(root.path(), "QGPL").expect("create library");
+        let file = lib.join("DATA");
+        std::fs::write(&file, "data").expect("write file");
+        catalog_object(&file, "*FILE", Some("PF"), Some("test")).expect("catalog file");
+        grant_object_authority(&file, "DEVGRP", L400Authority::Use).expect("grant group use");
+
+        let version = xattr::get(&file, L400_AUTH_VERSION_ATTR)
+            .expect("version attr")
+            .expect("version present");
+        let manifest = xattr::get(&file, L400_AUTH_MANIFEST_ATTR)
+            .expect("manifest attr")
+            .expect("manifest present");
+        assert_eq!(String::from_utf8(version).unwrap(), "1");
+        assert!(String::from_utf8(manifest).unwrap().contains("DEVGRP:*USE"));
+
+        let identity = L400Identity {
+            profile: "QUSER".to_string(),
+            uid: 1000,
+            owner: "QUSER".to_string(),
+            groups: vec!["DEVGRP".to_string()],
+        };
+        assert!(
+            check_authority_for_identity(&file, &identity, L400Authority::Use)
+                .expect("check group authority")
+        );
     }
 }

@@ -6,6 +6,12 @@ pub struct CommandStatus {
     pub detail: &'static str,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandStatusOccurrence {
+    pub status: CommandStatus,
+    pub object: Option<String>,
+}
+
 pub const CPF_CATALOG: &[CommandStatus] = &[
     CommandStatus {
         code: "CPF0000",
@@ -63,6 +69,16 @@ pub fn command_status(code: &str) -> CommandStatus {
             message: "Command failed",
             detail: "No detailed CPF catalog entry exists for this status.",
         })
+}
+
+pub fn command_status_occurrence(
+    code: &str,
+    object: Option<impl Into<String>>,
+) -> CommandStatusOccurrence {
+    CommandStatusOccurrence {
+        status: command_status(code),
+        object: object.map(Into::into),
+    }
 }
 
 pub fn normalize_cpf(code: &str) -> String {

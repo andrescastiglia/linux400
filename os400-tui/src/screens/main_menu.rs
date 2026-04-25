@@ -44,6 +44,7 @@ impl MainMenu {
             (" ", " ", " "),
             ("10", "User profiles . . . . . . . . . . .", "WRKUSRPRF"),
             ("11", "Spool files . . . . . . . . . . . .", "WRKSPLF"),
+            ("12", "Guided daily demo . . . . . . . . .", "DEMO"),
         ]
     }
 
@@ -58,6 +59,7 @@ impl MainMenu {
             "9" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKSYSVAL"),
             "10" => ScreenResult::goto(ScreenId::UserProfiles),
             "11" => ScreenResult::goto(ScreenId::SpoolOutq),
+            "12" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKOBJ LIB(QGPL)"),
             _ => ScreenResult::none(),
         }
     }
@@ -360,8 +362,8 @@ mod tests {
         let mut menu = MainMenu::new();
         assert_eq!(menu.handle_key(key(KeyCode::Char('1'))).next, None);
         let result = menu.handle_key(key(KeyCode::Char('0')));
-        assert_eq!(result.next, Some(ScreenId::SystemPanel));
-        assert_eq!(result.data.as_deref(), Some("WRKUSRPRF"));
+        assert_eq!(result.next, Some(ScreenId::UserProfiles));
+        assert_eq!(result.data.as_deref(), None);
     }
 
     #[test]

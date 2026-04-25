@@ -99,6 +99,7 @@ fn object_default_attribute(objtype: &str) -> Option<&'static str> {
         "*CMD" => Some("CMD"),
         "*SRVPGM" => Some("SRVPGM"),
         "*OUTQ" => Some("OUTQ"),
+        "*JOBQ" => Some("JOBQ"),
         _ => None,
     }
 }
@@ -473,6 +474,27 @@ pub fn create_source_member(
 
 pub fn open_object_direct(path: &Path) -> Result<fs::File, ObjectError> {
     let _ = get_objtype(path)?;
+    let identity = crate::auth::L400Identity::from_env();
+    let allowed =
+        crate::auth::check_authority_for_identity(path, &identity, crate::auth::L400Authority::Use)
+            .map_err(|error| {
+                ObjectError::Fs(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    error,
+                ))
+            })?;
+    if !allowed {
+        let _ = crate::audit::audit_event(
+            "AUTH_DENIED",
+            &identity.profile,
+            path,
+            "source=runtime operation=file_open",
+        );
+        return Err(ObjectError::Fs(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "Linux/400 object authority denied",
+        )));
+    }
     let mut options = fs::OpenOptions::new();
     options.read(true).write(true);
 

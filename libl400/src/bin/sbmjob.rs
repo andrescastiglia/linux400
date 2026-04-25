@@ -4,7 +4,9 @@ use l400::cgroup::{
 };
 use std::env;
 use std::fs::OpenOptions;
+use std::io::Write;
 use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 #[derive(Parser, Debug)]
@@ -41,6 +43,21 @@ fn current_user_name() -> String {
         .or_else(|| env::var("USER").ok())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "l400".to_string())
+}
+
+fn spool_file_path(pid: u64) -> PathBuf {
+    env::var("L400_SPOOL_DIR")
+        .ok()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| l400::resolve_l400_root().join("QUSRSYS").join("QSPL"))
+        .join(format!("{}_{}.splf", pid, chrono_like_timestamp()))
+}
+
+fn chrono_like_timestamp() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs().to_string())
+        .unwrap_or_else(|_| "0".to_string())
 }
 
 fn main() {
@@ -95,10 +112,40 @@ fn main() {
             .append(true)
             .open(&log_path)
             .ok();
+        let spool_path = spool_file_path(pid);
+        if let Some(parent) = spool_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let mut spool = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&spool_path)
+            .ok();
+        if let Some(file) = spool.as_mut() {
+            let _ = writeln!(
+                file,
+                "job={} user={} command={} status=*RUN",
+                args.job, user, cmd_str
+            );
+        }
         let status = Command::new(&args.cmd)
             .args(&args.args)
-            .stdout(log_stdout.map(Stdio::from).unwrap_or_else(Stdio::null))
-            .stderr(log_stderr.map(Stdio::from).unwrap_or_else(Stdio::null))
+            .stdout(
+                spool
+                    .as_ref()
+                    .and_then(|file| file.try_clone().ok())
+                    .or(log_stdout)
+                    .map(Stdio::from)
+                    .unwrap_or_else(Stdio::null),
+            )
+            .stderr(
+                spool
+                    .as_ref()
+                    .and_then(|file| file.try_clone().ok())
+                    .or(log_stderr)
+                    .map(Stdio::from)
+                    .unwrap_or_else(Stdio::null),
+            )
             .status();
 
         let final_status = match status {
@@ -108,6 +155,9 @@ fn main() {
 
         // 4. Actualizar el estado final
         let _ = update_job_status(pid, final_status);
+        if let Some(mut file) = spool {
+            let _ = writeln!(file, "job={} status={}", args.job, final_status);
+        }
     } else {
         // Somos el SBMJOB original que invoca el usuario.
         // Hacemos fork/spawn de nosotros mismos con --daemon.
@@ -130,6 +180,15 @@ fn main() {
             .process_group(0)
             .spawn()
             .expect("SBMJOB falló al inicializar el proceso batch");
+        let cmd_str = format!("{} {}", args.cmd, args.args.join(" "));
+        let _ = register_job(
+            child.id() as u64,
+            &args.job,
+            &user,
+            WorkloadType::Batch,
+            JobStatus::JobQ,
+            &cmd_str,
+        );
 
         println!(
             "Trabajo {} enviado a la cola de trabajos {}. PID={}",

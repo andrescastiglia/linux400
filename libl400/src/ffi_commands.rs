@@ -158,6 +158,28 @@ fn set_status(code: &str) {
     crate::ffi::set_last_cpf(code);
 }
 
+fn emit_status(code: &str, object: Option<&Path>, detail: &str) {
+    set_status(code);
+    let status = crate::status::command_status(code);
+    let object_text = object
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "-".to_string());
+    println!(
+        "{} SEV({}) {} OBJ({}) - {}",
+        status.code, status.severity, status.message, object_text, detail
+    );
+    if let Some(path) = object {
+        audit_runtime(
+            "COMMAND_STATUS",
+            path,
+            &format!(
+                "cpf={} severity={} detail={}",
+                status.code, status.severity, detail
+            ),
+        );
+    }
+}
+
 // l400_sndpgmmsg está definida en ffi.rs — no se duplica aquí.
 
 // Gestión de sistema
@@ -344,6 +366,102 @@ pub extern "C" fn l400_wrkactjob_spec(spec: *const c_char) {
     println!("====================================");
 }
 
+#[no_mangle]
+pub extern "C" fn l400_wrkjobq() {
+    println!("=== WRKJOBQ - Job Queues ===");
+    println!("  {:10} {:10} {:8} COMMAND", "JOBQ", "STATUS", "PID");
+    println!("  {}", "-".repeat(72));
+    match crate::cgroup::list_jobs() {
+        Ok(jobs) => {
+            let mut count = 0usize;
+            for job in jobs.into_iter().filter(|job| {
+                matches!(
+                    job.status,
+                    crate::cgroup::JobStatus::JobQ | crate::cgroup::JobStatus::Held
+                )
+            }) {
+                count += 1;
+                println!(
+                    "  {:10} {:10} {:8} {}",
+                    job.subsystem, job.status, job.pid, job.command
+                );
+            }
+            if count == 0 {
+                println!("  No hay trabajos en cola.");
+            }
+        }
+        Err(error) => println!("  Error al listar job queues: {}", error),
+    }
+    println!("============================");
+}
+
+fn job_pid_from_fields(fields: &std::collections::HashMap<String, String>) -> Option<u64> {
+    fields
+        .get("PID")
+        .and_then(|value| value.parse::<u64>().ok())
+        .or_else(|| {
+            let job_name = fields.get("JOB")?;
+            crate::cgroup::list_jobs()
+                .ok()?
+                .into_iter()
+                .find_map(|job| job.name.eq_ignore_ascii_case(job_name).then_some(job.pid))
+        })
+}
+
+#[no_mangle]
+pub extern "C" fn l400_hldjob(spec: *const c_char) {
+    let fields = parse_command_fields(&c_str_to_string(spec));
+    match job_pid_from_fields(&fields) {
+        Some(pid) => match crate::cgroup::hold_job(pid) {
+            Ok(_) => println!("[HLDJOB] PID({pid}) retenido."),
+            Err(error) => println!("[HLDJOB] Error: {}", error),
+        },
+        None => {
+            emit_status("CPF0006", None, "HLDJOB requiere JOB o PID");
+            println!("[HLDJOB] Uso: HLDJOB JOB(MYJOB) o HLDJOB PID(123)");
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_rlsjob(spec: *const c_char) {
+    let fields = parse_command_fields(&c_str_to_string(spec));
+    match job_pid_from_fields(&fields) {
+        Some(pid) => match crate::cgroup::release_job(pid) {
+            Ok(_) => println!("[RLSJOB] PID({pid}) liberado."),
+            Err(error) => println!("[RLSJOB] Error: {}", error),
+        },
+        None => {
+            emit_status("CPF0006", None, "RLSJOB requiere JOB o PID");
+            println!("[RLSJOB] Uso: RLSJOB JOB(MYJOB) o RLSJOB PID(123)");
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_endjob(spec: *const c_char) {
+    let fields = parse_command_fields(&c_str_to_string(spec));
+    let confirmed = fields
+        .get("CONFIRM")
+        .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
+        .unwrap_or(false);
+    if !confirmed {
+        emit_status("CPF0006", None, "ENDJOB requiere CONFIRM(*YES)");
+        println!("[ENDJOB] Requiere CONFIRM(*YES).");
+        return;
+    }
+    match job_pid_from_fields(&fields) {
+        Some(pid) => match crate::cgroup::end_job(pid) {
+            Ok(_) => println!("[ENDJOB] PID({pid}) terminado."),
+            Err(error) => println!("[ENDJOB] Error: {}", error),
+        },
+        None => {
+            emit_status("CPF0006", None, "ENDJOB requiere JOB o PID");
+            println!("[ENDJOB] Uso: ENDJOB JOB(MYJOB) CONFIRM(*YES)");
+        }
+    }
+}
+
 /// WRKSYSVAL — Muestra valores de configuración del sistema
 #[no_mangle]
 pub extern "C" fn l400_wrksysval() {
@@ -469,6 +587,150 @@ pub extern "C" fn l400_wrkoutq() {
         println!("  Sin output queues. Cree un objeto *OUTQ o configure L400_SPOOL_DIR.");
     }
     println!("===============================");
+}
+
+fn spool_dir() -> PathBuf {
+    std::env::var("L400_SPOOL_DIR")
+        .ok()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            crate::object::resolve_l400_root()
+                .join("QUSRSYS")
+                .join("QSPL")
+        })
+}
+
+#[no_mangle]
+pub extern "C" fn l400_crtoutq(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let outq = fields
+        .get("OUTQ")
+        .cloned()
+        .unwrap_or_else(|| "QUSRSYS/QPRINT".to_string());
+    let root = crate::object::resolve_l400_root();
+    let (library, name, _path) =
+        resolve_object_spec(&root, &outq, fields.get("LIB").map(String::as_str));
+    let lib_path = root.join(&library);
+    let text = fields
+        .get("TEXT")
+        .map(String::as_str)
+        .unwrap_or("Output queue");
+    match crate::object::create_object_with_metadata(
+        &lib_path,
+        &name,
+        "*OUTQ",
+        Some("OUTQ"),
+        Some(text),
+    ) {
+        Ok(_) => {
+            let _ = std::fs::create_dir_all(spool_dir());
+            println!("[CRTOUTQ] {}/{} creado.", library, name);
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&lib_path.join(&name)), &error.to_string());
+            println!("[CRTOUTQ] Error: {}", error);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_dltoutq(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let outq = fields
+        .get("OUTQ")
+        .cloned()
+        .unwrap_or_else(|| "QUSRSYS/QPRINT".to_string());
+    let confirmed = fields
+        .get("CONFIRM")
+        .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
+        .unwrap_or(false);
+    if !confirmed {
+        emit_status("CPF0006", None, "DLTOUTQ requiere CONFIRM(*YES)");
+        println!("[DLTOUTQ] Requiere CONFIRM(*YES).");
+        return;
+    }
+    let root = crate::object::resolve_l400_root();
+    let (_library, _name, path) =
+        resolve_object_spec(&root, &outq, fields.get("LIB").map(String::as_str));
+    match crate::object::delete_object(&path) {
+        Ok(_) => println!("[DLTOUTQ] {} eliminado.", outq),
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[DLTOUTQ] Error: {}", error);
+        }
+    }
+}
+
+fn resolve_spool_file(fields: &std::collections::HashMap<String, String>) -> PathBuf {
+    fields
+        .get("SPLF")
+        .or_else(|| fields.get("FILE"))
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| {
+            let name = fields
+                .get("SPLF")
+                .or_else(|| fields.get("FILE"))
+                .cloned()
+                .unwrap_or_else(|| "LAST".to_string());
+            if name == "LAST" {
+                first_spool_file().unwrap_or_else(|| spool_dir().join("LAST"))
+            } else {
+                spool_dir().join(name)
+            }
+        })
+}
+
+fn first_spool_file() -> Option<PathBuf> {
+    std::fs::read_dir(spool_dir())
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .max_by_key(|path| path.metadata().and_then(|m| m.modified()).ok())
+}
+
+#[no_mangle]
+pub extern "C" fn l400_dspsplf(spec: *const c_char) {
+    let fields = parse_command_fields(&c_str_to_string(spec));
+    let path = resolve_spool_file(&fields);
+    println!("=== DSPSPLF - {} ===", path.display());
+    match std::fs::read_to_string(&path) {
+        Ok(content) => {
+            for line in content.lines() {
+                println!("{}", line);
+            }
+        }
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[DSPSPLF] Error: {}", error);
+        }
+    }
+    println!("==============================");
+}
+
+#[no_mangle]
+pub extern "C" fn l400_dltsplf(spec: *const c_char) {
+    let fields = parse_command_fields(&c_str_to_string(spec));
+    let confirmed = fields
+        .get("CONFIRM")
+        .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
+        .unwrap_or(false);
+    if !confirmed {
+        emit_status("CPF0006", None, "DLTSPLF requiere CONFIRM(*YES)");
+        println!("[DLTSPLF] Requiere CONFIRM(*YES).");
+        return;
+    }
+    let path = resolve_spool_file(&fields);
+    match std::fs::remove_file(&path) {
+        Ok(_) => println!("[DLTSPLF] {} eliminado.", path.display()),
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[DLTSPLF] Error: {}", error);
+        }
+    }
 }
 
 /// WRKCMD — Lista comandos catalogados como *CMD.
@@ -814,6 +1076,7 @@ pub extern "C" fn l400_dltobj(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let Some(obj) = fields.get("OBJ") else {
+        emit_status("CPF0006", None, "DLTOBJ requiere OBJ");
         println!("[DLTOBJ] Uso: DLTOBJ OBJ(QGPL/MYOBJ) CONFIRM(*YES)");
         return;
     };
@@ -822,6 +1085,7 @@ pub extern "C" fn l400_dltobj(spec: *const c_char) {
         .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
         .unwrap_or(false);
     if !confirmed {
+        emit_status("CPF0006", None, "DLTOBJ requiere CONFIRM(*YES)");
         println!("[DLTOBJ] Requiere CONFIRM(*YES).");
         return;
     }
@@ -830,7 +1094,10 @@ pub extern "C" fn l400_dltobj(spec: *const c_char) {
         resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
     match crate::object::delete_object(&path) {
         Ok(_) => println!("[DLTOBJ] {} eliminado.", object),
-        Err(error) => println!("[DLTOBJ] Error eliminando {}: {}", object, error),
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[DLTOBJ] Error eliminando {}: {}", object, error);
+        }
     }
 }
 
@@ -839,6 +1106,7 @@ pub extern "C" fn l400_cpyobj(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let (Some(obj), Some(toobj)) = (fields.get("OBJ"), fields.get("TOOBJ")) else {
+        emit_status("CPF0006", None, "CPYOBJ requiere OBJ y TOOBJ");
         println!("[CPYOBJ] Uso: CPYOBJ OBJ(QGPL/A) TOOBJ(QGPL/B)");
         return;
     };
@@ -848,7 +1116,10 @@ pub extern "C" fn l400_cpyobj(spec: *const c_char) {
         resolve_object_spec(&root, toobj, fields.get("TOLIB").map(String::as_str));
     match crate::object::copy_object(&src, &dst) {
         Ok(_) => println!("[CPYOBJ] {} copiado a {}.", src_name, dst_name),
-        Err(error) => println!("[CPYOBJ] Error copiando {}: {}", src_name, error),
+        Err(error) => {
+            emit_status("CPF9801", Some(&src), &error.to_string());
+            println!("[CPYOBJ] Error copiando {}: {}", src_name, error);
+        }
     }
 }
 
@@ -857,6 +1128,7 @@ pub extern "C" fn l400_dspobjd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let Some(obj) = fields.get("OBJ") else {
+        emit_status("CPF0006", None, "DSPOBJD requiere OBJ");
         println!("[DSPOBJD] Uso: DSPOBJD OBJ(QGPL/MYOBJ)");
         return;
     };
@@ -899,7 +1171,10 @@ pub extern "C" fn l400_dspobjd(spec: *const c_char) {
             }
             println!("=======================================");
         }
-        Err(error) => println!("[DSPOBJD] Error: {}", error),
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[DSPOBJD] Error: {}", error);
+        }
     }
 }
 
@@ -908,6 +1183,7 @@ pub extern "C" fn l400_chgobjd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let Some(obj) = fields.get("OBJ") else {
+        emit_status("CPF0006", None, "CHGOBJD requiere OBJ");
         println!("[CHGOBJD] Uso: CHGOBJD OBJ(QGPL/MYOBJ) TEXT(Demo)");
         return;
     };
@@ -925,10 +1201,16 @@ pub extern "C" fn l400_chgobjd(spec: *const c_char) {
                 .or(object.attribute.as_deref());
             match crate::object::catalog_object(&path, &object.objtype, attr, text) {
                 Ok(_) => println!("[CHGOBJD] Objeto actualizado."),
-                Err(error) => println!("[CHGOBJD] Error actualizando objeto: {}", error),
+                Err(error) => {
+                    emit_status("CPF0001", Some(&path), &error.to_string());
+                    println!("[CHGOBJD] Error actualizando objeto: {}", error);
+                }
             }
         }
-        Err(error) => println!("[CHGOBJD] Error: {}", error),
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[CHGOBJD] Error: {}", error);
+        }
     }
 }
 
@@ -937,6 +1219,7 @@ pub extern "C" fn l400_dspobjaut(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let Some(obj) = fields.get("OBJ") else {
+        emit_status("CPF0006", None, "DSPOBJAUT requiere OBJ");
         println!("[DSPOBJAUT] Uso: DSPOBJAUT OBJ(QGPL/MYOBJ)");
         return;
     };
@@ -955,7 +1238,10 @@ pub extern "C" fn l400_dspobjaut(spec: *const c_char) {
             }
             println!("===============================");
         }
-        Err(error) => println!("[DSPOBJAUT] Error: {}", error),
+        Err(error) => {
+            emit_status("CPF0001", Some(&path), &error.to_string());
+            println!("[DSPOBJAUT] Error: {}", error);
+        }
     }
 }
 
@@ -966,6 +1252,7 @@ pub extern "C" fn l400_grtobjaut(spec: *const c_char) {
     let (Some(obj), Some(user), Some(aut)) =
         (fields.get("OBJ"), fields.get("USER"), fields.get("AUT"))
     else {
+        emit_status("CPF0006", None, "GRTOBJAUT requiere OBJ USER AUT");
         println!("[GRTOBJAUT] Uso: GRTOBJAUT OBJ(QGPL/MYOBJ) USER(QPGMR) AUT(*USE)");
         return;
     };
@@ -981,9 +1268,15 @@ pub extern "C" fn l400_grtobjaut(spec: *const c_char) {
                 );
                 println!("[GRTOBJAUT] Autoridad {} otorgada a {}.", aut, user)
             }
-            Err(error) => println!("[GRTOBJAUT] Error: {}", error),
+            Err(error) => {
+                emit_status("CPF0001", Some(&path), &error.to_string());
+                println!("[GRTOBJAUT] Error: {}", error);
+            }
         },
-        Err(error) => println!("[GRTOBJAUT] Error: {}", error),
+        Err(error) => {
+            emit_status("CPF0006", Some(&path), &error.to_string());
+            println!("[GRTOBJAUT] Error: {}", error);
+        }
     }
 }
 
@@ -992,6 +1285,7 @@ pub extern "C" fn l400_rvkobjaut(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let (Some(obj), Some(user)) = (fields.get("OBJ"), fields.get("USER")) else {
+        emit_status("CPF0006", None, "RVKOBJAUT requiere OBJ USER");
         println!("[RVKOBJAUT] Uso: RVKOBJAUT OBJ(QGPL/MYOBJ) USER(QPGMR)");
         return;
     };
@@ -1002,7 +1296,10 @@ pub extern "C" fn l400_rvkobjaut(spec: *const c_char) {
             audit_runtime("AUTH_CHANGE", &path, &format!("RVKOBJAUT user={}", user));
             println!("[RVKOBJAUT] Autoridad revocada para {}.", user)
         }
-        Err(error) => println!("[RVKOBJAUT] Error: {}", error),
+        Err(error) => {
+            emit_status("CPF0001", Some(&path), &error.to_string());
+            println!("[RVKOBJAUT] Error: {}", error);
+        }
     }
 }
 
@@ -1095,6 +1392,7 @@ pub extern "C" fn l400_crtpf(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let Some(file) = fields.get("FILE") else {
+        emit_status("CPF0006", None, "CRTPF requiere FILE");
         println!("[CRTPF] Uso: CRTPF FILE(QGPL/CUSTOMERS) RCDLEN(128)");
         return;
     };
@@ -1129,7 +1427,11 @@ pub extern "C" fn l400_crtpf(spec: *const c_char) {
                 library, name, record_len
             );
         }
-        Err(error) => println!("[CRTPF] Error: {}", error),
+        Err(error) => {
+            let path = root.join(&library).join(&name);
+            emit_status("CPF0001", Some(&path), &error.to_string());
+            println!("[CRTPF] Error: {}", error);
+        }
     }
 }
 
@@ -1138,6 +1440,7 @@ pub extern "C" fn l400_crtlf(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let (Some(file), Some(srcfile)) = (fields.get("FILE"), fields.get("SRCFILE")) else {
+        emit_status("CPF0006", None, "CRTLF requiere FILE y SRCFILE");
         println!("[CRTLF] Uso: CRTLF FILE(QGPL/CUSTBYNAME) SRCFILE(QGPL/CUSTOMERS)");
         return;
     };
@@ -1147,16 +1450,26 @@ pub extern "C" fn l400_crtlf(spec: *const c_char) {
     let (_src_library, _src_name, src_path) =
         resolve_object_spec(&root, srcfile, fields.get("SRCLIB").map(String::as_str));
     let lib_path = root.join(&library);
-    match crate::db::PhysicalFile::open(&src_path)
-        .and_then(|pf| crate::db::create_lf(&lib_path, &name, &pf))
-    {
+    match crate::db::PhysicalFile::open(&src_path).and_then(|pf| {
+        crate::db::create_lf_filtered(
+            &lib_path,
+            &name,
+            &pf,
+            fields.get("SELECT").map(String::as_str),
+            fields.get("OMIT").map(String::as_str),
+        )
+    }) {
         Ok(_) => println!(
             "[CRTLF] {}/{} creado sobre {}.",
             library,
             name,
             src_path.display()
         ),
-        Err(error) => println!("[CRTLF] Error: {}", error),
+        Err(error) => {
+            let path = root.join(&library).join(&name);
+            emit_status("CPF0001", Some(&path), &error.to_string());
+            println!("[CRTLF] Error: {}", error);
+        }
     }
 }
 
@@ -1165,6 +1478,7 @@ pub extern "C" fn l400_dsppfm(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let Some(file) = fields.get("FILE") else {
+        emit_status("CPF0006", None, "DSPPFM requiere FILE");
         println!("[DSPPFM] Uso: DSPPFM FILE(QGPL/CUSTOMERS)");
         return;
     };
@@ -1208,7 +1522,10 @@ pub extern "C" fn l400_dsppfm(spec: *const c_char) {
                 Err(error) => println!("  Error leyendo registros: {}", error),
             }
         }
-        Err(error) => println!("  Error abriendo PF: {}", error),
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("  Error abriendo PF: {}", error);
+        }
     }
     println!("======================================");
 }
@@ -1268,6 +1585,7 @@ pub extern "C" fn l400_wrtpfm(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let Some(file) = fields.get("FILE") else {
+        emit_status("CPF0006", None, "WRTPFM requiere FILE");
         println!("[WRTPFM] Uso: WRTPFM FILE(QGPL/CUSTOMERS) KEY(C001) DATA(value)");
         return;
     };
@@ -1284,16 +1602,25 @@ pub extern "C" fn l400_wrtpfm(spec: *const c_char) {
             if let Some(key) = fields.get("KEY") {
                 match pf.write_rcd(key.as_bytes(), data.as_bytes()) {
                     Ok(_) => println!("[WRTPFM] Registro KEY({}) escrito.", key),
-                    Err(error) => println!("[WRTPFM] Error: {}", error),
+                    Err(error) => {
+                        emit_status("CPF0001", Some(&path), &error.to_string());
+                        println!("[WRTPFM] Error: {}", error);
+                    }
                 }
             } else {
                 match pf.append_rcd(data.as_bytes()) {
                     Ok(rrn) => println!("[WRTPFM] Registro agregado RRN({}).", rrn),
-                    Err(error) => println!("[WRTPFM] Error: {}", error),
+                    Err(error) => {
+                        emit_status("CPF0001", Some(&path), &error.to_string());
+                        println!("[WRTPFM] Error: {}", error);
+                    }
                 }
             }
         }
-        Err(error) => println!("[WRTPFM] Error abriendo PF: {}", error),
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[WRTPFM] Error abriendo PF: {}", error);
+        }
     }
 }
 
@@ -1302,6 +1629,7 @@ pub extern "C" fn l400_crtdtaq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let Some(dtaq) = fields.get("DTAQ") else {
+        emit_status("CPF0006", None, "CRTDTAQ requiere DTAQ");
         println!("[CRTDTAQ] Uso: CRTDTAQ DTAQ(QUSRSYS/QEZJOBLOG)");
         return;
     };
@@ -1310,7 +1638,11 @@ pub extern "C" fn l400_crtdtaq(spec: *const c_char) {
         resolve_object_spec(&root, dtaq, fields.get("LIB").map(String::as_str));
     match crate::dtaq::crtdtaq(&root.join(&library), &name) {
         Ok(_) => println!("[CRTDTAQ] {}/{} creado.", library, name),
-        Err(error) => println!("[CRTDTAQ] Error: {}", error),
+        Err(error) => {
+            let path = root.join(&library).join(&name);
+            emit_status("CPF0001", Some(&path), &error.to_string());
+            println!("[CRTDTAQ] Error: {}", error);
+        }
     }
 }
 
@@ -1319,6 +1651,7 @@ pub extern "C" fn l400_snddtaq_cmd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let Some(dtaq) = fields.get("DTAQ") else {
+        emit_status("CPF0006", None, "SNDDTAQ requiere DTAQ");
         println!("[SNDDTAQ] Uso: SNDDTAQ DTAQ(QUSRSYS/QEZJOBLOG) MSG(text)");
         return;
     };
@@ -1328,7 +1661,10 @@ pub extern "C" fn l400_snddtaq_cmd(spec: *const c_char) {
         resolve_object_spec(&root, dtaq, fields.get("LIB").map(String::as_str));
     match crate::dtaq::DataQueue::open(&path).and_then(|queue| queue.snddtaq(msg.as_bytes())) {
         Ok(_) => println!("[SNDDTAQ] Mensaje enviado a {}.", path.display()),
-        Err(error) => println!("[SNDDTAQ] Error: {}", error),
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[SNDDTAQ] Error: {}", error);
+        }
     }
 }
 
@@ -1337,6 +1673,7 @@ pub extern "C" fn l400_rcvdtaq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
     let Some(dtaq) = fields.get("DTAQ") else {
+        emit_status("CPF0006", None, "RCVDTAQ requiere DTAQ");
         println!("[RCVDTAQ] Uso: RCVDTAQ DTAQ(QUSRSYS/QEZJOBLOG) WAIT(0)");
         return;
     };
@@ -1349,7 +1686,10 @@ pub extern "C" fn l400_rcvdtaq(spec: *const c_char) {
         resolve_object_spec(&root, dtaq, fields.get("LIB").map(String::as_str));
     match crate::dtaq::DataQueue::open(&path).and_then(|queue| queue.rcvdtaq(wait)) {
         Ok(msg) => println!("[RCVDTAQ] {}", String::from_utf8_lossy(&msg)),
-        Err(error) => println!("[RCVDTAQ] Error: {}", error),
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[RCVDTAQ] Error: {}", error);
+        }
     }
 }
 
@@ -1711,6 +2051,105 @@ pub extern "C" fn l400_wrkmbrpdm(file: *const c_char) {
         Err(error) => println!("  Error al listar miembros: {}", error),
     }
     println!("======================================");
+}
+
+#[no_mangle]
+pub extern "C" fn l400_dltmbr(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let (Some(file), Some(member)) = (fields.get("FILE"), fields.get("MBR")) else {
+        emit_status("CPF0006", None, "DLTMBR requiere FILE y MBR");
+        println!("[DLTMBR] Uso: DLTMBR FILE(QGPL/QCLSRC) MBR(HELLO.CLP) CONFIRM(*YES)");
+        return;
+    };
+    let confirmed = fields
+        .get("CONFIRM")
+        .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
+        .unwrap_or(false);
+    if !confirmed {
+        emit_status("CPF0006", None, "DLTMBR requiere CONFIRM(*YES)");
+        println!("[DLTMBR] Requiere CONFIRM(*YES).");
+        return;
+    }
+    let (library, file_name) = resolve_file_spec(file);
+    let lib_path = crate::object::resolve_l400_root().join(&library);
+    match crate::object::member_path(&lib_path, &file_name, member).and_then(|path| {
+        std::fs::remove_file(&path)?;
+        Ok(path)
+    }) {
+        Ok(path) => println!("[DLTMBR] {} eliminado.", path.display()),
+        Err(error) => {
+            emit_status(
+                "CPF9801",
+                Some(&lib_path.join(&file_name)),
+                &error.to_string(),
+            );
+            println!("[DLTMBR] Error: {}", error);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_cpymbr(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let (Some(file), Some(member), Some(to_member)) =
+        (fields.get("FILE"), fields.get("MBR"), fields.get("TOMBR"))
+    else {
+        emit_status("CPF0006", None, "CPYMBR requiere FILE MBR TOMBR");
+        println!("[CPYMBR] Uso: CPYMBR FILE(QGPL/QCLSRC) MBR(A.CLP) TOMBR(B.CLP)");
+        return;
+    };
+    let (library, file_name) = resolve_file_spec(file);
+    let lib_path = crate::object::resolve_l400_root().join(&library);
+    let result = crate::object::member_path(&lib_path, &file_name, member).and_then(|from| {
+        let to = crate::object::member_path(&lib_path, &file_name, to_member)?;
+        std::fs::copy(&from, &to)?;
+        Ok((from, to))
+    });
+    match result {
+        Ok((from, to)) => println!("[CPYMBR] {} copiado a {}.", from.display(), to.display()),
+        Err(error) => {
+            emit_status(
+                "CPF0001",
+                Some(&lib_path.join(&file_name)),
+                &error.to_string(),
+            );
+            println!("[CPYMBR] Error: {}", error);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_chgmbrd(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let (Some(file), Some(member), Some(text)) =
+        (fields.get("FILE"), fields.get("MBR"), fields.get("TEXT"))
+    else {
+        emit_status("CPF0006", None, "CHGMBRD requiere FILE MBR TEXT");
+        println!("[CHGMBRD] Uso: CHGMBRD FILE(QGPL/QCLSRC) MBR(A.CLP) TEXT(Demo)");
+        return;
+    };
+    let (library, file_name) = resolve_file_spec(file);
+    let lib_path = crate::object::resolve_l400_root().join(&library);
+    match crate::object::member_path(&lib_path, &file_name, member).and_then(|path| {
+        crate::storage::write_string_attr(&path, "user.l400.text", text)
+            .map_err(|error| crate::object::ObjectError::Fs(std::io::Error::other(error)))
+    }) {
+        Ok(_) => println!(
+            "[CHGMBRD] {}/{}/{} actualizado.",
+            library, file_name, member
+        ),
+        Err(error) => {
+            emit_status(
+                "CPF0001",
+                Some(&lib_path.join(&file_name)),
+                &error.to_string(),
+            );
+            println!("[CHGMBRD] Error: {}", error);
+        }
+    }
 }
 
 /// STRSEU — Muestra el contenido de un miembro fuente en modo batch.

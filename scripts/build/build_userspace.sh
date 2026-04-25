@@ -13,12 +13,18 @@ LIB_DIR="${USERSPACE_DIR}/lib"
 HOOKS_DIR="${USERSPACE_DIR}/hooks"
 LOG_DIR="${USERSPACE_DIR}/logs"
 ENABLE_CLC_LLVM="${ENABLE_CLC_LLVM:-0}"
+ARTIFACT_PROFILE="${ARTIFACT_PROFILE:-degraded}"
 
 mkdir -p "${BIN_DIR}" "${LIB_DIR}" "${HOOKS_DIR}" "${LOG_DIR}"
+printf 'artifact_profile=%s\n' "${ARTIFACT_PROFILE}" > "${USERSPACE_DIR}/profile"
 
 COMMAND_BINARIES=(
     WRKSYSSTS
     WRKACTJOB
+    WRKJOBQ
+    HLDJOB
+    RLSJOB
+    ENDJOB
     WRKSYSVAL
     DSPLOG
     DSPCMD
@@ -27,6 +33,10 @@ COMMAND_BINARIES=(
     WRKUSRPRF
     WRKSPLF
     WRKOUTQ
+    CRTOUTQ
+    DLTOUTQ
+    DSPSPLF
+    DLTSPLF
     PWRDWNSYS
     SBMJOB
     WRKOBJ
@@ -54,6 +64,9 @@ COMMAND_BINARIES=(
     STRSEU
     STRSQL
     WRKMBRPDM
+    DLTMBR
+    CPYMBR
+    CHGMBRD
     CRTPF
     CRTLF
     DSPPFM
@@ -69,6 +82,7 @@ COMMAND_BINARIES=(
 echo "=== Compilando userspace Linux/400 ==="
 echo "Target : ${TARGET_TRIPLE}"
 echo "Perfil : ${PROFILE}"
+echo "Modo   : ${ARTIFACT_PROFILE}"
 
 if ! rustup target list --installed | grep -qx "${TARGET_TRIPLE}"; then
     echo ">> Instalando target Rust ${TARGET_TRIPLE}..."

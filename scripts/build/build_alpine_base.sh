@@ -15,6 +15,10 @@ MINIROOT_URL="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/releases/
 COMMAND_BINARIES=(
     WRKSYSSTS
     WRKACTJOB
+    WRKJOBQ
+    HLDJOB
+    RLSJOB
+    ENDJOB
     WRKSYSVAL
     DSPLOG
     DSPCMD
@@ -23,6 +27,10 @@ COMMAND_BINARIES=(
     WRKUSRPRF
     WRKSPLF
     WRKOUTQ
+    CRTOUTQ
+    DLTOUTQ
+    DSPSPLF
+    DLTSPLF
     PWRDWNSYS
     SBMJOB
     WRKOBJ
@@ -50,6 +58,9 @@ COMMAND_BINARIES=(
     STRSEU
     STRSQL
     WRKMBRPDM
+    DLTMBR
+    CPYMBR
+    CHGMBRD
     CRTPF
     CRTLF
     DSPPFM
@@ -273,6 +284,8 @@ install_userspace() {
     cp "${RUNTIME_DIR}/l400-console-autologin.sh" "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin"
     cp "${RUNTIME_DIR}/l400-installer.sh" "${ROOTFS_DIR}/usr/local/bin/l400-installer"
     cp "${RUNTIME_DIR}/l400-support-report.sh" "${ROOTFS_DIR}/usr/local/bin/l400-support-report"
+    cp "${RUNTIME_DIR}/l400-upgrade-check.sh" "${ROOTFS_DIR}/usr/local/bin/l400-upgrade-check"
+    cp "${RUNTIME_DIR}/l400-migrate.sh" "${ROOTFS_DIR}/usr/local/bin/l400-migrate"
     cp "${RUNTIME_DIR}/install_linux400.sh" "${ROOTFS_DIR}/usr/local/sbin/install-linux400"
 
     cp -r "${L400_SRC_DIR}/scripts/"* "${ROOTFS_DIR}/opt/l400/scripts/" 2>/dev/null || true
@@ -282,6 +295,8 @@ install_userspace() {
         "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin" \
         "${ROOTFS_DIR}/usr/local/bin/l400-installer" \
         "${ROOTFS_DIR}/usr/local/bin/l400-support-report" \
+        "${ROOTFS_DIR}/usr/local/bin/l400-upgrade-check" \
+        "${ROOTFS_DIR}/usr/local/bin/l400-migrate" \
         "${ROOTFS_DIR}/usr/local/sbin/install-linux400"
 
     ln -sf /opt/l400/bin/os400-tui "${ROOTFS_DIR}/usr/local/bin/os400-tui"

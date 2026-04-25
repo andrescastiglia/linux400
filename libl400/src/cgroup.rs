@@ -29,6 +29,7 @@ pub enum WorkloadType {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobStatus {
     JobQ,
+    Held,
     Active,
     Completed,
     Failed,
@@ -38,6 +39,7 @@ impl std::fmt::Display for JobStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             JobStatus::JobQ => write!(f, "JOBQ"),
+            JobStatus::Held => write!(f, "HELD"),
             JobStatus::Active => write!(f, "ACTIVE"),
             JobStatus::Completed => write!(f, "COMPLETED"),
             JobStatus::Failed => write!(f, "FAILED"),
@@ -51,6 +53,7 @@ impl std::str::FromStr for JobStatus {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
             "JOBQ" => Ok(JobStatus::JobQ),
+            "HELD" | "HLD" => Ok(JobStatus::Held),
             "ACTIVE" => Ok(JobStatus::Active),
             "COMPLETED" => Ok(JobStatus::Completed),
             "FAILED" => Ok(JobStatus::Failed),
@@ -475,6 +478,14 @@ pub fn register_current_job(
 
 pub fn update_job_status(pid: u64, status: JobStatus) -> Result<(), CgroupError> {
     update_job_status_at(&l400_run_dir(), pid, status)
+}
+
+pub fn hold_job(pid: u64) -> Result<(), CgroupError> {
+    update_job_status(pid, JobStatus::Held)
+}
+
+pub fn release_job(pid: u64) -> Result<(), CgroupError> {
+    update_job_status(pid, JobStatus::JobQ)
 }
 
 pub fn end_job(pid: u64) -> Result<(), CgroupError> {

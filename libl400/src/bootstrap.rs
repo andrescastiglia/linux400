@@ -264,6 +264,14 @@ pub fn bootstrap_l400_root(root: &Path) -> Result<BootstrapReport, BootstrapErro
     ensure_source_member_file(&qgpl, "QCLSRC", "HELLO.CLP", HELLO_CL, &mut report)?;
 
     ensure_data_queue(&qusrsys, "QEZJOBLOG", &mut report)?;
+    ensure_object(
+        &qsys,
+        "QBATCH",
+        "*JOBQ",
+        "JOBQ",
+        "Batch job queue",
+        &mut report,
+    )?;
 
     for (profile, text) in BASE_PROFILES {
         ensure_object(&qsys, profile, "*USRPRF", "USRPRF", text, &mut report)?;

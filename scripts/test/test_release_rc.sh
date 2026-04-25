@@ -28,6 +28,7 @@ echo "=== Runtime smoke scripts ==="
 "${L400_SRC_DIR}/scripts/test/test_workload_demo.sh"
 "${L400_SRC_DIR}/scripts/test/test_loader_modes.sh"
 bash "${L400_SRC_DIR}/scripts/test/test_support_profile.sh"
+bash "${L400_SRC_DIR}/scripts/test/test_l400_backup_restore.sh"
 
 if [[ "${RUN_E2E_INSTALL}" == "1" ]]; then
     echo "=== Running QEMU install smoke test ==="

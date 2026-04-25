@@ -514,6 +514,16 @@ pub fn create_lf(
     name: &str,
     over_pf: &PhysicalFile,
 ) -> Result<LogicalFile, DbError> {
+    create_lf_filtered(lib_path, name, over_pf, None, None)
+}
+
+pub fn create_lf_filtered(
+    lib_path: &Path,
+    name: &str,
+    over_pf: &PhysicalFile,
+    select_value: Option<&str>,
+    omit_value: Option<&str>,
+) -> Result<LogicalFile, DbError> {
     if get_objtype(lib_path)? != "*LIB" {
         return Err(DbError::InvalidType(
             "target library must be a *LIB".to_string(),
@@ -545,6 +555,12 @@ pub fn create_lf(
     };
 
     write_string_attr(&lf_path, L400_BASE_PF_ATTR, &over_pf.path.to_string_lossy())?;
+    if let Some(value) = select_value {
+        write_string_attr(&lf_path, "user.l400.lf.select", value)?;
+    }
+    if let Some(value) = omit_value {
+        write_string_attr(&lf_path, "user.l400.lf.omit", value)?;
+    }
     write_storage_backend(&lf_path, over_pf.backend)?;
     catalog_object(&lf_path, "*FILE", Some("LF"), Some("Logical file"))?;
 
@@ -591,6 +607,9 @@ impl LogicalFile {
     }
 
     pub fn insert_idx(&self, secondary_key: &[u8], primary_key: &[u8]) -> Result<(), DbError> {
+        if !self.accepts_secondary_key(secondary_key)? {
+            return Ok(());
+        }
         match &self.storage {
             LogicalFileStorage::Sled { db, index } => {
                 index.insert(secondary_key, primary_key)?;
@@ -601,6 +620,23 @@ impl LogicalFile {
             }
         }
         Ok(())
+    }
+
+    fn accepts_secondary_key(&self, secondary_key: &[u8]) -> Result<bool, DbError> {
+        let value = String::from_utf8_lossy(secondary_key);
+        let lf_path = Path::new(&self.base_pf)
+            .parent()
+            .map(|library| library.join(&self.name));
+        let Some(lf_path) = lf_path else {
+            return Ok(true);
+        };
+        if let Some(select) = read_string_attr(&lf_path, "user.l400.lf.select")? {
+            return Ok(value == select);
+        }
+        if let Some(omit) = read_string_attr(&lf_path, "user.l400.lf.omit")? {
+            return Ok(value != omit);
+        }
+        Ok(true)
     }
 
     pub fn setll(&self, secondary_key: &[u8]) -> Result<Vec<u8>, DbError> {
@@ -1107,16 +1143,32 @@ fn run_insert_statement(
     }
     let mut key = None;
     let mut data = None;
+    let mut provided_values = std::collections::HashMap::new();
     for (column, value) in columns.into_iter().zip(insert.values) {
+        provided_values.insert(column.clone(), value.clone());
         match column.as_str() {
             "KEY" | "RRN" => key = Some(value),
             "DATA" => data = Some(value),
+            other if pf_schema_has_field(&pf.path, other)? => {}
             other => {
                 return Err(DbError::InvalidQuery(format!(
                     "INSERT does not support column {other}"
                 )))
             }
         }
+    }
+    let schema = read_pf_schema(&pf.path).unwrap_or_else(|_| PfSchema::minimal(pf.record_len));
+    if schema.key_fields.len() > 1 {
+        let mut parts = Vec::new();
+        for field in &schema.key_fields {
+            let Some(value) = provided_values.get(field) else {
+                return Err(DbError::InvalidQuery(format!(
+                    "missing composite key field {field}"
+                )));
+            };
+            parts.push(value.clone());
+        }
+        key = Some(parts.join("|"));
     }
     let data = data.unwrap_or_default();
     if let Some(key) = key {
@@ -1128,6 +1180,11 @@ fn run_insert_statement(
             "1 row inserted RRN({rrn})"
         )))
     }
+}
+
+fn pf_schema_has_field(path: &Path, column: &str) -> Result<bool, DbError> {
+    let schema = read_pf_schema(path)?;
+    Ok(schema.fields.iter().any(|field| field.name == column))
 }
 
 fn matching_keys(pf: &PhysicalFile, filter: Option<&QueryFilter>) -> Result<RecordSet, DbError> {
@@ -1286,6 +1343,37 @@ fn run_create_table_statement(
     )))
 }
 
+fn run_create_index_statement(
+    statement: &str,
+    default_library: Option<&str>,
+) -> Result<SqlStatementResult, DbError> {
+    let rest = statement
+        .get("CREATE INDEX ".len()..)
+        .ok_or_else(|| DbError::InvalidQuery("expected CREATE INDEX".to_string()))?
+        .trim();
+    let on_pos = find_keyword(rest, " ON ")
+        .ok_or_else(|| DbError::InvalidQuery("CREATE INDEX requires ON".to_string()))?;
+    let index_ref = parse_table_ref(&rest[..on_pos])?;
+    let source_part = rest[on_pos + " ON ".len()..].trim();
+    let table_token = source_part
+        .split_once('(')
+        .map(|(table, _)| table.trim())
+        .unwrap_or(source_part);
+    let source_ref = parse_table_ref(table_token)?;
+    let library = resolve_library(
+        index_ref.library.clone().or(source_ref.library.clone()),
+        default_library,
+    );
+    let lib_path = crate::object::resolve_l400_root().join(&library);
+    let (_src_library, source_path) = resolve_table_path(&source_ref, Some(&library));
+    let pf = PhysicalFile::open(&source_path)?;
+    create_lf(&lib_path, &index_ref.file, &pf)?;
+    Ok(SqlStatementResult::Message(format!(
+        "index {}/{} created",
+        library, index_ref.file
+    )))
+}
+
 pub fn run_sql_statement(
     statement: &str,
     default_library: Option<&str>,
@@ -1307,8 +1395,12 @@ pub fn run_sql_statement(
     if upper.starts_with("CREATE TABLE ") {
         return run_create_table_statement(statement, default_library);
     }
+    if upper.starts_with("CREATE INDEX ") {
+        return run_create_index_statement(statement, default_library);
+    }
     Err(DbError::InvalidQuery(
-        "supported statements: SELECT, INSERT, UPDATE, DELETE, CREATE TABLE".to_string(),
+        "supported statements: SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, CREATE INDEX"
+            .to_string(),
     ))
 }
 

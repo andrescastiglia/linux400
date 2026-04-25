@@ -57,4 +57,8 @@ pub const VALID_OBJ_TYPES: &[L400ObjType] = &[
         prefix: *b"*OUT",
         name: "*OUTQ",
     },
+    L400ObjType {
+        prefix: *b"*JOB",
+        name: "*JOBQ",
+    },
 ];

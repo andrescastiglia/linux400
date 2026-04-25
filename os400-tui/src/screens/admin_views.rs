@@ -5,6 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
+use std::path::PathBuf;
 use std::process::Command;
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
@@ -27,6 +28,14 @@ pub struct AdminCommandView {
     scroll: usize,
     status: String,
     session: SessionContext,
+    object_spec: Option<String>,
+    line_filter: Option<String>,
+    pending_action: Option<PendingAction>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PendingAction {
+    DeleteObject(String),
 }
 
 impl AdminCommandView {
@@ -34,7 +43,7 @@ impl AdminCommandView {
         let object_spec = data
             .and_then(extract_object_spec)
             .unwrap_or_else(|| "QGPL/*ALL".to_string());
-        Self::new(
+        let mut view = Self::new(
             AdminViewKind::ObjectDetail,
             format!("Display Object Detail  {}", object_spec),
             vec![
@@ -42,7 +51,9 @@ impl AdminCommandView {
                 format!("DSPOBJAUT OBJ({object_spec})"),
             ],
             session,
-        )
+        );
+        view.object_spec = Some(object_spec);
+        view
     }
 
     pub fn user_profiles(session: SessionContext) -> Self {
@@ -96,6 +107,9 @@ impl AdminCommandView {
             scroll: 0,
             status: String::new(),
             session,
+            object_spec: None,
+            line_filter: None,
+            pending_action: None,
         };
         view.refresh();
         view
@@ -107,7 +121,7 @@ impl AdminCommandView {
         for command in &self.commands {
             self.lines.push(format!("==> {}", command));
             match Command::new("l400cmd")
-                .args(command.split_whitespace())
+                .args(tokenize_cl_command(command))
                 .env("L400_USER", &state.user_profile)
                 .env("L400_CURLIB", &state.current_library)
                 .env("L400_LIBLIST", state.library_list.join(":"))
@@ -131,20 +145,88 @@ impl AdminCommandView {
             }
             self.lines.push(String::new());
         }
+        if let Some(filter) = &self.line_filter {
+            let filter = filter.to_uppercase();
+            self.lines.retain(|line| {
+                line.trim().is_empty()
+                    || line.starts_with("==>")
+                    || line.to_uppercase().contains(&filter)
+            });
+            self.lines
+                .insert(0, format!("Filtro activo: contiene '{}'", filter));
+        }
         if self.lines.is_empty() {
             self.lines.push("Sin datos para mostrar.".to_string());
         }
         self.scroll = 0;
         self.status = match self.kind {
             AdminViewKind::ObjectDetail => {
-                "Opciones: F5=Refresh, F12=Volver, F4=Prompt.".to_string()
+                "Opciones: 2=Change text 3=Copy 4=Delete 8=Authorities F5=Refresh.".to_string()
             }
             AdminViewKind::UserProfiles => {
-                "WRKUSRPRF dedicado. Cree/desactive perfiles desde command prompt.".to_string()
+                "Opciones: 2=Create QPGMR2 4=Disable QPGMR2 5=Display QPGMR.".to_string()
             }
-            AdminViewKind::PolicyAudit => "DSPPOLICY/DSPAUD dedicado.".to_string(),
-            AdminViewKind::SpoolOutq => "WRKSPLF/WRKOUTQ dedicado.".to_string(),
+            AdminViewKind::PolicyAudit => {
+                "Opciones: 1=Denied 2=User changes 0=All F5=Refresh.".to_string()
+            }
+            AdminViewKind::SpoolOutq => {
+                "Opciones: 5=Display first spool 0=List F5=Refresh.".to_string()
+            }
         };
+    }
+
+    fn run_l400_command(&mut self, command: &str) {
+        let state = self.session.snapshot();
+        self.lines.clear();
+        self.lines.push(format!("==> {}", command));
+        match Command::new("l400cmd")
+            .args(tokenize_cl_command(command))
+            .env("L400_USER", &state.user_profile)
+            .env("L400_CURLIB", &state.current_library)
+            .env("L400_LIBLIST", state.library_list.join(":"))
+            .output()
+        {
+            Ok(output) => {
+                self.lines.extend(
+                    String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .chain(String::from_utf8_lossy(&output.stderr).lines())
+                        .map(str::to_string),
+                );
+                self.status = format!(
+                    "{} status={}",
+                    command,
+                    output.status.code().unwrap_or_default()
+                );
+            }
+            Err(error) => {
+                self.lines
+                    .push(format!("No se pudo ejecutar '{}': {}", command, error));
+                self.status = "Runtime no disponible.".to_string();
+            }
+        }
+        self.scroll = 0;
+    }
+
+    fn display_first_spool_file(&mut self) {
+        let Some(path) = first_spool_file() else {
+            self.lines = vec!["No hay spool files para visualizar.".to_string()];
+            self.status = "Spool vacio.".to_string();
+            return;
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(content) => {
+                self.lines = std::iter::once(format!("==> DSPSPLF {}", path.display()))
+                    .chain(content.lines().map(str::to_string))
+                    .collect();
+                self.status = format!("Mostrando {}", path.display());
+            }
+            Err(error) => {
+                self.lines = vec![format!("No se pudo leer {}: {}", path.display(), error)];
+                self.status = "Error leyendo spool.".to_string();
+            }
+        }
+        self.scroll = 0;
     }
 }
 
@@ -167,6 +249,26 @@ impl Screen for AdminCommandView {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
+        if let Some(action) = self.pending_action.clone() {
+            match key.code {
+                KeyCode::Enter => {
+                    match action {
+                        PendingAction::DeleteObject(spec) => {
+                            self.run_l400_command(&format!("DLTOBJ OBJ({spec}) CONFIRM(*YES)"));
+                            self.pending_action = None;
+                        }
+                    }
+                    return ScreenResult::none();
+                }
+                KeyCode::F(12) | KeyCode::Esc => {
+                    self.pending_action = None;
+                    self.status = "Accion cancelada.".to_string();
+                    return ScreenResult::none();
+                }
+                _ => return ScreenResult::none(),
+            }
+        }
+
         match key.code {
             KeyCode::F(3) | KeyCode::F(12) => ScreenResult::goto(ScreenId::MainMenu),
             KeyCode::F(4) => ScreenResult::goto(ScreenId::CommandLine),
@@ -194,6 +296,63 @@ impl Screen for AdminCommandView {
                     .scroll
                     .saturating_add(10)
                     .min(self.lines.len().saturating_sub(1));
+                ScreenResult::none()
+            }
+            KeyCode::Char('0') => {
+                self.line_filter = None;
+                self.refresh();
+                ScreenResult::none()
+            }
+            KeyCode::Char('1') if self.kind == AdminViewKind::PolicyAudit => {
+                self.line_filter = Some("AUTH_DENIED".to_string());
+                self.refresh();
+                ScreenResult::none()
+            }
+            KeyCode::Char('2') if self.kind == AdminViewKind::PolicyAudit => {
+                self.line_filter = Some("USRPRF_CHANGE".to_string());
+                self.refresh();
+                ScreenResult::none()
+            }
+            KeyCode::Char('2') if self.kind == AdminViewKind::ObjectDetail => {
+                if let Some(spec) = self.object_spec.clone() {
+                    self.run_l400_command(&format!("CHGOBJD OBJ({spec}) TEXT('Changed from TUI')"));
+                }
+                ScreenResult::none()
+            }
+            KeyCode::Char('3') if self.kind == AdminViewKind::ObjectDetail => {
+                if let Some(spec) = self.object_spec.clone() {
+                    let to_spec = format!("{spec}_COPY");
+                    self.run_l400_command(&format!("CPYOBJ OBJ({spec}) TOOBJ({to_spec})"));
+                }
+                ScreenResult::none()
+            }
+            KeyCode::Char('4') if self.kind == AdminViewKind::ObjectDetail => {
+                if let Some(spec) = self.object_spec.clone() {
+                    self.pending_action = Some(PendingAction::DeleteObject(spec.clone()));
+                    self.status = format!("Confirmar DLTOBJ {spec}: Enter=Confirm F12=Cancel.");
+                }
+                ScreenResult::none()
+            }
+            KeyCode::Char('8') if self.kind == AdminViewKind::ObjectDetail => {
+                if let Some(spec) = self.object_spec.clone() {
+                    self.run_l400_command(&format!("DSPOBJAUT OBJ({spec})"));
+                }
+                ScreenResult::none()
+            }
+            KeyCode::Char('2') if self.kind == AdminViewKind::UserProfiles => {
+                self.run_l400_command("WRKUSRPRF USRPRF(QPGMR2) ACTION(*CREATE)");
+                ScreenResult::none()
+            }
+            KeyCode::Char('4') if self.kind == AdminViewKind::UserProfiles => {
+                self.run_l400_command("WRKUSRPRF USRPRF(QPGMR2) ACTION(*DISABLE)");
+                ScreenResult::none()
+            }
+            KeyCode::Char('5') if self.kind == AdminViewKind::UserProfiles => {
+                self.run_l400_command("WRKUSRPRF USRPRF(QPGMR)");
+                ScreenResult::none()
+            }
+            KeyCode::Char('5') if self.kind == AdminViewKind::SpoolOutq => {
+                self.display_first_spool_file();
                 ScreenResult::none()
             }
             _ => ScreenResult::none(),
@@ -251,6 +410,7 @@ impl AdminCommandView {
             "F3=Exit   ".into(),
             "F4=Prompt   ".into(),
             "F5=Refresh   ".into(),
+            "2/3/4/5/8=Options   ".into(),
             "PgUp/PgDn=Roll   ".into(),
             "F12=Cancel".into(),
         ]);
@@ -264,6 +424,48 @@ impl AdminCommandView {
     }
 }
 
+fn tokenize_cl_command(command: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
+
+    for ch in command.chars() {
+        match ch {
+            '\'' if !in_double => {
+                in_single = !in_single;
+                current.push(ch);
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                current.push(ch);
+            }
+            '(' if !in_single && !in_double => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' if !in_single && !in_double => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            ch if ch.is_whitespace() && depth == 0 && !in_single && !in_double => {
+                if !current.trim().is_empty() {
+                    tokens.push(current.trim().to_string());
+                    current.clear();
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    if !current.trim().is_empty() {
+        tokens.push(current.trim().to_string());
+    }
+
+    tokens
+}
+
 fn extract_object_spec(data: &str) -> Option<String> {
     let value = data.trim();
     if value.contains('/') && !value.contains('(') {
@@ -275,4 +477,24 @@ fn extract_object_spec(data: &str) -> Option<String> {
     let end = rest.find(')')?;
     let spec = rest[..end].trim();
     (!spec.is_empty()).then(|| spec.to_uppercase())
+}
+
+fn first_spool_file() -> Option<PathBuf> {
+    let root = l400::resolve_l400_root();
+    let candidates = [
+        std::env::var("L400_SPOOL_DIR").ok().map(PathBuf::from),
+        Some(root.join("QUSRSYS").join("QSPL")),
+        Some(root.join("spool")),
+    ];
+    candidates
+        .into_iter()
+        .flatten()
+        .filter(|dir| dir.exists())
+        .find_map(|dir| {
+            std::fs::read_dir(dir)
+                .ok()?
+                .flatten()
+                .map(|entry| entry.path())
+                .find(|path| path.is_file())
+        })
 }

@@ -115,6 +115,29 @@ impl WorkManagement {
         });
     }
 
+    fn show_selected_log(&mut self) {
+        self.detail = self.selected_job().map(|job| {
+            if job.log_path == "-" {
+                return format!("Job {} no tiene log persistido.", job.name);
+            }
+            match std::fs::read_to_string(&job.log_path) {
+                Ok(content) => {
+                    let tail = content
+                        .lines()
+                        .rev()
+                        .take(3)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    format!("Log: {}\n{}", job.log_path, tail)
+                }
+                Err(error) => format!("No se pudo leer log {}: {}", job.log_path, error),
+            }
+        });
+    }
+
     fn request_end_selected_job(&mut self) {
         let Some(job) = self.selected_job() else {
             self.detail = Some("No job selected.".to_string());
@@ -225,6 +248,10 @@ impl Screen for WorkManagement {
             }
             KeyCode::Char('5') => {
                 self.show_detail();
+                ScreenResult::none()
+            }
+            KeyCode::Char('9') => {
+                self.show_selected_log();
                 ScreenResult::none()
             }
             KeyCode::F(10) => {
@@ -339,6 +366,7 @@ impl WorkManagement {
             "F10=End   ".into(),
             "4=End   ".into(),
             "5=Detail   ".into(),
+            "9=Log   ".into(),
             "F11/Enter=Detail   ".into(),
             "F12=Cancel   ".into(),
         ]);
