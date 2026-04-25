@@ -193,9 +193,11 @@ Criterio de aceptacion:
 
 **Problema:** `clc` compila comandos simples, pero falta lenguaje de control real.
 
+**Estado:** implementada en base. `clc` soporta bloques de control y genera C nativo con variables, parametros, `IF/ELSE`, `DO/ENDDO`, `MONMSG`, `CALL` y `CRTCLPGM`. Queda pendiente semantica completa de errores CPF para `MONMSG` y backend LLVM equivalente.
+
 Trabajo:
 
-- Extender grammar/AST:
+- [x] Extender grammar/AST:
   - variables `DCL`;
   - `CHGVAR`;
   - `IF/THEN/ELSE`;
@@ -203,15 +205,16 @@ Trabajo:
   - `MONMSG`;
   - `CALL`;
   - parametros de programa.
-- Generar C o LLVM con control de flujo real.
-- Agregar resolucion de objetos por library list.
-- Catalogar source y program objects de forma uniforme.
-- Definir comando `CRTCLPGM` o mapear `CRTPGM` a flujo de compilacion.
+- [x] Generar C o LLVM con control de flujo real.
+- [x] Agregar resolucion de objetos por library list.
+- [x] Catalogar source y program objects de forma uniforme.
+- [x] Definir comando `CRTCLPGM` o mapear `CRTPGM` a flujo de compilacion.
 
 Criterio de aceptacion:
 
-- un CL de ejemplo crea biblioteca, cambia curlib, compila/llama programa, maneja error con `MONMSG`;
-- tests unitarios cubren parser y codegen de cada estructura nueva.
+- [x] un CL de ejemplo crea biblioteca, cambia curlib, compila/llama programa, maneja error con `MONMSG`;
+- [x] tests unitarios cubren parser y codegen de cada estructura nueva;
+- [ ] `MONMSG` debe capturar codigos CPF reales cuando los comandos runtime expongan estado formal.
 
 ## Fase 8: TUI OS/400-style completa para operaciones minimas
 

@@ -1056,11 +1056,116 @@ pub extern "C" fn l400_rnmobj(obj: *const c_char, newname: *const c_char) {
 pub extern "C" fn l400_crtpgm(pgm: *const c_char) {
     let name = c_str_to_string(pgm);
     let root = crate::object::resolve_l400_root();
-    let curlib = std::env::var("L400_CURLIB").unwrap_or_else(|_| "QSYS".to_string());
-    let path = root.join(&curlib).join(&name);
+    let (_library, object, path) = resolve_object_spec(&root, &name, None);
     match crate::object::catalog_object(&path, "*PGM", Some("CL"), Some("CL Program")) {
-        Ok(_) => println!("[CRTPGM] {} catalogado como *PGM.", name),
-        Err(e) => println!("[CRTPGM] Error catalogando {}: {}", name, e),
+        Ok(_) => println!("[CRTPGM] {} catalogado como *PGM.", object),
+        Err(e) => println!("[CRTPGM] Error catalogando {}: {}", object, e),
+    }
+}
+
+fn resolve_program_for_call(root: &Path, pgm: &str) -> PathBuf {
+    let trimmed = pgm.trim();
+    if trimmed.contains('/') {
+        return resolve_object_spec(root, trimmed, None).2;
+    }
+    let curlib = std::env::var("L400_CURLIB")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "QGPL".to_string());
+    let mut candidates = vec![curlib];
+    candidates.extend(
+        std::env::var("L400_LIBLIST")
+            .unwrap_or_default()
+            .split(':')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_uppercase),
+    );
+    candidates.push("QGPL".to_string());
+    candidates.push("QSYS".to_string());
+    candidates
+        .into_iter()
+        .map(|library| root.join(library).join(trimmed.to_uppercase()))
+        .find(|path| path.exists())
+        .unwrap_or_else(|| root.join("QGPL").join(trimmed.to_uppercase()))
+}
+
+fn resolve_clc_binary() -> PathBuf {
+    if let Ok(path) = std::env::var("L400_CLC_PATH") {
+        return PathBuf::from(path);
+    }
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(dir) = current_exe.parent() {
+            let sibling = dir.join("clc");
+            if sibling.exists() {
+                return sibling;
+            }
+        }
+    }
+    for candidate in ["target/debug/clc", "target/release/clc", "clc"] {
+        let path = PathBuf::from(candidate);
+        if candidate == "clc" || path.exists() {
+            return path;
+        }
+    }
+    PathBuf::from("clc")
+}
+
+/// CALL — Ejecuta un programa *PGM resolviendo CURLIB/LIBLIST.
+#[no_mangle]
+pub extern "C" fn l400_call(pgm: *const c_char) {
+    let pgm = c_str_to_string(pgm);
+    let root = crate::object::resolve_l400_root();
+    let path = resolve_program_for_call(&root, &pgm);
+    match std::process::Command::new(&path).status() {
+        Ok(status) if status.success() => {
+            println!("[CALL] {} finalizo correctamente.", path.display())
+        }
+        Ok(status) => println!("[CALL] {} finalizo con estado {}.", path.display(), status),
+        Err(error) => println!("[CALL] Error ejecutando {}: {}", path.display(), error),
+    }
+}
+
+/// CRTCLPGM — Compila un miembro CL y cataloga el resultado como *PGM.
+#[no_mangle]
+pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcmbr: *const c_char) {
+    let pgm = c_str_to_string(pgm);
+    let srcfile = c_str_to_string(srcfile);
+    let srcmbr = c_str_to_string(srcmbr);
+    let root = crate::object::resolve_l400_root();
+    let (pgm_library, pgm_name, output_path) = resolve_object_spec(&root, &pgm, None);
+    let (src_library, src_file) = resolve_file_spec(&srcfile);
+    let src_lib_path = root.join(&src_library);
+    let source_path = crate::object::member_path(&src_lib_path, &src_file, &srcmbr).or_else(|_| {
+        if srcmbr.to_uppercase().ends_with(".CLP") {
+            crate::object::member_path(&src_lib_path, &src_file, &srcmbr)
+        } else {
+            crate::object::member_path(&src_lib_path, &src_file, &format!("{srcmbr}.CLP"))
+        }
+    });
+    let Ok(source_path) = source_path else {
+        println!(
+            "[CRTCLPGM] No se encontro fuente {}/{} {}.",
+            src_library, src_file, srcmbr
+        );
+        return;
+    };
+
+    let status = std::process::Command::new(resolve_clc_binary())
+        .arg("--input")
+        .arg(&source_path)
+        .arg("--output")
+        .arg(&output_path)
+        .status();
+    match status {
+        Ok(status) if status.success() => println!(
+            "[CRTCLPGM] {}/{} compilado desde {}.",
+            pgm_library,
+            pgm_name,
+            source_path.display()
+        ),
+        Ok(status) => println!("[CRTCLPGM] clc finalizo con estado {}.", status),
+        Err(error) => println!("[CRTCLPGM] Error ejecutando clc: {}", error),
     }
 }
 

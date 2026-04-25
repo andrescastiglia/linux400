@@ -30,6 +30,8 @@ const COMMAND_BINARIES: &[&str] = &[
     "CHGCURLIB",
     "RNMOBJ",
     "CRTPGM",
+    "CRTCLPGM",
+    "CALL",
     "GO",
     "SIGNOFF",
     "STRPDM",
@@ -186,6 +188,14 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             "CRTPGM PGM(MYPGM)",
             ffi_commands::l400_crtpgm,
         ),
+        "CRTCLPGM" => dispatch_crtclpgm(args),
+        "CALL" => dispatch_unary_required(
+            command,
+            args,
+            &["PGM"],
+            "CALL PGM(QGPL/MYPGM)",
+            ffi_commands::l400_call,
+        ),
         "GO" => dispatch_go(command, args),
         "SIGNOFF" => dispatch_signoff(),
         "STRPDM" => {
@@ -310,6 +320,25 @@ fn dispatch_rnmobj(args: &[String]) -> ExitCode {
     };
 
     call_with_two_cstrings(&current, &new_name, ffi_commands::l400_rnmobj)
+}
+
+fn dispatch_crtclpgm(args: &[String]) -> ExitCode {
+    let keys = ["PGM", "SRCFILE", "SRCMBR"];
+    let positional = positional_args(args, &keys);
+    let pgm = extract_named_arg(args, &["PGM"]).or_else(|| positional.first().cloned());
+    let srcfile = extract_named_arg(args, &["SRCFILE"])
+        .or_else(|| positional.get(1).cloned())
+        .unwrap_or_else(|| "QGPL/QCLSRC".to_string());
+    let srcmbr = extract_named_arg(args, &["SRCMBR"])
+        .or_else(|| positional.get(2).cloned())
+        .unwrap_or_else(|| "MAIN.CLP".to_string());
+    let Some(pgm) = pgm else {
+        eprintln!("ERROR: CRTCLPGM requiere PGM.");
+        eprintln!("Uso: CRTCLPGM PGM(QGPL/HELLO) SRCFILE(QGPL/QCLSRC) SRCMBR(HELLO.CLP)");
+        return ExitCode::from(2);
+    };
+
+    call_with_three_cstrings(&pgm, &srcfile, &srcmbr, ffi_commands::l400_crtclpgm)
 }
 
 fn dispatch_strseu(args: &[String]) -> ExitCode {
@@ -491,6 +520,38 @@ fn call_with_two_cstrings(
     };
 
     callback(first.as_ptr(), second.as_ptr());
+    ExitCode::SUCCESS
+}
+
+fn call_with_three_cstrings(
+    first: &str,
+    second: &str,
+    third: &str,
+    callback: extern "C" fn(*const c_char, *const c_char, *const c_char),
+) -> ExitCode {
+    let first = match CString::new(first) {
+        Ok(value) => value,
+        Err(_) => {
+            eprintln!("ERROR: los parámetros no pueden contener bytes NUL.");
+            return ExitCode::from(2);
+        }
+    };
+    let second = match CString::new(second) {
+        Ok(value) => value,
+        Err(_) => {
+            eprintln!("ERROR: los parámetros no pueden contener bytes NUL.");
+            return ExitCode::from(2);
+        }
+    };
+    let third = match CString::new(third) {
+        Ok(value) => value,
+        Err(_) => {
+            eprintln!("ERROR: los parámetros no pueden contener bytes NUL.");
+            return ExitCode::from(2);
+        }
+    };
+
+    callback(first.as_ptr(), second.as_ptr(), third.as_ptr());
     ExitCode::SUCCESS
 }
 

@@ -17,7 +17,7 @@ CRTLIB LIB=QGPL
 | `GO` | Abre un menu por nombre. | `GO MAIN` |
 | `SIGNOFF` | Cierra la sesion actual. | `SIGNOFF` |
 | `HELP` | Muestra ayuda basica en la linea de comandos de la TUI. | `HELP` |
-| `CALL` | Ejecuta un programa catalogado. | `CALL PGM(MYPGM)` |
+| `CALL` | Ejecuta un programa catalogado resolviendo `CURLIB` y `LIBLIST`. | `CALL PGM(QGPL/MYPGM)` |
 
 Teclas frecuentes en la TUI:
 
