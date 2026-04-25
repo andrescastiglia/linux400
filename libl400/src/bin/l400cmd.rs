@@ -13,8 +13,12 @@ const COMMAND_BINARIES: &[&str] = &[
     "WRKACTJOB",
     "WRKSYSVAL",
     "DSPLOG",
+    "DSPCMD",
+    "WRKCMD",
+    "CRTCMD",
     "WRKUSRPRF",
     "WRKSPLF",
+    "WRKOUTQ",
     "PWRDWNSYS",
     "SBMJOB",
     "WRKOBJ",
@@ -118,9 +122,19 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             ffi_commands::l400_dsplog();
             ExitCode::SUCCESS
         }
+        "DSPCMD" => dispatch_spec(args, &["CMD"], ffi_commands::l400_dspcmd),
+        "WRKCMD" => {
+            ffi_commands::l400_wrkcmd();
+            ExitCode::SUCCESS
+        }
+        "CRTCMD" => dispatch_spec(args, &["CMD", "LIB", "TEXT"], ffi_commands::l400_crtcmd),
         "WRKUSRPRF" => dispatch_spec(args, &["USRPRF", "ACTION"], ffi_commands::l400_wrkusrprf),
         "WRKSPLF" => {
             ffi_commands::l400_wrksplf();
+            ExitCode::SUCCESS
+        }
+        "WRKOUTQ" => {
+            ffi_commands::l400_wrkoutq();
             ExitCode::SUCCESS
         }
         "PWRDWNSYS" => dispatch_spec(args, &["OPTION", "CONFIRM"], ffi_commands::l400_pwrdwnsys),
@@ -276,8 +290,28 @@ fn dispatch_spec(
     keys: &[&str],
     callback: extern "C" fn(*const c_char),
 ) -> ExitCode {
+    if let Some(error) = validate_named_args(args, keys) {
+        eprintln!("CPF0006 [l400cmd] {error}");
+        return ExitCode::from(2);
+    }
     let spec = command_spec(args, keys);
     call_with_cstring(&spec, callback)
+}
+
+fn validate_named_args(args: &[String], keys: &[&str]) -> Option<String> {
+    for arg in args {
+        let key = arg
+            .split_once('(')
+            .or_else(|| arg.split_once('='))
+            .map(|(key, _)| key.trim().to_uppercase());
+        let Some(key) = key else {
+            continue;
+        };
+        if !keys.iter().any(|allowed| *allowed == key) {
+            return Some(format!("parametro {} no valido", key));
+        }
+    }
+    None
 }
 
 fn dispatch_sbmjob(args: &[String]) -> ExitCode {
@@ -601,11 +635,25 @@ fn command_spec(args: &[String], keys: &[&str]) -> String {
     }
 
     let positionals = positional_args(args, keys);
-    if !positionals.is_empty() && !parts.iter().any(|part| part.starts_with("OBJ=")) {
-        parts.push(format!("OBJ={}", positionals[0]));
+    if let (Some(first_key), Some(first_positional)) = (keys.first(), positionals.first()) {
+        let normalized_key = normalize_spec_key(first_key);
+        if !parts
+            .iter()
+            .any(|part| part.starts_with(&format!("{normalized_key}=")))
+        {
+            parts.push(format!("{normalized_key}={first_positional}"));
+        }
     }
 
     parts.join(" ")
+}
+
+fn normalize_spec_key(key: &str) -> String {
+    if key == "FILTER" {
+        "OBJ".to_string()
+    } else {
+        key.to_uppercase()
+    }
 }
 
 fn parse_named_arg(token: &str, key: &str) -> Option<String> {
@@ -722,5 +770,19 @@ mod tests {
             command_spec(&args, &["OBJ", "CONFIRM"]),
             "CONFIRM=*YES OBJ=QGPL/DEMO"
         );
+    }
+
+    #[test]
+    fn command_spec_maps_positional_to_first_command_key() {
+        let args = vec!["QPGMR".to_string()];
+
+        assert_eq!(command_spec(&args, &["USRPRF", "ACTION"]), "USRPRF=QPGMR");
+    }
+
+    #[test]
+    fn command_spec_does_not_overwrite_named_first_key() {
+        let args = vec!["USRPRF(QPGMR)".to_string(), "EXTRA".to_string()];
+
+        assert_eq!(command_spec(&args, &["USRPRF", "ACTION"]), "USRPRF=QPGMR");
     }
 }

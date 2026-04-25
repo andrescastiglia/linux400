@@ -3,6 +3,7 @@ pub mod auth;
 mod bdb_native;
 pub mod bootstrap;
 pub mod cgroup;
+pub mod cmd;
 pub mod db;
 pub mod dtaq;
 pub mod ffi;
@@ -11,12 +12,14 @@ pub mod lam;
 pub mod object;
 pub mod runtime;
 pub mod space;
+pub mod status;
 pub mod storage;
 pub mod usrprf;
 pub mod util;
 pub mod zfs;
 
 pub use audit::{audit_event, current_l400_user, qhst_path, read_audit_records, AuditRecord};
+pub use auth::{L400Authority, L400Identity, L400Operation};
 pub use bootstrap::{bootstrap_l400_root, BootstrapError, BootstrapReport};
 pub use cgroup::{
     assign_to_workload, cleanup_l400_slices, create_l400_slices, end_job, get_current_workload,
@@ -24,6 +27,9 @@ pub use cgroup::{
     register_job, remove_job, set_cpu_priority, set_memory_limit, subsystem_description,
     subsystem_descriptions, update_job_status, CgroupError, CgroupParams, WorkloadJob,
     WorkloadType,
+};
+pub use cmd::{
+    command_metadata, format_command_params, CommandMetadata, CommandParameter, COMMAND_METADATA,
 };
 pub use db::{
     add_pf_member, create_lf, create_pf, list_pf_members, read_pf_schema, run_select_query,
@@ -45,6 +51,7 @@ pub use runtime::{
     l400_run_dir, loader_status_path, read_loader_status, write_loader_status, LoaderStatus,
     RuntimeStatusError,
 };
+pub use status::{command_status, normalize_cpf, CommandStatus, CPF_CATALOG};
 pub use storage::{
     default_storage_backend, read_storage_backend, read_string_attr, read_u32_attr,
     write_storage_backend, write_string_attr, write_u32_attr, StorageBackend, StorageError,

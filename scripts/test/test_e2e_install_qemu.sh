@@ -16,6 +16,7 @@ QEMU_MEM_MB="${QEMU_MEM_MB:-2048}"
 QEMU_CPUS="${QEMU_CPUS:-2}"
 LIVE_LOG="${OUTPUT_DIR}/qemu-live-install.log"
 INSTALLED_LOG="${OUTPUT_DIR}/qemu-installed.log"
+PERSISTENCE_LOG="${OUTPUT_DIR}/qemu-installed-persistence.log"
 
 require_cmd() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -47,7 +48,7 @@ ensure_inputs() {
 
 prepare_artifacts() {
     mkdir -p "${OUTPUT_DIR}"
-    rm -f "${DISK_PATH}" "${OVMF_VARS}" "${LIVE_LOG}" "${INSTALLED_LOG}"
+    rm -f "${DISK_PATH}" "${OVMF_VARS}" "${LIVE_LOG}" "${INSTALLED_LOG}" "${PERSISTENCE_LOG}"
     qemu-img create -f qcow2 "${DISK_PATH}" "${DISK_SIZE}" >/dev/null
     cp "${OVMF_VARS_TEMPLATE}" "${OVMF_VARS}"
 }
@@ -290,11 +291,185 @@ expect {
     }
 }
 
+send -- "CRTLIB LIB(QE2E) >/tmp/l400-e2e-crtlib.out 2>&1 && printf '__E2E_CRTLIB_OK__\\n' || { cat /tmp/l400-e2e-crtlib.out; printf '__E2E_USER_SEED_FAIL__\\n'; }\r"
+expect {
+    -re {__E2E_CRTLIB_OK__} {}
+    -re {__E2E_USER_SEED_FAIL__} {
+        send_user "ERROR: no se pudo crear biblioteca de usuario QE2E\n"
+        exit 1
+    }
+    timeout {
+        send_user "ERROR: no se pudo crear biblioteca de usuario QE2E\n"
+        exit 1
+    }
+}
+
+send -- "CRTPF FILE(QE2E/CUST) RCDLEN(80) >/tmp/l400-e2e-crtpf.out 2>&1 && WRTPFM FILE(QE2E/CUST) KEY(C001) DATA(PERSISTED_CUSTOMER) >/tmp/l400-e2e-wrtpfm.out 2>&1 && CRTDTAQ DTAQ(QE2E/E2EQ) >/tmp/l400-e2e-crtdtaq.out 2>&1 && SNDDTAQ DTAQ(QE2E/E2EQ) MSG(PERSISTED_MESSAGE) >/tmp/l400-e2e-snddtaq.out 2>&1 && mkdir -p /l400/QGPL/QCLSRC && printf 'PGM\\nDCL VAR(&MSG) TYPE(*CHAR) LEN(32)\\nENDPGM\\n' >/l400/QGPL/QCLSRC/E2E.CLP && GRTOBJAUT OBJ(QE2E/CUST) USER(QPGMR) AUT(*USE) >/tmp/l400-e2e-grtaut.out 2>&1 && printf '__E2E_USER_STATE_SEEDED__\\n' || { cat /tmp/l400-e2e-*.out 2>/dev/null || true; printf '__E2E_USER_SEED_FAIL__\\n'; }\r"
+expect {
+    -re {__E2E_USER_STATE_SEEDED__} {}
+    -re {__E2E_USER_SEED_FAIL__} {
+        send_user "ERROR: no se pudo sembrar estado de usuario persistente\n"
+        exit 1
+    }
+    timeout {
+        send_user "ERROR: timeout sembrando estado de usuario persistente\n"
+        exit 1
+    }
+}
+
+send -- "sync; poweroff -f || halt -f\r"
+expect {
+    eof {}
+    timeout {
+        send_user "ERROR: la VM instalada no se apagó tras sembrar datos de usuario\n"
+        exit 1
+    }
+}
+EOF
+}
+
+run_persistence_validation() {
+    local qemu_args=(
+        qemu-system-x86_64
+        -m "${QEMU_MEM_MB}"
+        -smp "${QEMU_CPUS}"
+        -machine q35
+        -drive "if=pflash,format=raw,readonly=on,file=${OVMF_CODE}"
+        -drive "if=pflash,format=raw,file=${OVMF_VARS}"
+        -drive "if=virtio,format=qcow2,file=${DISK_PATH}"
+        -boot order=c
+        -netdev user,id=n1
+        -device virtio-net-pci,netdev=n1
+        -serial stdio
+        -display none
+        -no-reboot
+    )
+
+    env \
+        QEMU_PERSISTENCE_LOG="${PERSISTENCE_LOG}" \
+        QEMU_CMD="$(printf "%q " "${qemu_args[@]}")" \
+        expect <<'EOF'
+set timeout 300
+set qemu_cmd $env(QEMU_CMD)
+set persistence_log $env(QEMU_PERSISTENCE_LOG)
+
+log_file -noappend $persistence_log
+spawn -noecho sh -lc $qemu_cmd
+
+expect {
+    -re {login\[[0-9]+\]: root login on 'ttyS0'} {}
+    timeout {
+        send_user "ERROR: timeout esperando shell root para validar persistencia\n"
+        exit 1
+    }
+    eof {
+        send_user "ERROR: QEMU terminó antes de validar persistencia\n"
+        exit 1
+    }
+}
+
+sleep 1
+send -- "printf 'E2E_READY\\n'\r"
+expect {
+    -re {E2E_READY} {}
+    timeout {
+        send_user "ERROR: la shell de persistencia no respondió al handshake inicial\n"
+        exit 1
+    }
+}
+
+send -- "stty -echo\r"
+expect {
+    -re {\r?\n\(none\):~# $} {}
+    timeout {
+        send_user "ERROR: no se pudo desactivar el eco en validacion de persistencia\n"
+        exit 1
+    }
+}
+
+send -- "WRKOBJ LIB(QE2E) >/tmp/l400-e2e-wrkobj.out 2>&1 && grep -q 'CUST' /tmp/l400-e2e-wrkobj.out && grep -q 'E2EQ' /tmp/l400-e2e-wrkobj.out && printf '__E2E_WRKOBJ_OK__\\n' || { cat /tmp/l400-e2e-wrkobj.out; printf '__E2E_WRKOBJ_FAIL__\\n'; }\r"
+expect {
+    -re {__E2E_WRKOBJ_OK__} {}
+    -re {__E2E_WRKOBJ_FAIL__} {
+        send_user "ERROR: WRKOBJ no encontró objetos de usuario persistidos\n"
+        exit 1
+    }
+    timeout {
+        send_user "ERROR: timeout validando WRKOBJ de objetos persistidos\n"
+        exit 1
+    }
+}
+
+send -- "WRKMBRPDM FILE(QGPL/QCLSRC) >/tmp/l400-e2e-wrkmbrpdm.out 2>&1 && grep -q 'E2E.CLP' /tmp/l400-e2e-wrkmbrpdm.out && printf '__E2E_WRKMBRPDM_OK__\\n' || { cat /tmp/l400-e2e-wrkmbrpdm.out; printf '__E2E_WRKMBRPDM_FAIL__\\n'; }\r"
+expect {
+    -re {__E2E_WRKMBRPDM_OK__} {}
+    -re {__E2E_WRKMBRPDM_FAIL__} {
+        send_user "ERROR: WRKMBRPDM no encontró el miembro CL persistido\n"
+        exit 1
+    }
+    timeout {
+        send_user "ERROR: timeout validando miembro CL persistido\n"
+        exit 1
+    }
+}
+
+send -- "DSPPFM FILE(QE2E/CUST) >/tmp/l400-e2e-dsppfm.out 2>&1 && grep -q 'PERSISTED_CUSTOMER' /tmp/l400-e2e-dsppfm.out && printf '__E2E_DSPPFM_OK__\\n' || { cat /tmp/l400-e2e-dsppfm.out; printf '__E2E_DSPPFM_FAIL__\\n'; }\r"
+expect {
+    -re {__E2E_DSPPFM_OK__} {}
+    -re {__E2E_DSPPFM_FAIL__} {
+        send_user "ERROR: DSPPFM no mostró el registro persistido\n"
+        exit 1
+    }
+    timeout {
+        send_user "ERROR: timeout validando registros PF persistidos\n"
+        exit 1
+    }
+}
+
+send -- "DSPDTAQ DTAQ(QE2E/E2EQ) >/tmp/l400-e2e-dspdtaq.out 2>&1 && grep -q 'PERSISTED_MESSAGE' /tmp/l400-e2e-dspdtaq.out && printf '__E2E_DSPDTAQ_OK__\\n' || { cat /tmp/l400-e2e-dspdtaq.out; printf '__E2E_DSPDTAQ_FAIL__\\n'; }\r"
+expect {
+    -re {__E2E_DSPDTAQ_OK__} {}
+    -re {__E2E_DSPDTAQ_FAIL__} {
+        send_user "ERROR: DSPDTAQ no mostró el mensaje persistido\n"
+        exit 1
+    }
+    timeout {
+        send_user "ERROR: timeout validando DTAQ persistida\n"
+        exit 1
+    }
+}
+
+send -- "DSPOBJAUT OBJ(QE2E/CUST) >/tmp/l400-e2e-dspobjaut.out 2>&1 && grep -q 'QPGMR' /tmp/l400-e2e-dspobjaut.out && grep -q '\\*USE' /tmp/l400-e2e-dspobjaut.out && printf '__E2E_AUTH_OK__\\n' || { cat /tmp/l400-e2e-dspobjaut.out; printf '__E2E_AUTH_FAIL__\\n'; }\r"
+expect {
+    -re {__E2E_AUTH_OK__} {}
+    -re {__E2E_AUTH_FAIL__} {
+        send_user "ERROR: DSPOBJAUT no mostró la autorizacion persistida\n"
+        exit 1
+    }
+    timeout {
+        send_user "ERROR: timeout validando autorizacion persistida\n"
+        exit 1
+    }
+}
+
+send -- "mkdir -p /run/l400 && l400-support-report --write >/tmp/l400-e2e-support.out 2>&1 && grep -q '^l400_root_persistent=yes' /run/l400/support-profile && printf '__E2E_SUPPORT_PERSIST_OK__\\n' || { cat /tmp/l400-e2e-support.out; printf '__E2E_SUPPORT_PERSIST_FAIL__\\n'; }\r"
+expect {
+    -re {__E2E_SUPPORT_PERSIST_OK__} {}
+    -re {__E2E_SUPPORT_PERSIST_FAIL__} {
+        send_user "ERROR: support-report no reportó backend persistente tras reboot\n"
+        exit 1
+    }
+    timeout {
+        send_user "ERROR: timeout validando support-report persistente\n"
+        exit 1
+    }
+}
+
 send -- "poweroff -f || halt -f\r"
 expect {
     eof {}
     timeout {
-        send_user "ERROR: la VM instalada no se apagó correctamente\n"
+        send_user "ERROR: la VM de persistencia no se apagó correctamente\n"
         exit 1
     }
 }
@@ -307,6 +482,7 @@ summarize() {
     echo "Disco    : ${DISK_PATH}"
     echo "Live log : ${LIVE_LOG}"
     echo "Boot log : ${INSTALLED_LOG}"
+    echo "Persist : ${PERSISTENCE_LOG}"
 }
 
 main() {
@@ -314,6 +490,7 @@ main() {
     prepare_artifacts
     run_live_install
     run_installed_validation
+    run_persistence_validation
     summarize
 }
 

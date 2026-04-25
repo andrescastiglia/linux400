@@ -14,24 +14,26 @@ El objetivo de esta etapa no es agregar comandos sueltos. Es elevar Linux/400 de
 
 ## Milestone 1: Instalacion persistente verificable
 
+Estado: **finalizado en esta iteracion**.
+
 **Objetivo:** demostrar que Linux/400 instalado conserva estado real de usuario, no solo objetos base.
 
 Trabajo:
 
-- [ ] Extender `scripts/test/test_e2e_install_qemu.sh` para crear antes del reboot:
+- [x] Extender `scripts/test/test_e2e_install_qemu.sh` para crear antes del reboot:
   - biblioteca de usuario;
   - source member CL;
   - PF con registros;
   - DTAQ con mensaje;
   - autorizacion modificada.
-- [ ] Validar tras reboot desde la VM instalada:
+- [x] Validar tras reboot desde la VM instalada:
   - `WRKOBJ` ve la biblioteca/objetos;
   - `WRKMBRPDM FILE(QGPL/QCLSRC)` ve miembros base;
   - `DSPPFM` muestra registros persistidos;
   - `DSPDTAQ` muestra mensajes persistidos;
   - `l400-support-report --write` reporta backend persistente.
-- [ ] Agregar modo rapido de QEMU smoke que reutilice ISO existente cuando `ISO_PATH` esta definido.
-- [ ] Documentar rollback/backup/restore de `/l400` con `rsync -aX`, `tar --xattrs` y ZFS snapshot.
+- [x] Agregar modo rapido de QEMU smoke que reutilice ISO existente cuando `ISO_PATH` esta definido.
+- [x] Documentar rollback/backup/restore de `/l400` con `rsync -aX`, `tar --xattrs` y ZFS snapshot.
 
 Archivos probables:
 
@@ -47,28 +49,30 @@ Criterio de cierre:
 
 ## Milestone 2: Pantallas dedicadas para administracion
 
+Estado: **en progreso**. Se agregaron pantallas dedicadas base y ruteo desde menu/prompt; quedan acciones visuales ricas por fila.
+
 **Objetivo:** reducir dependencia de `SystemPanel` para operaciones frecuentes y hacer que la TUI sea la interfaz primaria real.
 
 Trabajo:
 
-- [ ] Crear pantalla `ObjectDetail` para `DSPOBJD` con:
+- [x] Crear pantalla `ObjectDetail` para `DSPOBJD` con:
   - tipo, atributo, owner, owner UID, texto;
   - autorizaciones;
   - toolchain/signature si aplica;
-  - acciones por opcion: autorizaciones, borrar, copiar, cambiar texto.
-- [ ] Crear pantalla `UserProfiles` para `WRKUSRPRF`:
+  - acciones por opcion: autorizaciones, borrar, copiar, cambiar texto. **Pendiente de acciones visuales directas.**
+- [x] Crear pantalla `UserProfiles` para `WRKUSRPRF`:
   - listar perfiles;
-  - crear perfil;
-  - desactivar perfil;
-  - ver detalle.
-- [ ] Crear pantalla `PolicyAudit`:
+  - crear perfil; **disponible via prompt `WRKUSRPRF ACTION(*CREATE)`, pendiente formulario visual.**
+  - desactivar perfil; **disponible via prompt, pendiente formulario visual.**
+  - ver detalle. **Pendiente detalle visual por fila.**
+- [x] Crear pantalla `PolicyAudit`:
   - `DSPPOLICY`;
   - `DSPAUD`;
-  - filtros por evento, usuario y objeto.
-- [ ] Crear pantalla `SpoolOutq` minima:
+  - filtros por evento, usuario y objeto. **Pendiente filtros visuales.**
+- [x] Crear pantalla `SpoolOutq` minima:
   - `WRKSPLF`;
   - `WRKOUTQ`;
-  - visualizar spool text.
+  - visualizar spool text. **Pendiente visor de spool file.**
 - [ ] Normalizar mensajes de estado y confirmaciones visuales en todas las pantallas destructivas.
 
 Archivos probables:
@@ -86,11 +90,13 @@ Criterio de cierre:
 
 ## Milestone 3: Objeto `*CMD` y prompt de comandos real
 
+Estado: **finalizado base**. Queda ampliar el catalogo de metadata para todos los comandos, pero el flujo `*CMD` existe y es operable.
+
 **Objetivo:** que los comandos sean objetos describibles/promptables, no solo strings en el dispatcher.
 
 Trabajo:
 
-- [ ] Definir metadata de comando:
+- [x] Definir metadata de comando:
   - nombre;
   - texto;
   - parametros;
@@ -99,13 +105,13 @@ Trabajo:
   - valores permitidos;
   - default;
   - autoridad requerida.
-- [ ] Catalogar comandos base como `*CMD` durante `l400-bootstrap`.
-- [ ] Reemplazar templates hardcodeados de `F4` por lectura de metadata `*CMD`.
-- [ ] Agregar comandos:
+- [x] Catalogar comandos base como `*CMD` durante `l400-bootstrap`.
+- [x] Reemplazar templates hardcodeados de `F4` por lectura de metadata `*CMD`.
+- [x] Agregar comandos:
   - `DSPCMD`;
   - `WRKCMD`;
   - `CRTCMD` minimo para registrar comandos internos.
-- [ ] Conectar metadata de `*CMD` con `l400cmd` para validar parametros antes de ejecutar.
+- [x] Conectar metadata de `*CMD` con `l400cmd` para validar parametros antes de ejecutar.
 
 Archivos probables:
 
@@ -123,17 +129,19 @@ Criterio de cierre:
 
 ## Milestone 4: CPF y estado formal de comandos
 
+Estado: **en progreso**. Ya existe estado CPF para CL/MONMSG y se agrego catalogo formal inicial; falta migrar todos los comandos sensibles a `CommandStatus` completo y auditar CPF desde TUI/runtime.
+
 **Objetivo:** hacer que errores y `MONMSG` tengan semantica consistente en runtime, batch y TUI.
 
 Trabajo:
 
-- [ ] Definir estructura `CommandStatus` con:
+- [x] Definir estructura `CommandStatus` con:
   - codigo CPF;
   - severidad;
   - mensaje corto;
   - detalle;
-  - objeto relacionado.
-- [ ] Crear catalogo inicial de CPF Linux/400:
+  - objeto relacionado. **Pendiente campo runtime por ocurrencia.**
+- [x] Crear catalogo inicial de CPF Linux/400:
   - objeto no encontrado;
   - autoridad insuficiente;
   - tipo incorrecto;
@@ -141,7 +149,7 @@ Trabajo:
   - comando fallido;
   - storage/backend no disponible.
 - [ ] Migrar comandos sensibles para setear `CommandStatus`, no solo imprimir texto.
-- [ ] Extender `MONMSG`:
+- [x] Extender `MONMSG`:
   - genericidad (`CPF0000`);
   - rangos;
   - ultimo codigo por comando;
@@ -163,11 +171,13 @@ Criterio de cierre:
 
 ## Milestone 5: Seguridad unificada runtime/eBPF
 
+Estado: **en progreso**. Se agrego identidad runtime formal y auditoria comun para denegados runtime; falta alinear enforcement `file_open`/eBPF y ampliar e2e.
+
 **Objetivo:** alinear autorizaciones de runtime con enforcement kernel y hacerlo visible.
 
 Trabajo:
 
-- [ ] Definir representacion unica de identidad:
+- [x] Definir representacion unica de identidad:
   - perfil Linux/400;
   - UID Linux;
   - owner logico;
@@ -175,7 +185,7 @@ Trabajo:
 - [ ] Extender `user.l400.auth` o mover a manifest versionado si xattr plano queda corto.
 - [ ] Aplicar autorizaciones en `file_open` para objetos catalogados, no solo exec de `*PGM`.
 - [ ] Mantener modo `degraded` con runtime-only enforcement equivalente.
-- [ ] Auditar denegados de runtime y eBPF con formato comun.
+- [x] Auditar denegados de runtime y eBPF con formato comun.
 - [ ] Agregar tests e2e:
   - `*PUBLIC:*EXCLUDE`;
   - owner permitido;
@@ -199,11 +209,13 @@ Criterio de cierre:
 
 ## Milestone 6: PF/LF/SQL de operacion real
 
+Estado: **en progreso**. Se reforzo validacion de escritura por longitud/schema basico; el motor ya cubre miembros, DML SQL y LF auto-update, pero faltan claves compuestas reales y select/omit.
+
 **Objetivo:** pasar de modelo `KEY/DATA` extendido a archivos utiles para aplicaciones administrativas.
 
 Trabajo:
 
-- [ ] Validar escritura por schema:
+- [x] Validar escritura por schema:
   - `CHAR`;
   - `NUM`;
   - longitud;

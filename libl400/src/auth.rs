@@ -28,6 +28,32 @@ pub enum L400Operation {
     Admin,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct L400Identity {
+    pub profile: String,
+    pub uid: u32,
+    pub owner: String,
+    pub groups: Vec<String>,
+}
+
+impl L400Identity {
+    pub fn from_env() -> Self {
+        let profile = crate::audit::current_l400_user();
+        Self {
+            owner: profile.clone(),
+            profile,
+            uid: unsafe { libc::geteuid() },
+            groups: std::env::var("L400_GROUPS")
+                .unwrap_or_default()
+                .split(':')
+                .map(str::trim)
+                .filter(|group| !group.is_empty())
+                .map(str::to_uppercase)
+                .collect(),
+        }
+    }
+}
+
 impl std::fmt::Display for L400Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -175,7 +201,16 @@ pub fn required_operation_for_command(command: &str) -> L400Operation {
 
 pub fn check_command_authority(path: &Path, user: &str, command: &str) -> Result<bool, AuthError> {
     let operation = required_operation_for_command(command);
-    check_authority(path, user, required_authority_for_operation(operation))
+    let allowed = check_authority(path, user, required_authority_for_operation(operation))?;
+    if !allowed {
+        let _ = crate::audit::audit_event(
+            "AUTH_DENIED",
+            user,
+            path,
+            &format!("source=runtime command={} operation={}", command, operation),
+        );
+    }
+    Ok(allowed)
 }
 
 pub fn authority_matrix_rows() -> Vec<(&'static str, L400Operation, L400Authority)> {

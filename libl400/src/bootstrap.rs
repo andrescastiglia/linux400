@@ -3,6 +3,7 @@ use crate::object::{
     catalog_object, create_object_with_metadata, create_source_member, describe_object,
     ensure_library, member_path, ObjectError,
 };
+use crate::{command_metadata, format_command_params, write_string_attr};
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -35,7 +36,9 @@ const BASE_COMMANDS: &[(&str, &str)] = &[
     ("CPYOBJ", "Copy object"),
     ("DLTLIB", "Delete library"),
     ("DLTOBJ", "Delete object"),
+    ("CRTCMD", "Create command"),
     ("DSPDTAQ", "Display data queue"),
+    ("DSPCMD", "Display command"),
     ("DSPOBJAUT", "Display object authority"),
     ("CHKOBJAUT", "Check object authority"),
     ("DSPOBJD", "Display object description"),
@@ -55,8 +58,10 @@ const BASE_COMMANDS: &[(&str, &str)] = &[
     ("STRSEU", "Start SEU"),
     ("STRSQL", "Start SQL"),
     ("WRKACTJOB", "Work with active jobs"),
+    ("WRKCMD", "Work with commands"),
     ("WRKMBRPDM", "Work with members using PDM"),
     ("WRKOBJ", "Work with objects"),
+    ("WRKOUTQ", "Work with output queues"),
     ("WRKSYSSTS", "Work with system status"),
     ("WRKSYSVAL", "Work with system values"),
     ("WRKUSRPRF", "Work with user profiles"),
@@ -266,6 +271,16 @@ pub fn bootstrap_l400_root(root: &Path) -> Result<BootstrapReport, BootstrapErro
 
     for (command, text) in BASE_COMMANDS {
         ensure_object(&qsys, command, "*CMD", "CMD", text, &mut report)?;
+        if let Some(metadata) = command_metadata(command) {
+            let path = qsys.join(command);
+            let _ = write_string_attr(&path, "user.l400.cmd.text", metadata.text);
+            let _ = write_string_attr(&path, "user.l400.cmd.authority", metadata.authority);
+            let _ = write_string_attr(
+                &path,
+                "user.l400.cmd.params",
+                &format_command_params(metadata),
+            );
+        }
     }
 
     Ok(report)

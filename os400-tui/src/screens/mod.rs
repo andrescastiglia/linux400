@@ -1,3 +1,4 @@
+pub mod admin_views;
 pub mod cmd_line;
 pub mod dtaq_viewer;
 pub mod main_menu;
@@ -25,6 +26,10 @@ pub enum ScreenId {
     WrkMbrPdm,
     StrSeu,
     StrSql,
+    ObjectDetail,
+    UserProfiles,
+    PolicyAudit,
+    SpoolOutq,
     SystemPanel,
     Exit,
 }

@@ -33,10 +33,70 @@ fn resolve_file_spec(file_spec: &str) -> (String, String) {
 
 fn parse_command_fields(input: &str) -> std::collections::HashMap<String, String> {
     let mut fields = std::collections::HashMap::new();
-    for token in input.split_whitespace() {
-        if let Some((key, value)) = token.split_once('=') {
-            fields.insert(key.trim().to_uppercase(), value.trim().to_string());
+    let chars = input.chars().collect::<Vec<_>>();
+    let mut index = 0usize;
+
+    while index < chars.len() {
+        while index < chars.len() && chars[index].is_whitespace() {
+            index += 1;
         }
+        let key_start = index;
+        while index < chars.len()
+            && (chars[index].is_ascii_alphanumeric() || chars[index] == '_' || chars[index] == '*')
+        {
+            index += 1;
+        }
+        if key_start == index || index >= chars.len() || chars[index] != '=' {
+            index += 1;
+            continue;
+        }
+        let key = chars[key_start..index]
+            .iter()
+            .collect::<String>()
+            .trim()
+            .to_uppercase();
+        index += 1;
+
+        let value_start = index;
+        let mut in_single = false;
+        let mut in_double = false;
+        while index < chars.len() {
+            match chars[index] {
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                ch if ch.is_whitespace() && !in_single && !in_double => {
+                    let mut lookahead = index;
+                    while lookahead < chars.len() && chars[lookahead].is_whitespace() {
+                        lookahead += 1;
+                    }
+                    let candidate_start = lookahead;
+                    while lookahead < chars.len()
+                        && (chars[lookahead].is_ascii_alphanumeric()
+                            || chars[lookahead] == '_'
+                            || chars[lookahead] == '*')
+                    {
+                        lookahead += 1;
+                    }
+                    if candidate_start < lookahead
+                        && lookahead < chars.len()
+                        && chars[lookahead] == '='
+                    {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            index += 1;
+        }
+
+        let value = chars[value_start..index]
+            .iter()
+            .collect::<String>()
+            .trim()
+            .trim_matches('\'')
+            .trim_matches('"')
+            .to_string();
+        fields.insert(key, value);
     }
     fields
 }
@@ -357,6 +417,194 @@ pub extern "C" fn l400_wrksplf() {
     }
     println!("  Sin spool/outq runtime. Configure L400_SPOOL_DIR o cree QUSRSYS/QSPL.");
     println!("=============================");
+}
+
+/// WRKOUTQ — Lista output queues catalogadas como *OUTQ y el spool base.
+#[no_mangle]
+pub extern "C" fn l400_wrkoutq() {
+    println!("=== WRKOUTQ - Output Queues ===");
+    let root = crate::object::resolve_l400_root();
+    println!("  {:10} {:20} {:10} TEXT", "LIB", "OUTQ", "ATRIB");
+    println!("  {}", "-".repeat(58));
+
+    let mut count = 0usize;
+    if let Ok(libraries) = crate::object::list_libraries(&root) {
+        for library in libraries {
+            let lib_path = root.join(&library);
+            let Ok(objects) = crate::object::list_objects(&lib_path) else {
+                continue;
+            };
+            for object in objects
+                .into_iter()
+                .filter(|object| object.objtype == "*OUTQ")
+            {
+                count += 1;
+                println!(
+                    "  {:10} {:20} {:10} {}",
+                    library,
+                    object.name,
+                    object.attribute.unwrap_or_else(|| "OUTQ".to_string()),
+                    object.text.unwrap_or_default()
+                );
+            }
+        }
+    }
+
+    let spool_dir = std::env::var("L400_SPOOL_DIR")
+        .ok()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("QUSRSYS").join("QSPL"));
+    if spool_dir.exists() {
+        count += 1;
+        println!(
+            "  {:10} {:20} {:10} {}",
+            "QUSRSYS",
+            "QSPL",
+            "DIR",
+            spool_dir.display()
+        );
+    }
+
+    if count == 0 {
+        println!("  Sin output queues. Cree un objeto *OUTQ o configure L400_SPOOL_DIR.");
+    }
+    println!("===============================");
+}
+
+/// WRKCMD — Lista comandos catalogados como *CMD.
+#[no_mangle]
+pub extern "C" fn l400_wrkcmd() {
+    println!("=== WRKCMD - Command Objects ===");
+    let root = crate::object::resolve_l400_root();
+    println!("  {:10} {:20} {:10} TEXT", "LIB", "CMD", "AUT");
+    println!("  {}", "-".repeat(64));
+    let mut count = 0usize;
+    if let Ok(libraries) = crate::object::list_libraries(&root) {
+        for library in libraries {
+            let lib_path = root.join(&library);
+            let Ok(objects) = crate::object::list_objects(&lib_path) else {
+                continue;
+            };
+            for object in objects
+                .into_iter()
+                .filter(|object| object.objtype == "*CMD")
+            {
+                count += 1;
+                let path = lib_path.join(&object.name);
+                let authority = crate::storage::read_string_attr(&path, "user.l400.cmd.authority")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "*USE".to_string());
+                println!(
+                    "  {:10} {:20} {:10} {}",
+                    library,
+                    object.name,
+                    authority,
+                    object.text.unwrap_or_default()
+                );
+            }
+        }
+    }
+    if count == 0 {
+        println!("  No hay comandos catalogados.");
+    }
+    println!("===============================");
+}
+
+/// DSPCMD — Muestra metadata promptable de un objeto *CMD.
+#[no_mangle]
+pub extern "C" fn l400_dspcmd(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let command = fields
+        .get("CMD")
+        .cloned()
+        .unwrap_or_else(|| spec.trim().to_string())
+        .trim()
+        .to_uppercase();
+    if command.is_empty() {
+        println!("[DSPCMD] Uso: DSPCMD CMD(WRKOBJ)");
+        return;
+    }
+
+    let root = crate::object::resolve_l400_root();
+    let path = root.join("QSYS").join(&command);
+    println!("=== DSPCMD - {} ===", command);
+    match crate::object::describe_object(&path) {
+        Ok(object) => {
+            println!("  Command . . . . . . . . : {}", object.name);
+            println!("  Type  . . . . . . . . . : {}", object.objtype);
+            println!(
+                "  Text  . . . . . . . . . : {}",
+                object.text.unwrap_or_default()
+            );
+            let authority = crate::storage::read_string_attr(&path, "user.l400.cmd.authority")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "*USE".to_string());
+            println!("  Authority required . . : {}", authority);
+            let params = crate::storage::read_string_attr(&path, "user.l400.cmd.params")
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            if params.is_empty() {
+                println!("  No prompt metadata registered.");
+            } else {
+                println!("  Parameters:");
+                println!(
+                    "    {:12} {:8} {:10} {:24} DEFAULT",
+                    "Name", "Type", "Use", "Values"
+                );
+                for param in params.split('|') {
+                    let parts = param.split(':').collect::<Vec<_>>();
+                    let name = parts.first().copied().unwrap_or("");
+                    let type_ = parts.get(1).copied().unwrap_or("");
+                    let use_ = parts.get(2).copied().unwrap_or("");
+                    let values = parts.get(3).copied().unwrap_or("");
+                    let default = parts.get(4).copied().unwrap_or("");
+                    println!(
+                        "    {:12} {:8} {:10} {:24} {}",
+                        name, type_, use_, values, default
+                    );
+                }
+            }
+        }
+        Err(error) => println!("[DSPCMD] Error: {}", error),
+    }
+    println!("===============================");
+}
+
+/// CRTCMD — Registra un comando interno minimo como objeto *CMD.
+#[no_mangle]
+pub extern "C" fn l400_crtcmd(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(command) = fields.get("CMD") else {
+        println!("[CRTCMD] Uso: CRTCMD CMD(QSYS/MYCMD) TEXT(Description)");
+        return;
+    };
+    let root = crate::object::resolve_l400_root();
+    let (library, name, _path) =
+        resolve_object_spec(&root, command, fields.get("LIB").map(String::as_str));
+    let text = fields
+        .get("TEXT")
+        .map(String::as_str)
+        .unwrap_or("User command");
+    let lib_path = root.join(&library);
+    match crate::object::create_object_with_metadata(
+        &lib_path,
+        &name,
+        "*CMD",
+        Some("CMD"),
+        Some(text),
+    ) {
+        Ok(path) => {
+            let _ = crate::storage::write_string_attr(&path, "user.l400.cmd.text", text);
+            let _ = crate::storage::write_string_attr(&path, "user.l400.cmd.authority", "*USE");
+            println!("[CRTCMD] {}/{} creado.", library, name);
+        }
+        Err(error) => println!("[CRTCMD] Error: {}", error),
+    }
 }
 
 /// WRKUSRPRF — Gestiona perfiles de usuario
@@ -1520,5 +1768,19 @@ pub extern "C" fn l400_strsql() {
     match crate::db::run_sql_statement(&statement, None) {
         Ok(result) => print_sql_result(result),
         Err(error) => println!("SQL9001 [STRSQL] {}", error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_command_fields;
+
+    #[test]
+    fn parse_command_fields_keeps_values_with_spaces() {
+        let fields = parse_command_fields("OBJ=QGPL/DEMO TEXT='Demo object' OBJATTR=PF");
+
+        assert_eq!(fields.get("OBJ").map(String::as_str), Some("QGPL/DEMO"));
+        assert_eq!(fields.get("TEXT").map(String::as_str), Some("Demo object"));
+        assert_eq!(fields.get("OBJATTR").map(String::as_str), Some("PF"));
     }
 }

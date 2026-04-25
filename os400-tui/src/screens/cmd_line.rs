@@ -99,7 +99,7 @@ impl CommandLine {
                 return ScreenResult::goto(ScreenId::ObjectBrowser);
             }
             cmd if cmd.starts_with("DSPDTAQ") => {
-                let tokens = cmd.split_whitespace().collect::<Vec<_>>();
+                let tokens = tokenize_cl_command(cmd);
                 let dtaq = extract_command_arg(&tokens[1..], "DTAQ")
                     .or_else(|| tokens.get(1).map(|value| value.to_string()))
                     .unwrap_or_else(|| "QUSRSYS/QEZJOBLOG".to_string());
@@ -128,7 +128,7 @@ impl CommandLine {
             _ => {
                 let state = self.session.snapshot();
                 match Command::new("l400cmd")
-                    .args(cmd.split_whitespace())
+                    .args(tokenize_cl_command(&cmd))
                     .env("L400_USER", &state.user_profile)
                     .env("L400_CURLIB", &state.current_library)
                     .env("L400_LIBLIST", state.library_list.join(":"))
@@ -174,92 +174,109 @@ impl CommandLine {
             .next()
             .map(str::to_uppercase)
             .unwrap_or_else(|| "WRKOBJ".to_string());
-        let fields = match action.as_str() {
-            "WRKOBJ" | "WRKLIB" => vec![
-                PromptField {
-                    name: "OBJ",
-                    value: "QGPL/*ALL".to_string(),
+        let fields = if let Some(metadata) = l400::command_metadata(&action) {
+            metadata
+                .parameters
+                .iter()
+                .map(|parameter| PromptField {
+                    name: parameter.name,
+                    value: parameter.default.to_string(),
+                    required: parameter.required,
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let fields = if !fields.is_empty() {
+            fields
+        } else {
+            match action.as_str() {
+                "WRKOBJ" | "WRKLIB" => vec![
+                    PromptField {
+                        name: "OBJ",
+                        value: "QGPL/*ALL".to_string(),
+                        required: true,
+                    },
+                    PromptField {
+                        name: "OBJTYPE",
+                        value: "*ALL".to_string(),
+                        required: false,
+                    },
+                ],
+                "DLTOBJ" => vec![
+                    PromptField {
+                        name: "OBJ",
+                        value: "QGPL/OBJECT".to_string(),
+                        required: true,
+                    },
+                    PromptField {
+                        name: "OBJTYPE",
+                        value: "*ALL".to_string(),
+                        required: false,
+                    },
+                    PromptField {
+                        name: "CONFIRM",
+                        value: "*YES".to_string(),
+                        required: true,
+                    },
+                ],
+                "DSPPFM" | "CLRPFM" | "ADDPFM" | "WRTPFM" => vec![
+                    PromptField {
+                        name: "FILE",
+                        value: "QGPL/CUSTOMERS".to_string(),
+                        required: true,
+                    },
+                    PromptField {
+                        name: "MBR",
+                        value: "*FIRST".to_string(),
+                        required: false,
+                    },
+                ],
+                "DSPDTAQ" | "SNDDTAQ" | "RCVDTAQ" | "CRTDTAQ" => vec![PromptField {
+                    name: "DTAQ",
+                    value: "QUSRSYS/QEZJOBLOG".to_string(),
                     required: true,
-                },
-                PromptField {
-                    name: "OBJTYPE",
-                    value: "*ALL".to_string(),
-                    required: false,
-                },
-            ],
-            "DLTOBJ" => vec![
-                PromptField {
-                    name: "OBJ",
-                    value: "QGPL/OBJECT".to_string(),
-                    required: true,
-                },
-                PromptField {
-                    name: "OBJTYPE",
-                    value: "*ALL".to_string(),
-                    required: false,
-                },
-                PromptField {
-                    name: "CONFIRM",
-                    value: "*YES".to_string(),
-                    required: true,
-                },
-            ],
-            "DSPPFM" | "CLRPFM" | "ADDPFM" | "WRTPFM" => vec![
-                PromptField {
-                    name: "FILE",
-                    value: "QGPL/CUSTOMERS".to_string(),
-                    required: true,
-                },
-                PromptField {
-                    name: "MBR",
-                    value: "*FIRST".to_string(),
-                    required: false,
-                },
-            ],
-            "DSPDTAQ" | "SNDDTAQ" | "RCVDTAQ" | "CRTDTAQ" => vec![PromptField {
-                name: "DTAQ",
-                value: "QUSRSYS/QEZJOBLOG".to_string(),
-                required: true,
-            }],
-            "STRSEU" | "WRKMBRPDM" => vec![
-                PromptField {
-                    name: "FILE",
-                    value: "QGPL/QCLSRC".to_string(),
-                    required: true,
-                },
-                PromptField {
-                    name: "MBR",
-                    value: "HELLO.CLP".to_string(),
-                    required: action == "STRSEU",
-                },
-            ],
-            "CRTCLPGM" => vec![
-                PromptField {
+                }],
+                "STRSEU" | "WRKMBRPDM" => vec![
+                    PromptField {
+                        name: "FILE",
+                        value: "QGPL/QCLSRC".to_string(),
+                        required: true,
+                    },
+                    PromptField {
+                        name: "MBR",
+                        value: "HELLO.CLP".to_string(),
+                        required: action == "STRSEU",
+                    },
+                ],
+                "CRTCLPGM" => vec![
+                    PromptField {
+                        name: "PGM",
+                        value: "QGPL/HELLO".to_string(),
+                        required: true,
+                    },
+                    PromptField {
+                        name: "SRCFILE",
+                        value: "QGPL/QCLSRC".to_string(),
+                        required: true,
+                    },
+                    PromptField {
+                        name: "SRCMBR",
+                        value: "HELLO.CLP".to_string(),
+                        required: true,
+                    },
+                ],
+                "CALL" => vec![PromptField {
                     name: "PGM",
                     value: "QGPL/HELLO".to_string(),
                     required: true,
-                },
-                PromptField {
-                    name: "SRCFILE",
-                    value: "QGPL/QCLSRC".to_string(),
+                }],
+                _ => vec![PromptField {
+                    name: "OBJ",
+                    value: "QGPL/*ALL".to_string(),
                     required: true,
-                },
-                PromptField {
-                    name: "SRCMBR",
-                    value: "HELLO.CLP".to_string(),
-                    required: true,
-                },
-            ],
-            "CALL" => vec![PromptField {
-                name: "PGM",
-                value: "QGPL/HELLO".to_string(),
-                required: true,
-            }],
-            _ => vec![PromptField {
-                name: "OBJ",
-                value: "QGPL/*ALL".to_string(),
-                required: true,
-            }],
+                }],
+            }
         };
 
         self.prompt_command = Some(action);
@@ -359,7 +376,7 @@ impl CommandLine {
     }
 
     fn route_interactive_command(&mut self, command: &str) -> Option<ScreenResult> {
-        let tokens = command.split_whitespace().collect::<Vec<_>>();
+        let tokens = tokenize_cl_command(command);
         let action = tokens.first()?.to_uppercase();
 
         match action.as_str() {
@@ -380,10 +397,16 @@ impl CommandLine {
             "STRSQL" => Some(ScreenResult::goto(ScreenId::StrSql)),
             "WRKACTJOB" => Some(ScreenResult::goto(ScreenId::WorkManagement)),
             "WRKOBJ" | "WRKLIB" => Some(ScreenResult::goto(ScreenId::ObjectBrowser)),
-            "WRKSYSSTS" | "WRKSYSVAL" | "WRKUSRPRF" | "WRKSPLF" => {
+            "WRKUSRPRF" => Some(ScreenResult::goto(ScreenId::UserProfiles)),
+            "DSPPOLICY" | "DSPAUD" => Some(ScreenResult::with_data(ScreenId::PolicyAudit, command)),
+            "DSPCMD" | "WRKCMD" => Some(ScreenResult::with_data(ScreenId::SystemPanel, command)),
+            "WRKSPLF" | "WRKOUTQ" => Some(ScreenResult::with_data(ScreenId::SpoolOutq, command)),
+            "WRKSYSSTS" | "WRKSYSVAL" => {
                 Some(ScreenResult::with_data(ScreenId::SystemPanel, command))
             }
-            "DSPOBJD" => Some(ScreenResult::with_data(ScreenId::SystemPanel, command)),
+            "DSPOBJD" | "DSPOBJAUT" => {
+                Some(ScreenResult::with_data(ScreenId::ObjectDetail, command))
+            }
             "WRKMBRPDM" => {
                 let file = extract_command_arg(&tokens[1..], "FILE").or_else(|| {
                     tokens
@@ -441,7 +464,7 @@ impl CommandLine {
     }
 
     fn handle_session_command(&mut self, command: &str) -> bool {
-        let tokens = command.split_whitespace().collect::<Vec<_>>();
+        let tokens = tokenize_cl_command(command);
         let Some(action) = tokens.first().map(|value| value.to_uppercase()) else {
             return false;
         };
@@ -596,7 +619,7 @@ impl Screen for CommandLine {
     }
 }
 
-fn extract_command_arg(tokens: &[&str], key: &str) -> Option<String> {
+fn extract_command_arg(tokens: &[String], key: &str) -> Option<String> {
     tokens.iter().find_map(|token| {
         let token = token.trim();
         if !token.to_uppercase().starts_with(&format!("{key}(")) || !token.ends_with(')') {
@@ -604,6 +627,48 @@ fn extract_command_arg(tokens: &[&str], key: &str) -> Option<String> {
         }
         Some(token[key.len() + 1..token.len() - 1].trim().to_string())
     })
+}
+
+fn tokenize_cl_command(command: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
+
+    for ch in command.chars() {
+        match ch {
+            '\'' if !in_double => {
+                in_single = !in_single;
+                current.push(ch);
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                current.push(ch);
+            }
+            '(' if !in_single && !in_double => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' if !in_single && !in_double => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            ch if ch.is_whitespace() && depth == 0 && !in_single && !in_double => {
+                if !current.trim().is_empty() {
+                    tokens.push(current.trim().to_string());
+                    current.clear();
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    if !current.trim().is_empty() {
+        tokens.push(current.trim().to_string());
+    }
+
+    tokens
 }
 
 fn normalize_file_spec(spec: &str, session: &SessionContext) -> String {
@@ -791,5 +856,23 @@ mod tests {
         cmd.prompt_fields[0].value = "QGPL/HELLO".to_string();
         assert!(cmd.finish_prompt());
         assert_eq!(cmd.command, "CALL PGM(QGPL/HELLO)");
+    }
+
+    #[test]
+    fn tokenizer_preserves_keyword_values_with_spaces() {
+        let tokens = tokenize_cl_command("CHGOBJD OBJ(QGPL/DEMO) TEXT('Demo object')");
+
+        assert_eq!(
+            tokens,
+            vec![
+                "CHGOBJD".to_string(),
+                "OBJ(QGPL/DEMO)".to_string(),
+                "TEXT('Demo object')".to_string()
+            ]
+        );
+        assert_eq!(
+            extract_command_arg(&tokens[1..], "TEXT").as_deref(),
+            Some("'Demo object'")
+        );
     }
 }

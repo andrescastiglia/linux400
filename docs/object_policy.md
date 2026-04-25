@@ -174,6 +174,7 @@ Estado actual:
 
 - `WRKOBJ`: muestra catalogo de objetos y desde TUI permite `DSPPFM`, `DSPOBJD`, `DSPDTAQ` y `DLTOBJ` con confirmacion.
 - `CRTLIB`, `DLTLIB`, `RNMOBJ`, `CRTPGM`, `DLTOBJ`, `CPYOBJ`, `CHGOBJD`: gestion de objetos.
+- `DSPCMD`, `WRKCMD`, `CRTCMD`: gestion minima de objetos `*CMD` y metadata promptable.
 - `DSPOBJAUT`, `CHKOBJAUT`, `GRTOBJAUT`, `RVKOBJAUT`, `DSPPOLICY`, `DSPAUD`: administracion de politica y auditoria.
 - `STRPDM`, `WRKMBRPDM`, `STRSEU`, `STRSQL`: flujo de desarrollo.
 - `WRKACTJOB`, `WRKSYSSTS`: estado del sistema y trabajos, con detalle y terminacion confirmada desde TUI.

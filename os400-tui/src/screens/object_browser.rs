@@ -194,7 +194,7 @@ impl Screen for ObjectBrowser {
             KeyCode::Char('5') => self
                 .selected_object_spec()
                 .map(|spec| {
-                    ScreenResult::with_data(ScreenId::SystemPanel, format!("DSPOBJD OBJ({spec})"))
+                    ScreenResult::with_data(ScreenId::ObjectDetail, format!("DSPOBJD OBJ({spec})"))
                 })
                 .unwrap_or_else(ScreenResult::none),
             KeyCode::Char('3') => self

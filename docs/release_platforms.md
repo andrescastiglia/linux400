@@ -65,10 +65,28 @@ Para backup en filesystem comun:
 rsync -aX /l400/ /backup/l400/
 ```
 
+Para restore desde ese backup:
+
+```bash
+rsync -aX --delete /backup/l400/ /l400/
+l400-bootstrap --quiet
+l400-support-report --write
+```
+
 Para backup con `tar`:
 
 ```bash
 tar --xattrs --xattrs-include='user.*' -cpf l400-backup.tar /l400
+```
+
+Para restore con `tar`:
+
+```bash
+rm -rf /l400
+mkdir -p /l400
+tar --xattrs --xattrs-include='user.*' -xpf l400-backup.tar -C /
+l400-bootstrap --quiet
+l400-support-report --write
 ```
 
 Para ZFS:
@@ -76,6 +94,13 @@ Para ZFS:
 ```bash
 zfs snapshot pool/linux400@pre-upgrade
 zfs send pool/linux400@pre-upgrade > linux400-pre-upgrade.zfs
+```
+
+Para rollback local de ZFS:
+
+```bash
+zfs rollback pool/linux400@pre-upgrade
+l400-support-report --write
 ```
 
 Despues de actualizar binarios o una instalacion:

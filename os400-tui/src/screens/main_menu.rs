@@ -56,8 +56,8 @@ impl MainMenu {
             "7" => ScreenResult::goto(ScreenId::PdmBrowser),
             "8" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKSYSSTS"),
             "9" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKSYSVAL"),
-            "10" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKUSRPRF"),
-            "11" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKSPLF"),
+            "10" => ScreenResult::goto(ScreenId::UserProfiles),
+            "11" => ScreenResult::goto(ScreenId::SpoolOutq),
             _ => ScreenResult::none(),
         }
     }

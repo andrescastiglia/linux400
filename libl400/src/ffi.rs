@@ -5,10 +5,11 @@ use std::sync::atomic::{AtomicU32, Ordering};
 static LAST_CPF_CODE: AtomicU32 = AtomicU32::new(0);
 
 pub fn set_last_cpf(code: &str) {
-    let numeric = code
+    let normalized = crate::status::normalize_cpf(code);
+    let numeric = normalized
         .trim()
         .strip_prefix("CPF")
-        .unwrap_or(code.trim())
+        .unwrap_or(normalized.trim())
         .parse::<u32>()
         .unwrap_or(0);
     LAST_CPF_CODE.store(numeric, Ordering::SeqCst);

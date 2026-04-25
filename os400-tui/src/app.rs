@@ -2,6 +2,7 @@ use anyhow::Result;
 use crossterm::event::KeyEvent;
 use ratatui::Terminal;
 
+use crate::screens::admin_views::AdminCommandView;
 use crate::screens::cmd_line::CommandLine;
 use crate::screens::dtaq_viewer::DataQueueViewer;
 use crate::screens::main_menu::MainMenu;
@@ -142,6 +143,21 @@ impl App {
                     self.session.clone(),
                 ))
             }
+            ScreenId::ObjectDetail => Box::new(AdminCommandView::object_detail(
+                data.as_deref(),
+                self.session.clone(),
+            )),
+            ScreenId::UserProfiles => {
+                Box::new(AdminCommandView::user_profiles(self.session.clone()))
+            }
+            ScreenId::PolicyAudit => Box::new(AdminCommandView::policy_audit(
+                data.as_deref(),
+                self.session.clone(),
+            )),
+            ScreenId::SpoolOutq => Box::new(AdminCommandView::spool_outq(
+                data.as_deref(),
+                self.session.clone(),
+            )),
             ScreenId::SystemPanel => Box::new(SystemPanel::new(
                 data.unwrap_or_else(|| "WRKSYSSTS".to_string()),
                 self.session.clone(),

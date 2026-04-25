@@ -282,6 +282,7 @@ impl PhysicalFile {
     }
 
     pub fn write_rcd(&self, key: &[u8], buffer: &[u8]) -> Result<(), DbError> {
+        self.validate_write(key, buffer)?;
         let old = match self.chain_rcd(key) {
             Ok(old) => Some(old),
             Err(DbError::NotFound) => None,
@@ -300,6 +301,36 @@ impl PhysicalFile {
             self.delete_dependent_lfs(key, &old)?;
         }
         self.update_dependent_lfs(key, buffer)?;
+        Ok(())
+    }
+
+    fn validate_write(&self, key: &[u8], buffer: &[u8]) -> Result<(), DbError> {
+        if key.is_empty() {
+            return Err(DbError::InvalidRecord);
+        }
+        if self.record_len > 0 && buffer.len() > self.record_len as usize {
+            return Err(DbError::InvalidRecord);
+        }
+        let schema =
+            read_pf_schema(&self.path).unwrap_or_else(|_| PfSchema::minimal(self.record_len));
+        for field in schema.fields {
+            if field.name == "DATA"
+                && field.type_ == "NUM"
+                && !buffer
+                    .iter()
+                    .all(|byte| byte.is_ascii_digit() || *byte == b'.')
+            {
+                return Err(DbError::InvalidRecord);
+            }
+            if field.name == "KEY"
+                && field.type_ == "NUM"
+                && !key
+                    .iter()
+                    .all(|byte| byte.is_ascii_digit() || *byte == b'.')
+            {
+                return Err(DbError::InvalidRecord);
+            }
+        }
         Ok(())
     }
 
