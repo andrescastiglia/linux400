@@ -1,116 +1,169 @@
-# Kernel y plataforma base de Linux/400
+# Linux/400: objetivo del sistema
 
-Linux/400 no necesita un fork permanente del kernel. La personalidad OS/400-style vive en userspace (`libl400`, `os400-tui`, compiladores y scripts de runtime) y usa el kernel como base de aislamiento, seguridad y arranque. El objetivo operativo es que el usuario entre a una pantalla de sign-on y a un menu verde, no a `bash`; el kernel debe hacer posible esa experiencia sin romper la compatibilidad normal de Linux.
+Este documento define el objetivo de producto de Linux/400. No describe el estado actual del repositorio ni una lista de modulos implementados; esa fotografia vive en `docs/PROJECT.md`. La brecha entre esta vision y el estado actual vive en `docs/plan/implementation_plan.md`.
 
-Este documento separa lo que es requisito actual, lo que ya esta implementado en el repo y lo que queda como linea futura.
+## Vision
 
-## Contrato actual
+Linux/400 busca ofrecer una forma de trabajo tipo OS/400/IBM i sobre Linux: el usuario entra a una pantalla de sign-on, opera desde menus y comandos de pantalla verde, administra objetos y trabajos, desarrolla programas y conserva el estado del sistema sin depender de una shell Unix para las tareas normales.
 
-- El root logico de objetos es `L400_ROOT`, por defecto `/l400`.
-- El tipo de objeto se define con `user.l400.objtype`; es la frontera autoritativa compartida por `libl400` y el eBPF LSM.
-- Los metadatos complementarios usan xattrs como `user.l400.objattr`, `user.l400.text`, `user.l400.owner`, `user.l400.owner_uid`, `user.l400.auth`, `user.l400.storage_backend`, `user.l400.record_len` y `user.l400.base_pf`.
-- Los tipos validos salen de `l400-ebpf-common/src/lib.rs`: `*PGM`, `*FILE`, `*USRPRF`, `*LIB`, `*DTAQ`, `*CMD`, `*SRVPGM`, `*OUTQ`.
-- El loader publica estado en `L400_RUN_DIR`, por defecto `/run/l400/loader-status`.
-- La politica eBPF activa es `phase3-v1`.
+No se busca compatibilidad binaria con IBM i ni reproducir cada detalle historico. El objetivo es recrear el modelo operativo:
 
-## Requisitos de kernel
+- sistema orientado a objetos, no a rutas de archivos visibles para el operador;
+- bibliotecas y library list como contexto natural de trabajo;
+- comandos consistentes, promptables y administrables;
+- pantalla verde como interfaz primaria;
+- jobs interactivos y batch visibles y controlables;
+- perfiles, autorizaciones, auditoria y politica explicita;
+- almacenamiento persistente y recuperable;
+- degradacion clara cuando una capacidad de plataforma no esta disponible.
 
-### Obligatorios para modo completo
+## Experiencia objetivo
 
-| Area | Requisito | Uso en Linux/400 |
-| --- | --- | --- |
-| Kernel | Linux >= 6.11 recomendado | Base probada para BPF LSM y flujo live/install del proyecto. |
-| BPF LSM | `CONFIG_BPF=y`, `CONFIG_BPF_SYSCALL=y`, `CONFIG_BPF_LSM=y`, `CONFIG_BPF_JIT=y` | Permite cargar los hooks de politica de objetos. |
-| Orden LSM | `CONFIG_LSM` debe incluir `bpf` | Sin `bpf` en `/sys/kernel/security/lsm`, el loader no puede adjuntar politica. |
-| BTF | `/sys/kernel/btf/vmlinux` presente, normalmente con `CONFIG_DEBUG_INFO_BTF=y` | Aya necesita BTF para cargar programas LSM. |
-| cgroups v2 | `/sys/fs/cgroup/cgroup.controllers` presente | Separa `QINTER` y `QBATCH`, y alimenta la vista de trabajos. |
-| xattrs | soporte `user.*` en el filesystem que contiene `/l400` | Persistencia del catalogo de objetos. |
-| consola/TTY | VT, serial 8250 y UEFI en la ISO | Soporta el arranque live/install y el menu por consola. |
+Un operador debe poder arrancar una ISO o una instalacion, autenticarse con un perfil Linux/400 y llegar directamente a un menu principal. Desde ahi debe poder:
 
-### Recomendados
+- navegar y administrar bibliotecas;
+- crear, copiar, renombrar, describir y borrar objetos;
+- administrar perfiles y autorizaciones;
+- trabajar con jobs interactivos y batch;
+- revisar estado de sistema, logs, auditoria y politica activa;
+- editar miembros fuente;
+- compilar CL/C y ejecutar programas catalogados;
+- trabajar con PF, LF y DTAQ;
+- usar SQL operativo contra archivos Linux/400;
+- apagar o reiniciar el sistema con confirmacion y autoridad adecuada;
+- cerrar sesion sin dejar estado interactivo colgado.
 
-| Area | Requisito | Uso |
-| --- | --- | --- |
-| ZFS | OpenZFS instalado, dataset para `/l400`, `xattr=sa` | Backend objetivo para objetos persistentes con metadatos eficientes. |
-| LAM/TBI | `CONFIG_X86_64_LAM=y` en x86_64 o ABI tagged-address en AArch64 | Optimiza punteros etiquetados cuando el hardware lo permite. |
-| overlay/squashfs/vfat/isofs | Modulos o built-ins | Arranque live ISO e instalador. |
+La shell Linux debe quedar como herramienta de soporte, instalacion, desarrollo interno o rescue, no como interfaz principal del sistema.
 
-## eBPF LSM implementado
+## Modelo objetivo de objetos
 
-El programa `l400-ebpf` implementa tres hooks:
+El sistema debe presentar una frontera de objetos Linux/400 con tipos reconocibles:
 
-- `file_open`: permite archivos sin etiqueta Linux/400, permite objetos con `user.l400.objtype` valido y deniega etiquetas desconocidas.
-- `bprm_creds_from_file`: permite ejecucion nativa no catalogada, permite ejecucion de `*PGM` si tiene atributo de toolchain valido (`C` o `CL`), valida `*PUBLIC:*EXCLUDE` con excepcion para owner UID o autoridad explicita `UID:<uid>:*USE/*ALL`, y deniega otros tipos.
-- `bprm_check_security`: confirma la decision de ejecucion y registra estadisticas.
+| Tipo | Objetivo |
+| --- | --- |
+| `*LIB` | Biblioteca y contenedor logico de objetos. |
+| `*PGM` | Programa ejecutable producido por toolchain Linux/400. |
+| `*FILE` | PF, LF y source file. |
+| `*DTAQ` | Data queue persistente para comunicacion y logs. |
+| `*USRPRF` | Perfil de usuario administrable. |
+| `*CMD` | Comando promptable y documentable. |
+| `*SRVPGM` | Servicio/codigo compartido para programas. |
+| `*OUTQ` | Cola de salida/spool. |
 
-El loader `l400-loader` tiene tres modos:
+Los objetos deben tener metadatos de tipo, atributo, texto, owner, autorizaciones, auditoria y backend de almacenamiento. El operador debe ver esos metadatos mediante comandos y pantallas, no inspeccionando xattrs manualmente.
 
-- `full`: exige eBPF activo; falla si no puede resolver/cargar/adjuntar el bytecode.
-- `degraded`: intenta activar enforcement y continua sin proteccion si falla.
-- `dev`: tolerante para desarrollo local, especialmente cuando faltan BTF, hooks o el artefacto eBPF.
+## Interfaz objetivo
 
-La TUI muestra el estado del loader desde `/run/l400/loader-status`, y `scripts/runtime/l400-support-report.sh` clasifica la plataforma como `full`, `degraded` o `dev`.
+La TUI debe comportarse como la consola primaria del sistema:
 
-## cgroups y subsistemas
+- sign-on y sign-off reales;
+- menu principal y menus de trabajo;
+- linea de comandos persistente en la sesion;
+- `F4` como prompt por campos con validacion;
+- teclas F consistentes;
+- opciones numericas por fila;
+- confirmaciones visuales para acciones destructivas;
+- mensajes de estado claros;
+- ausencia de datos demo silenciosos cuando falta runtime real.
 
-`libl400/src/cgroup.rs` implementa:
+Las pantallas minimas objetivo son:
 
-- deteccion de cgroups v2;
-- creacion de `l400.slice/l400.qinter` y `l400.slice/l400.qbatch`;
-- asignacion de procesos a workload interactivo o batch;
-- registro de trabajos en `L400_RUN_DIR/jobs`;
-- parametros base de CPU, IO, memoria y PIDs.
+- `WRKOBJ` / `WRKLIB`;
+- `DSPOBJD`;
+- `WRKUSRPRF`;
+- `WRKACTJOB`;
+- `WRKSYSSTS`;
+- `WRKSYSVAL`;
+- `WRKSPLF` / `WRKOUTQ`;
+- `STRPDM`;
+- `WRKMBRPDM`;
+- `STRSEU`;
+- `STRSQL`;
+- visores PF/LF/DTAQ;
+- politica/auditoria (`DSPPOLICY`, `DSPAUD`, autorizaciones).
 
-El fallo de cgroups no debe impedir el uso de la TUI. En hosts sin permisos o sin cgroup v2, el runtime degrada y conserva el registro de jobs cuando puede.
+## Work management objetivo
 
-## Almacenamiento y xattrs
+Linux/400 debe exponer trabajos como unidad operativa:
 
-ZFS es el backend objetivo para `/l400`, pero el codigo actual no depende de ZFS para pruebas unitarias: usa xattrs POSIX y puede funcionar sobre filesystems que soporten `user.*`.
+- jobs interactivos (`QINTER`);
+- jobs batch (`QBATCH`);
+- estado `JOBQ`, `ACTIVE`, `COMPLETED`, `FAILED` y terminado;
+- comando ejecutado, usuario, timestamps, salida/log y subsistema;
+- envio batch por comando;
+- terminacion controlada;
+- degradacion visible cuando cgroups o aislamiento no estan disponibles.
 
-Estado actual:
+La implementacion puede usar procesos Linux, cgroups y archivos de runtime, pero el operador debe ver trabajos Linux/400.
 
-- Bibliotecas `*LIB`: directorios catalogados con xattrs.
-- Objetos simples `*PGM`, `*CMD`, `*USRPRF`, etc.: archivos o directorios catalogados.
-- `*FILE` PF/LF y `*DTAQ`: `sled` por defecto.
-- Berkeley DB: backend opcional con `--features berkeleydb` y `L400_STORAGE_BACKEND=berkeleydb`.
-- Source members: archivos planos dentro del directorio de un source file `*FILE`.
+## Datos objetivo
 
-En modo live se permite `/l400` como `tmpfs`. En modo instalado, el instalador/bootstrap conservan `/l400` sobre el filesystem persistente y `l400-support-report` marca backend y persistencia.
+PF/LF/DTAQ deben ser suficientes para operar demos y flujos administrativos reales:
 
-## Punteros etiquetados
+- PF con record length, miembros, campos, claves, RRN y arrival sequence;
+- LF como indice mantenido automaticamente sobre PF;
+- comandos para crear, limpiar, agregar miembros, escribir y visualizar;
+- DTAQ con mensajes de longitud variable, espera y lectura FIFO;
+- SQL sobre PF con consultas y DML basico;
+- persistencia entre reinicios en instalacion real.
 
-`libl400/src/lam.rs` ya contiene:
+## Toolchain objetivo
 
-- deteccion de modo (`IntelLam48`, `ArmTbi`, `SoftwareMask`, `Unsupported`);
-- activacion best-effort por plataforma;
-- helpers `tag_pointer`, `untag_pointer`, `get_space_bits`;
-- mapeo tipo de objeto -> tag numerico.
+El entorno debe permitir desarrollar sin salir de Linux/400:
 
-Esto es soporte de runtime, no una dependencia obligatoria para la primera experiencia OS/400-style. Si LAM/TBI no esta disponible, el proyecto cae a mascara por software.
+- source files y miembros;
+- edicion desde TUI;
+- compilacion CL y C;
+- catalogacion como `*PGM`;
+- resolucion por current library y library list;
+- errores formales estilo CPF para que `MONMSG` y auditoria tengan semantica util;
+- marca o firma de toolchain verificable antes de ejecutar.
 
-## DAX y sched_ext
+## Seguridad objetivo
 
-DAX y `sched_ext` no son requisitos de la version actual.
+La politica de seguridad debe tener una fuente visible y operable:
 
-- DAX no encaja directamente con ZFS porque ZFS no expone DAX de forma nativa. Puede quedar como perfil empresarial futuro para objetos/caches especiales sobre XFS/ext4/fsdax.
-- `sched_ext` puede ser util mas adelante para planificacion fina de `QINTER`/`QBATCH`, pero hoy cgroups v2 cubre la separacion minima.
-- eBPF `struct_ops` no forma parte del contrato actual; no debe documentarse como dependencia para `*DTAQ` o perfiles.
+- perfiles y owners;
+- autorizaciones `*USE`, `*CHANGE`, `*ALL`, `*EXCLUDE`;
+- fallback `*PUBLIC`;
+- comandos de otorgar, revocar, mostrar y verificar autoridad;
+- auditoria de denegados, ejecuciones y cambios sensibles;
+- enforcement runtime para todos los comandos sensibles;
+- enforcement kernel para la frontera de objetos y ejecucion de `*PGM`;
+- modo degradado explicito cuando el kernel no puede reforzar la politica.
 
-## Checklist de plataforma
+La meta no es meter IBM i dentro del kernel, sino usar el kernel para reforzar aquello que Linux puede proteger mejor: ejecucion, acceso a objetos tipados, aislamiento de procesos y observabilidad.
 
-```bash
-uname -r
-cat /sys/kernel/security/lsm
-test -f /sys/kernel/btf/vmlinux && echo BTF_OK
-test -f /sys/fs/cgroup/cgroup.controllers && echo CGROUP_V2_OK
-getfattr -n user.l400.objtype /l400/QSYS 2>/dev/null
-zfs get xattr "$(df /l400 | awk 'NR==2 {print $1}')" 2>/dev/null
-L400_RUN_DIR=/run/l400 l400-support-report --write
-```
+## Plataforma objetivo
 
-## Gaps de kernel/plataforma
+Linux/400 debe correr en tres perfiles:
 
-1. Asegurar que `scripts/build/build_kernel.sh` genere BTF usable para Aya (`/sys/kernel/btf/vmlinux`).
-2. Validar `xattr=sa` cuando `/l400` esta en ZFS y degradar con mensaje claro si no lo esta.
-3. Empaquetar y arrancar `l400-loader` como servicio supervisado en el sistema instalado.
-4. Mantener tests QEMU de instalacion/persistencia como gate de RC.
+| Perfil | Objetivo |
+| --- | --- |
+| `dev` | Desarrollo local sin depender de BPF/ZFS/root; todo debe ser testeable en user space. |
+| `degraded` | Sistema instalable y operable sin enforcement kernel completo; la TUI/reportes deben decirlo claramente. |
+| `full` | BPF LSM activo, BTF disponible, cgroups v2, `/l400` persistente con xattrs y preferentemente ZFS `xattr=sa`. |
+
+La plataforma completa debe poder instalarse, reiniciar y conservar `/l400`. El gate de release debe probar instalacion, arranque instalado y persistencia.
+
+## No objetivos
+
+- Compatibilidad binaria con IBM i.
+- Emulacion completa de 5250.
+- Reimplementar TIMI, EBCDIC o todos los comandos historicos.
+- Requerir un fork permanente del kernel.
+- Bloquear herramientas Linux nativas fuera de la frontera Linux/400.
+
+## Definicion de sistema logrado
+
+El objetivo se considera alcanzado cuando una persona puede instalar o arrancar Linux/400, entrar al menu principal y completar un ciclo operativo completo sin shell:
+
+1. crear biblioteca y source file;
+2. crear/editar miembro CL;
+3. compilarlo a `*PGM`;
+4. ejecutar el programa;
+5. enviar un job batch;
+6. revisar jobs/logs/auditoria;
+7. crear PF/LF/DTAQ y operar datos;
+8. administrar autorizaciones;
+9. reiniciar y verificar persistencia de `/l400`.

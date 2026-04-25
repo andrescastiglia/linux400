@@ -1,304 +1,182 @@
-# Plan de implementacion de Linux/400
+# Plan para alcanzar el objetivo de Linux/400
 
-Este plan parte del estado real del repo: ya existen runtime de objetos, TUI, compiladores, eBPF LSM, loader, demos y scripts de release. El foco ahora es convertir ese esqueleto funcional en un entorno OS/400-style operable: entrar al sistema, administrar objetos/trabajos/perfiles, desarrollar desde pantalla verde y conservar estado de forma persistente.
+Este documento lista lo que falta para que el estado actual descrito en `docs/PROJECT.md` alcance la vision definida en `docs/KERNEL.md`.
 
-## Base ya implementada
+No es un historial de fases ya cerradas. Es una hoja de ruta viva de brechas pendientes.
 
-- `libl400`: catalogo de objetos por xattrs, bibliotecas, PF/LF, DTAQ, source members, storage backend, cgroups, auth y FFI.
-- `l400-ebpf-common`: contrato `no_std` de tipos y version de politica.
-- `l400-ebpf`: hooks LSM `file_open`, `bprm_creds_from_file`, `bprm_check_security`.
-- `l400-loader`: modos `full`, `degraded`, `dev` y `loader-status`.
-- `os400-tui`: sign-on, menu principal, linea de comandos, objetos, trabajos, DTAQ, STRPDM, WRKMBRPDM, STRSEU, STRSQL.
-- `clc`: parser CL y backend C con llamadas reales a `libl400`.
-- `c400c`: compilacion C a ELF catalogado como `*PGM`.
-- Release/live: userspace, initramfs, ISO, instalador textual y smoke tests.
+## Estado base
 
-## Objetivo de la siguiente etapa
+El proyecto ya tiene una base operable: runtime de objetos, TUI, comandos, PF/LF/DTAQ, compiladores, eBPF LSM, loader y scripts de release. La siguiente etapa debe convertir esa base en un sistema mas coherente, durable, administrable y cercano al modo de trabajo OS/400.
 
-Que un usuario pueda arrancar una ISO o instalacion, autenticarse como perfil Linux/400, entrar al menu principal y operar el sistema sin shell para las tareas minimas:
+## Fase 1: Instalacion y persistencia de sistema
 
-- crear y navegar bibliotecas;
-- crear/listar/renombrar/borrar objetos;
-- editar y compilar un fuente CL/C;
-- ejecutar programas `*PGM`;
-- enviar/listar jobs batch;
-- revisar logs, estado del loader, jobs y storage;
-- preservar `/l400` entre reinicios.
+**Estado:** pendiente de endurecimiento.
 
-## Fase 1: Persistencia y bootstrap del sistema
-
-**Estado:** finalizada. Bootstrap, persistencia instalada y validacion QEMU quedaron integrados al gate de RC; `l400-support-report` expone backend/persistencia y el test QEMU valida objetos base tras boot instalado.
-
-**Problema:** la experiencia OS/400-style depende de que existan bibliotecas y objetos base. Ademas, el flujo instalado todavia puede montar `/l400` como `tmpfs`, suficiente para demos pero no para sistema real.
+Objetivo: una instalacion debe conservar `/l400`, perfiles, objetos, jobs/logs relevantes y configuracion entre reinicios, con reporte claro de backend y modo de plataforma.
 
 Trabajo:
 
-- [x] Crear comando o rutina idempotente `l400-bootstrap`.
-- [x] Provisionar `QSYS`, `QGPL`, `QUSRSYS`, `QTEMP` y `QGPL/QCLSRC`.
-- [x] Crear objetos base: `QEZJOBLOG *DTAQ`, source file `QCLSRC *FILE SRC`, perfiles iniciales y placeholders de comandos.
-- [x] Decidir backend persistente para `/l400`:
-  - preferido: ZFS dataset con `xattr=sa`;
-  - fallback: ext4/xfs con xattrs, marcado como modo no-ZFS.
-- [x] Actualizar `install_linux400.sh` e initramfs para no reemplazar `/l400` instalado por `tmpfs`.
-- [x] Agregar validacion visible en `l400-support-report`.
-- [x] Validar en QEMU/instalacion real que el estado sobrevive a reboot.
+- [ ] Ejecutar y mantener `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh` como gate regular en infraestructura con QEMU/OVMF.
+- [ ] Validar persistencia no solo de objetos base, sino tambien de bibliotecas/miembros/archivos creados por usuario antes del reboot.
+- [ ] Documentar y probar rollback/backup/restore de `/l400`.
+- [ ] Validar ZFS `xattr=sa` cuando el backend sea ZFS.
+- [ ] Definir migraciones versionadas de metadatos para cambios futuros de xattrs/schema.
 
-Criterio de aceptacion:
+Criterio:
 
-- tras reiniciar una instalacion, `WRKOBJ`, `STRPDM` y `WRKMBRPDM QGPL/QCLSRC` muestran estado persistente;
-- `l400-support-report --write` indica backend de `/l400` y si es persistente.
+- una instalacion puede crear objetos de usuario, reiniciar y verlos desde TUI;
+- `l400-support-report --write` clasifica correctamente `dev`, `degraded` o `full`;
+- hay procedimiento probado de backup/restore de `/l400`.
 
-## Fase 2: Comandos minimos de operacion y administracion
+## Fase 2: TUI de operacion completa
 
-**Estado:** finalizada. Los comandos minimos estan empaquetados/dispatchados y la TUI agrega confirmaciones visuales para acciones destructivas principales.
+**Estado:** parcialmente implementada; falta profundidad interactiva.
 
-**Problema:** el dispatcher existe, pero varios comandos son listados basicos o no estan empaquetados.
+Objetivo: operar el sistema normal sin shell, con pantallas consistentes, prompt completo y acciones seguras.
 
 Trabajo:
 
-- [x] Empaquetar `sbmjob` y publicar symlink `SBMJOB`.
-- [x] Unificar `WRKACTJOB` y `WRKSYSSTS` para leer `L400_RUN_DIR/jobs`, no rutas de catalogo inconsistentes.
-- [x] Completar filtros de `WRKOBJ OBJ(...) OBJTYPE(...) LIB(...)`.
-- [x] Agregar comandos de objetos minimos:
-  - `DLTOBJ`
-  - `CPYOBJ`
-  - `DSPOBJD`
-  - `CHGOBJD`
-- [x] Agregar comandos de autorizacion:
-  - `DSPOBJAUT`
-  - `GRTOBJAUT`
-  - `RVKOBJAUT`
-- [x] Convertir `PWRDWNSYS OPTION(*IMMED|*RESTART)` en accion real cuando corre como root, con confirmacion explicita `CONFIRM(*YES)`.
-- [x] Hacer `WRKUSRPRF` accionable: crear, listar, mostrar y desactivar perfiles Linux/400.
-- [x] Ejecutar comandos no interactivos desde la linea de comandos de la TUI via `l400cmd`.
-- [x] Agregar confirmaciones visuales dedicadas en TUI para comandos destructivos.
+- [ ] Convertir mas comandos en pantallas dedicadas, no solo salida de `SystemPanel`.
+- [ ] Agregar tests de navegacion TUI de extremo a extremo sobre terminal simulada.
+- [ ] Mejorar prompt `F4` con tipos de parametro, valores permitidos, ayuda por campo y errores CPF.
+- [ ] Agregar confirmaciones visuales para todas las acciones destructivas, no solo las principales.
+- [ ] Completar `WRKSPLF`/`WRKOUTQ` como pantalla real.
+- [ ] Agregar mensajes de estado uniformes entre pantallas.
 
-Criterio de aceptacion:
+Criterio:
 
-- todos los comandos anteriores funcionan desde TUI command line y desde symlink shell-friendly;
-- los comandos destructivos tienen confirmacion o modo explicitamente irreversible;
-- hay tests para parser de parametros y rutas felices/error.
+- un operador puede crear, editar, compilar, ejecutar, auditar y borrar desde TUI;
+- las teclas F y opciones numericas se comportan igual en todas las pantallas;
+- los comandos destructivos nunca se ejecutan por accidente.
 
-## Fase 3: Library list, perfil y sesion
+## Fase 3: Modelo de objetos mas rico
 
-**Estado:** finalizada. `SessionContext` persiste y limpia estado en sign-off; las pantallas vuelven a usar el contexto actualizado de sesion.
+**Estado:** base implementada; falta semantica de IBM i mas amplia.
 
-**Problema:** `ADDLIBLE` y `CHGCURLIB` usan variables de entorno del proceso; la TUI no mantiene todavia una sesion rica estilo OS/400.
+Objetivo: que los objetos no sean solo archivos etiquetados, sino unidades administrables con metadatos, versionado y politica consistente.
 
 Trabajo:
 
-- [x] Introducir `SessionContext` en `os400-tui` con:
-  - user profile;
-  - current library;
-  - library list;
-  - last message/status;
-  - job id.
-- [x] Persistir library list de sesion en `L400_RUN_DIR/sessions`.
-- [x] Mostrar current library real en el header del menu.
-- [x] Hacer que `WRKOBJ`, `STRSQL`, `STRSEU` y `WRKMBRPDM` usen el contexto de sesion.
-- [x] Mapear perfil Linux/400 a usuario Linux sin permitir operar como `root`.
-- [x] Validar en ISO/TUI real que sign-off limpia la sesion y que las pantallas se refrescan como operador espera.
+- [ ] Profundizar `*CMD` como objeto promptable con definicion de parametros.
+- [ ] Definir comportamiento real de `*SRVPGM`.
+- [ ] Completar `*OUTQ` y spool.
+- [ ] Agregar owner semantico Linux/400 separado de UID Linux cuando corresponda.
+- [ ] Agregar version de formato de objeto y migraciones.
+- [ ] Reemplazar marca simple de toolchain por manifest o firma verificable.
 
-Criterio de aceptacion:
+Criterio:
 
-- `CHGCURLIB QGPL` cambia lo que muestran pantallas y comandos sin reiniciar la TUI;
-- `ADDLIBLE` afecta resolucion de objetos en esa sesion;
-- sign-off limpia job/sesion.
+- `DSPOBJD`, autorizaciones, auditoria y TUI muestran metadatos consistentes;
+- agregar un tipo nuevo obliga a actualizar contrato, runtime, eBPF, comandos y docs.
 
-## Fase 4: Work management real
+## Fase 4: Datos PF/LF/DTAQ y SQL
 
-**Estado:** finalizada. `WRKACTJOB` muestra detalle, filtra subsistema y termina jobs con confirmacion visual antes de llamar al runtime.
+**Estado:** funcional minimo; falta robustez de datos.
 
-**Problema:** hay cgroups y job registry, pero faltan colas, opciones y administracion.
+Objetivo: soportar flujos administrativos y demos de datos con semantica mas cercana a OS/400.
 
 Trabajo:
 
-- [x] Integrar `SBMJOB CMD(...) JOB(...) JOBQ(...)` al dispatcher.
-- [x] Registrar jobs en estados `JOBQ`, `ACTIVE`, `COMPLETED`, `FAILED`.
-- [x] Agregar acciones de `WRKACTJOB`: ver detalle, terminar job, refrescar, filtrar por subsystem.
-- [x] Agregar descripcion de subsistemas:
-  - `QINTER`
-  - `QBATCH`
-- [x] Hacer que `os400-tui` y jobs batch registren comando, usuario, timestamps y salida/log.
-- [x] Exponer cgroup params desde pantalla de sistema.
-- [x] Validar acciones de terminacion y detalle desde TUI dentro de la ISO.
+- [ ] Validacion estricta de schema PF por tipo, longitud y claves.
+- [ ] Multiples miembros PF con comandos completos de seleccion/copia/limpieza.
+- [ ] LF con claves compuestas y criterios de seleccion.
+- [ ] SQL con parser mas completo, errores CPF y vistas paginadas mas ricas.
+- [ ] DTAQ con atributos configurables y visor TUI con acciones.
+- [ ] Tests de consistencia PF/LF ante update/delete mas amplios.
 
-Criterio de aceptacion:
+Criterio:
 
-- `SBMJOB` ejecuta un comando en background, aparece en `WRKACTJOB` y termina con estado correcto;
-- la TUI sigue usable si cgroups no estan disponibles, mostrando modo degradado.
+- PF/LF sobreviven operaciones CRUD repetidas sin perder indices;
+- STRSQL y comandos PF/LF muestran errores recuperables y auditables.
 
-## Fase 5: Archivos PF/LF/DTAQ mas cercanos a OS/400
+## Fase 5: CL, C y entorno de desarrollo
 
-**Problema:** PF/LF/DTAQ existen, pero el modelo de datos es minimo (`KEY/DATA`).
+**Estado:** compilacion real implementada; falta profundidad de lenguaje y tooling.
 
-**Estado:** finalizada. PF/LF/DTAQ tienen comandos operativos y la TUI permite abrir registros PF y data queues desde el navegador de objetos.
+Objetivo: que el desarrollo desde pantalla verde sea una experiencia completa para programas simples y administrativos.
 
 Trabajo:
 
-- [x] Definir metadata de esquema para PF:
-  - record length;
-  - campos;
-  - tipo/longitud;
-  - texto;
-  - keyed fields.
-- [x] Agregar miembros PF reales y comandos:
-  - `CRTPF`
-  - `CRTLF`
-  - `DSPPFM`
-  - `CLRPFM`
-  - `ADDPFM`
-  - `WRTPFM` como equivalente minimo para carga operativa.
-- [x] Mantener LF automaticamente al escribir/borrar registros de PF.
-- [x] Agregar RRN/arrival sequence de forma explicita.
-- [x] Extender DTAQ:
-  - `CRTDTAQ`
-  - `SNDDTAQ`
-  - `RCVDTAQ`
-  - `DSPDTAQ`
-  - wait time y mensajes de longitud variable.
+- [ ] Ampliar CL con mas comandos soportados nativamente.
+- [ ] Implementar codigos CPF consistentes en todos los comandos runtime.
+- [ ] Profundizar `MONMSG` con rangos/genericidad y flujo de error mas fiel.
+- [ ] Mejorar diagnosticos de compilacion y listado de errores en TUI.
+- [ ] Definir uso real o retiro del backend LLVM experimental.
+- [ ] Integrar objetos `*CMD` y prompts con programas CL.
 
-Criterio de aceptacion:
+Criterio:
 
-- [x] una demo por comandos crea PF con esquema, inserta registros y consulta por LF;
-- [x] mostrar el flujo PF/LF desde TUI;
-- [x] DTAQ puede enviarse/recibirse desde comando batch;
-- [x] mostrar DTAQ desde TUI.
+- un fuente CL administrativo puede compilar, manejar errores, llamar programas y operar objetos sin shell;
+- errores de runtime pueden ser capturados por `MONMSG` de forma predecible.
 
-## Fase 6: STRSQL utilizable
+## Fase 6: Seguridad, autorizaciones y auditoria
 
-**Problema:** `STRSQL` soporta `SELECT` minimo, suficiente para demo pero no para administracion.
+**Estado:** runtime y eBPF cubren la base; falta convergencia completa.
 
-**Estado:** finalizada. El motor SQL cubre batch/stdin y la pantalla interactiva TUI ejecuta consultas, mantiene historial, navega filas y desplaza columnas.
+Objetivo: una politica unica y visible para usuario, owner, grupos, comandos y kernel.
 
 Trabajo:
 
-- [x] Reemplazar parseo manual por parser SQL pequeno o crate dedicado.
-- [x] Soportar:
-  - `SELECT` con columnas, `WHERE`, `ORDER BY`, `LIMIT`;
-  - `INSERT`;
-  - `UPDATE`;
-  - `DELETE`;
-  - `CREATE TABLE` como alias a `CRTPF` cuando sea razonable.
-- [x] Mostrar errores con codigo/mensaje estilo pantalla verde.
-- [x] Agregar paginacion horizontal/vertical de resultados en salida batch basica.
+- [ ] Aplicar autorizaciones por perfil/grupo/owner tambien en `file_open`, no solo en ejecucion.
+- [ ] Unificar representacion `USER`, `UID`, owner y grupos.
+- [ ] Auditar todos los comandos sensibles con codigo, usuario, objeto y resultado.
+- [ ] Agregar comandos de consulta historica de auditoria con filtros.
+- [ ] Endurecer `*PGM` con firma/manifest de toolchain.
+- [ ] Tests e2e para denegados runtime y denegados eBPF.
 
-Criterio de aceptacion:
+Criterio:
 
-- [x] `STRSQL "SELECT * FROM QGPL/CUSTOMERS WHERE KEY='C001'"` funciona por batch y por stdin;
-- [x] INSERT/UPDATE/DELETE actualizan PF y LF de forma consistente;
-- [x] integrar scroll/prompt SQL interactivo dentro de TUI.
+- un denegado se ve igual desde comando, TUI, auditoria y soporte;
+- `full` refuerza en kernel lo que `degraded` aplica en runtime.
 
-## Fase 7: Compilador CL y toolchain
+## Fase 7: Work management y subsistemas
 
-**Problema:** `clc` compila comandos simples, pero falta lenguaje de control real.
+**Estado:** base funcional; falta modelo operativo mas completo.
 
-**Estado:** finalizada. `clc` soporta bloques de control, llamadas runtime y `MONMSG` sobre estado CPF formal expuesto por `libl400`.
+Objetivo: jobs y subsistemas deben parecer entidades Linux/400 administrables, no solo procesos listados.
 
 Trabajo:
 
-- [x] Extender grammar/AST:
-  - variables `DCL`;
-  - `CHGVAR`;
-  - `IF/THEN/ELSE`;
-  - `DO/ENDDO`;
-  - `MONMSG`;
-  - `CALL`;
-  - parametros de programa.
-- [x] Generar C o LLVM con control de flujo real.
-- [x] Agregar resolucion de objetos por library list.
-- [x] Catalogar source y program objects de forma uniforme.
-- [x] Definir comando `CRTCLPGM` o mapear `CRTPGM` a flujo de compilacion.
+- [ ] Colas de trabajo reales (`JOBQ`) y politicas de despacho.
+- [ ] Subsistemas configurables mas alla de `QINTER`/`QBATCH`.
+- [ ] Logs por job con vista TUI y comandos.
+- [ ] Estados de job mas completos y terminacion controlada.
+- [ ] Integracion mas fuerte con cgroups v2 y limites por perfil/subsistema.
+- [ ] Modo degraded claro cuando cgroups no esten disponibles.
 
-Criterio de aceptacion:
+Criterio:
 
-- [x] un CL de ejemplo crea biblioteca, cambia curlib, compila/llama programa, maneja error con `MONMSG`;
-- [x] tests unitarios cubren parser y codegen de cada estructura nueva;
-- [x] `MONMSG` debe capturar codigos CPF reales cuando los comandos runtime expongan estado formal.
+- `SBMJOB` puede encolar, ejecutar, registrar salida y aparecer en pantallas;
+- un operador puede diagnosticar y terminar jobs sin shell.
 
-## Fase 8: TUI OS/400-style completa para operaciones minimas
+## Fase 8: Release y soporte de plataforma
 
-**Problema:** las pantallas existen, pero faltan opciones numericas y prompt F4 real.
+**Estado:** pipeline base implementado; falta disciplina de release continua.
 
-**Estado:** finalizada. El TUI permite operar sin shell, tiene prompt F4 por campos con tabulacion/validacion, opciones numericas y confirmaciones por fila para acciones destructivas.
+Objetivo: cada RC debe demostrar build, smoke, instalacion, persistencia y reporte de soporte.
 
 Trabajo:
 
-- [x] Implementar prompt F4 por comando con campos editables.
-- [x] Agregar columna `Opt` accionable en ObjectBrowser, WRKACTJOB, WRKMBRPDM y DTAQ.
-- [x] Unificar barra de ayuda y mensajes de estado.
-- [x] Agregar pantallas:
-  - `WRKLIB`
-  - `DSPOBJD`
-  - `WRKUSRPRF`
-  - `WRKSYSSTS`
-  - `WRKSYSVAL`
-  - `WRKSPLF` o spool/outq minimo si se decide incluir `*OUTQ`.
-- [x] Evitar datos fallback silenciosos: si no hay runtime real, mostrar "sin catalogo" o "modo demo" explicitamente.
+- [ ] Ejecutar QEMU install smoke en CI o runner dedicado.
+- [ ] Publicar artefactos con matriz `dev/degraded/full`.
+- [ ] Validar build eBPF cuando haya toolchain disponible.
+- [ ] Mantener documentacion de upgrade/migration de `/l400`.
+- [ ] Agregar reportes de compatibilidad de kernel, BTF, BPF LSM, cgroups y ZFS.
+- [ ] Agregar pruebas de instalacion con datos persistentes de usuario.
 
-Criterio de aceptacion:
+Criterio:
 
-- [x] un operador puede administrar el sistema minimo desde TUI sin shell;
-- [x] las teclas F y opciones se comportan de forma consistente entre pantallas;
-- [x] prompt F4 avanzado con tabulacion campo a campo y validacion por tipo de parametro.
-
-## Fase 9: Seguridad, auditoria y politica kernel
-
-**Problema:** la politica eBPF valida tipos y ejecucion, pero la autorizacion de objetos todavia vive principalmente en runtime.
-
-**Estado:** finalizada. Runtime y comandos sensibles usan matriz de autorizacion/auditoria; `CALL` emite estado CPF formal y eBPF valida owner UID o autoridad `UID:<uid>` cuando `*PUBLIC` esta excluido.
-
-Trabajo:
-
-- [x] Definir una matriz de autorizaciones por objeto/comando.
-- [x] Agregar auditoria en `QHST`/DTAQ para:
-  - acceso denegado;
-  - ejecucion de `*PGM`;
-  - cambios de autorizacion;
-  - cambios de perfil.
-- [x] Evaluar como pasar identidad/autoridad al eBPF sin complejidad excesiva.
-- [x] Firmar o marcar toolchain output mas robustamente que `objattr=C|CL`.
-- [x] Agregar comandos de verificacion de politica.
-
-Criterio de aceptacion:
-
-- [x] `*PUBLIC:*EXCLUDE` se respeta de forma consistente en runtime y ejecucion;
-- [x] los denegados quedan visibles en logs/TUI;
-- [x] identidad/autorizacion completa en eBPF para usuarios/grupos/owner mas alla de `*PUBLIC:*EXCLUDE`.
-
-## Fase 10: Release, CI y matriz de plataformas
-
-**Estado:** finalizada. `test_release_rc.sh` queda como gate minimo con tests cargo, build userspace, eBPF opcional por toolchain y smoke scripts; CI ejecuta tests de `l400`, `clc`, `os400-tui`, smoke scripts y builds userspace. El build RC exige QEMU smoke mediante `RUN_E2E_INSTALL=1` salvo builds internos con `RUN_RC_GATE=0`.
-
-Trabajo:
-
-- CI para:
-  - [x] `cargo test -p l400`;
-  - [x] `cargo test -p clc`;
-  - [x] `cargo test -p os400-tui`;
-  - [x] smoke scripts;
-  - [x] build userspace;
-  - [x] build eBPF cuando el toolchain este disponible.
-- [x] QEMU smoke install obligatorio antes de RC.
-- [x] Matriz de soporte:
-  - dev sin BPF/ZFS;
-  - degraded con cgroups pero sin eBPF;
-  - full con BPF LSM, BTF, ZFS `xattr=sa`.
-- [x] Documentar upgrade/migration de `/l400`.
-
-Criterio de aceptacion:
-
-- [x] `./scripts/test/test_release_rc.sh` queda como gate minimo;
-- [x] `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh` valida instalacion y persistencia.
+- un RC no se declara listo sin QEMU install smoke;
+- los usuarios pueden saber antes de operar si estan en `dev`, `degraded` o `full`.
 
 ## Prioridad recomendada
 
-1. Persistencia `/l400` + bootstrap.
-2. Unificar job registry y empaquetar `SBMJOB`.
-3. Completar comandos administrativos minimos.
-4. SessionContext real en TUI.
-5. PF/LF/DTAQ con comandos operativos.
-6. CL con control de flujo.
-7. Seguridad/autorizacion integrada con eBPF.
+1. Gate QEMU con persistencia de datos de usuario.
+2. TUI dedicada para operaciones aun encapsuladas en `SystemPanel`.
+3. Seguridad unificada usuario/grupo/owner en runtime y eBPF.
+4. CPF consistente en comandos runtime y `MONMSG`.
+5. `*OUTQ`, spool y `*CMD` como objetos completos.
+6. PF/LF/SQL mas estrictos.
+7. Firma/manifest de toolchain.
 
-La razon de este orden es practica: primero hay que poder arrancar, conservar estado y administrar lo minimo desde el menu. Despues vale la pena profundizar compatibilidad semantica de archivos, SQL, CL y enforcement.
+La prioridad sigue una logica operativa: primero asegurar que el sistema instala y conserva estado; despues mejorar la experiencia sin shell; luego profundizar compatibilidad, seguridad y datos.

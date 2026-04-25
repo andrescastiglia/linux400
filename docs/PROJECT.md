@@ -1,52 +1,65 @@
-# Linux/400: proyecto y arquitectura actual
+# Linux/400: estado actual del proyecto
 
-Linux/400 busca recrear la forma de trabajo de OS/400/IBM i sobre Linux: sign-on, menu principal, comandos operativos, objetos tipados, bibliotecas, trabajos interactivos/batch y herramientas de desarrollo en pantalla verde. No persigue compatibilidad binaria ni reemplazar IBM i programa por programa. La meta es que el operador no tenga que vivir en `bash`: entra a una sesion Linux/400 y opera el sistema desde menus y comandos estilo OS/400.
+Este documento describe lo que existe hoy en el repositorio. La vision objetivo vive en `docs/KERNEL.md`; el trabajo que falta para llegar a esa vision vive en `docs/plan/implementation_plan.md`.
 
-## Principios de diseño
+## Resumen
 
-- **Modo de trabajo primero**: sign-on, menu, linea de comandos, teclas F, opciones y pantallas de trabajo son parte del producto, no una demo.
-- **Linux como microplataforma operativa**: se usa Linux para procesos, memoria, seguridad, cgroups, arranque y drivers.
-- **Objetos sobre filesystem**: los objetos viven bajo `L400_ROOT` (`/l400` por defecto) y se tipan con xattrs.
-- **No compatibilidad historica estricta**: UTF-8, ELF nativo, SSH/TTY y Rust/C reemplazan EBCDIC, TIMI y 5250.
-- **Degradacion explicita**: si eBPF, ZFS, BTF o cgroups no estan disponibles, el sistema debe informar el modo degradado y seguir sirviendo para desarrollo/operacion basica.
+Linux/400 ya tiene una base funcional para una personalidad OS/400-style sobre Linux:
 
-## Estado del repo
+- runtime de objetos sobre filesystem y xattrs;
+- tipos compartidos entre userspace y eBPF;
+- PF/LF/DTAQ con backend `sled`;
+- loader eBPF con modos `full`, `degraded` y `dev`;
+- TUI de pantalla verde con sign-on, menu, comando, objetos, jobs, PDM, SEU, SQL y DTAQ;
+- compilador CL y compilador C/400 que catalogan `*PGM`;
+- comandos operativos via `l400cmd` y symlinks;
+- scripts de userspace, initramfs, ISO, instalacion y smoke tests.
+
+## Componentes
 
 | Area | Estado actual |
 | --- | --- |
-| Runtime de objetos | Implementado en `libl400`: crear/listar/copiar/borrar/catalogar objetos, bibliotecas, xattrs y source members. |
-| Tipos compartidos | Implementado en `l400-ebpf-common`, `#![no_std]`, usado por runtime y eBPF. |
-| PF/LF/DTAQ | Implementado con `sled` por defecto; Berkeley DB queda como backend opcional. |
-| Politica kernel | Implementada con Aya BPF LSM y loader con modos `full`, `degraded`, `dev`. |
-| TUI | Implementada con `ratatui`: sign-on, menu principal, object browser, jobs, DTAQ, command line, STRPDM, WRKMBRPDM, STRSEU, STRSQL. |
-| Comandos batch | Dispatcher `l400cmd` y funciones FFI para comandos operativos/desarrollo. |
-| Compiladores | `clc` genera C intermedio por defecto y enlaza contra `libl400`; `c400c` compila C a ELF y cataloga `*PGM`. |
-| Workloads | cgroups v2 best-effort y job registry en `L400_RUN_DIR`. |
-| Distribucion | Scripts de userspace, initramfs, ISO live/install, instalador textual y soporte. |
+| `libl400` | Core runtime: objetos, bibliotecas, PF/LF, DTAQ, source members, auth, auditoria, cgroups, storage y FFI. |
+| `l400-ebpf-common` | Contrato `no_std` de tipos validos, version de politica y contadores compartidos. |
+| `l400-ebpf` | Hooks LSM para `file_open`, `bprm_creds_from_file` y `bprm_check_security`. |
+| `l400-loader` | Carga/adjunta eBPF, persiste estado y permite modos `full`, `degraded`, `dev`. |
+| `os400-tui` | TUI con sign-on, menu principal, command line, object browser, work management, DTAQ, STRPDM, WRKMBRPDM, STRSEU y STRSQL. |
+| `clc` | Parser CL con backend C por defecto; soporta variables, parametros, control de flujo, `MONMSG`, `CALL` y comandos runtime. |
+| `c400c` | Compila C nativo y cataloga el resultado como `*PGM`. |
+| Scripts release | Build userspace, Alpine rootfs, initramfs, ISO, instalador, QEMU smoke y support report. |
 
-## Mapa de componentes
+## Runtime de objetos
 
-### `libl400/`
+Los objetos viven bajo `L400_ROOT` (`/l400` por defecto) y se catalogan con xattrs.
 
-El core del sistema. Expone APIs Rust y funciones C para programas CL/C compilados.
+| Tipo | Estado actual |
+| --- | --- |
+| `*LIB` | Directorio catalogado; soporte ZFS best-effort para datasets. |
+| `*PGM` | ELF catalogado con atributo `C` o `CL`; toolchain marca version/firma simple. |
+| `*FILE PF` | Storage `sled`, record length, schema, miembros y RRN/arrival sequence. |
+| `*FILE LF` | Indice secundario sobre PF, mantenido por escrituras/borrados del PF. |
+| `*FILE SRC` | Source file con miembros como archivos planos. |
+| `*DTAQ` | Cola persistente FIFO con mensajes de longitud variable. |
+| `*USRPRF` | Perfil administrable por comandos runtime. |
+| `*CMD`, `*SRVPGM`, `*OUTQ` | Tipos reconocidos; funcionalidad parcial segun comando/pantalla. |
 
-- `object.rs`: catalogo de objetos, bibliotecas, source members y metadatos.
-- `zfs.rs`: lectura/escritura de `user.l400.objtype`, validacion contra `VALID_OBJ_TYPES` y helpers ZFS.
-- `storage.rs`: seleccion de backend (`sled` por defecto, `berkeleydb` opcional) y xattrs de storage.
-- `db.rs`: PF, LF, indices secundarios y `SELECT` minimo.
-- `dtaq.rs`: colas de datos persistentes.
-- `cgroup.rs`: `QINTER`, `QBATCH` y job registry.
-- `auth.rs`: autorizaciones de objeto (`*USE`, `*CHANGE`, `*ALL`, `*EXCLUDE`) sobre xattrs.
-- `lam.rs`: helpers de punteros etiquetados LAM/TBI/software.
-- `ffi_commands.rs`: comandos OS/400-style invocables desde CL compilado y `l400cmd`.
-- `bin/l400cmd.rs`: dispatcher de comandos por symlink o `l400cmd CMD`.
-- `bin/sbmjob.rs`: envio batch experimental.
+Metadatos principales actuales:
 
-### `os400-tui/`
+```text
+user.l400.objtype
+user.l400.objattr
+user.l400.text
+user.l400.owner
+user.l400.owner_uid
+user.l400.auth
+user.l400.storage_backend
+user.l400.record_len
+user.l400.base_pf
+```
 
-La experiencia interactiva principal.
+## TUI
 
-Flujo actual:
+Flujo principal actual:
 
 ```text
 SignOn -> MainMenu
@@ -54,136 +67,125 @@ SignOn -> MainMenu
         -> WorkManagement
         -> DataQueueViewer
         -> CommandLine
+        -> SystemPanel
         -> STRPDM -> WRKMBRPDM -> STRSEU
                               -> STRSQL
 ```
 
-La TUI autentica contra PAM o `/etc/shadow`, bloquea el perfil `ROOT`, arranca sugerida como `QSECOFR`, registra su job interactivo y muestra estado del loader eBPF.
+Capacidades actuales:
 
-### `l400-ebpf-common/`, `l400-ebpf/`, `l400-loader/`
+- bloqueo de perfil `ROOT`;
+- sesion con user profile, current library, library list, last message y job id;
+- `SIGNOFF` limpia estado de sesion;
+- `F4` en command line abre prompt por campos;
+- opciones numericas en pantallas principales;
+- confirmacion visual para borrado de objetos y terminacion de jobs;
+- `WRKOBJ` puede abrir miembros, registros PF, descripcion y DTAQ;
+- `WRKACTJOB` lista, filtra, muestra detalle y termina jobs;
+- `STRSQL` ejecuta SQL interactivo, guarda historial, navega filas y desplaza columnas.
 
-La capa kernel no intenta reimplementar OS/400 dentro del kernel. Se limita a reforzar la frontera de objetos:
+## Comandos actuales
 
-- objetos con `user.l400.objtype` valido pueden abrirse;
-- etiquetas desconocidas se deniegan;
-- solo `*PGM` con atributo de toolchain valido se puede ejecutar;
-- binarios nativos sin etiqueta siguen funcionando para compatibilidad del sistema base.
-
-El loader persiste estado para que la TUI y los reportes sepan si la proteccion esta activa.
-
-### `cl_compiler/clc/`
-
-Compilador CL nativo. En la ruta default:
-
-1. parsea con Pest;
-2. genera C intermedio;
-3. compila objeto `.o` con `clang` o `cc`;
-4. enlaza contra `libl400`;
-5. cataloga el resultado como `*PGM`.
-
-El backend LLVM existe tras el feature `llvm-backend`, pero no es el camino principal actual.
-
-### `c400_compiler/`
-
-Compilador C/400 simple: delega en `clang`/`cc`, enlaza con `libl400` y cataloga el binario ELF como `*PGM` con atributo `C`.
-
-## Modelo de objetos
-
-La unidad basica es un archivo o directorio con xattrs Linux/400.
-
-| Concepto | Representacion actual |
-| --- | --- |
-| Biblioteca `*LIB` | Directorio bajo `L400_ROOT`, opcionalmente dataset ZFS futuro. |
-| Programa `*PGM` | ELF Linux catalogado con `user.l400.objtype=*PGM` y `user.l400.objattr=C` o `CL`. |
-| Archivo fisico PF | Directorio/base `sled` catalogado como `*FILE`, atributo `PF`, tree `PF_MEMBER`. |
-| Archivo logico LF | Objeto `*FILE`, atributo `LF`, indice secundario `LF_IDX_<name>` y xattr `base_pf`. |
-| Data queue `*DTAQ` | Objeto catalogado, tree `DTAQ`, lectura FIFO por clave creciente. |
-| Source file | Directorio `*FILE` con atributo `SRC`; miembros como archivos planos. |
-| Perfil `*USRPRF` | Objeto de perfil administrable desde `WRKUSRPRF`; la TUI bloquea `ROOT` y usa perfil Linux/400 para sesion. |
-
-El tipo autorizado se valida en `l400-ebpf-common/src/lib.rs`. Agregar un tipo nuevo requiere actualizar ese crate y revisar runtime/eBPF.
-
-## Experiencia operativa
-
-En la ISO live/install, el usuario deberia ver una consola Linux/400:
-
-1. `l400-console-autologin.sh` entra con `qsecofr` o abre instalador/rescue segun boot mode.
-2. `l400-session.sh` prepara entorno (`PATH`, `L400_ROOT`, `L400_LIB_PATH`, `LD_LIBRARY_PATH`) y lanza `os400-tui`.
-3. `GO MAIN` abre la TUI cuando hay terminal interactiva.
-4. Los comandos OS/400-style se exponen como symlinks a `l400cmd` en `/opt/l400/bin` o `/usr/local/bin`.
-
-Comandos disponibles hoy en el dispatcher:
+El dispatcher `l400cmd` y los symlinks empaquetados cubren:
 
 ```text
-WRKSYSSTS WRKACTJOB WRKSYSVAL DSPLOG WRKUSRPRF PWRDWNSYS
+WRKSYSSTS WRKACTJOB WRKSYSVAL DSPLOG WRKUSRPRF WRKSPLF PWRDWNSYS
 WRKOBJ CRTLIB DLTLIB ADDLIBLE CHGCURLIB RNMOBJ DLTOBJ CPYOBJ
 DSPOBJD CHGOBJD DSPOBJAUT CHKOBJAUT GRTOBJAUT RVKOBJAUT
-CRTPGM CRTCLPGM CALL SBMJOB CRTPF CRTLF DSPPFM CLRPFM ADDPFM WRTPFM
-CRTDTAQ SNDDTAQ RCVDTAQ DSPDTAQ DSPPOLICY DSPAUD
-GO SIGNOFF STRPDM STRSEU STRSQL WRKMBRPDM WRKSPLF
+DSPPOLICY DSPAUD
+CRTPGM CRTCLPGM CALL SBMJOB
+STRPDM STRSEU STRSQL WRKMBRPDM GO SIGNOFF
+CRTPF CRTLF DSPPFM CLRPFM ADDPFM WRTPFM
+CRTDTAQ SNDDTAQ RCVDTAQ DSPDTAQ
 ```
 
-`SBMJOB` se empaqueta como binario y comando operativo para jobs batch.
+`PWRDWNSYS` exige confirmacion explicita y root para ejecutar la accion real.
 
-## Seguridad y autorizaciones
+## Work management
 
-Hay tres capas:
+Estado actual:
 
-- **Catalogo**: `user.l400.objtype` y metadatos de objeto.
-- **Runtime**: `user.l400.auth` con autorizaciones estilo OS/400 (`*PUBLIC`, usuario especifico, `*EXCLUDE`).
-- **eBPF LSM**: enforcement de tipos, ejecucion de `*PGM`, marca de toolchain y excepciones minimas por owner/UID cuando `*PUBLIC` esta excluido.
+- subsistemas base `QINTER` y `QBATCH`;
+- registro de jobs en `L400_RUN_DIR/jobs`;
+- estados `JOBQ`, `ACTIVE`, `COMPLETED`, `FAILED`;
+- salida/log por job batch;
+- cgroups v2 best-effort;
+- modo degradado si cgroups no estan disponibles;
+- `SBMJOB` integrado como binario/comando.
 
-La politica efectiva es visible con `DSPPOLICY`, `DSPAUD`, `DSPOBJAUT` y `CHKOBJAUT`; runtime mantiene la matriz completa y eBPF refuerza tipo/ejecucion con owner UID y autoridad UID minima.
+## PF/LF/DTAQ y SQL
 
-## Almacenamiento
+Estado actual:
 
-La implementacion ejecutable usa `sled` por defecto porque compila y prueba sin dependencias externas. Berkeley DB permanece como backend opt-in. ZFS sigue siendo la direccion de plataforma para `/l400`, especialmente por `xattr=sa`, snapshots y datasets por biblioteca, pero no debe asumirse como presente en todos los entornos de desarrollo.
+- `CRTPF`, `CRTLF`, `DSPPFM`, `CLRPFM`, `ADDPFM`, `WRTPFM`;
+- schema PF basico con campos y claves;
+- LF actualizado automaticamente al escribir/borrar;
+- DTAQ con `CRTDTAQ`, `SNDDTAQ`, `RCVDTAQ`, `DSPDTAQ`;
+- `STRSQL` soporta `SELECT`, `INSERT`, `UPDATE`, `DELETE` y `CREATE TABLE` minimo;
+- salida batch/stdin y pantalla interactiva.
 
-Variables relevantes:
+## Toolchain
+
+Estado actual de `clc`:
+
+- parser Pest;
+- AST con comandos, condiciones, `IF/ELSE`, `DO/ENDDO`, `MONMSG`;
+- variables `DCL`, `CHGVAR`;
+- parametros de programa;
+- backend C por defecto;
+- backend LLVM bajo feature;
+- link contra `libl400`;
+- catalogacion final como `*PGM`;
+- `MONMSG` consulta estado CPF formal del runtime.
+
+Estado actual de `c400c`:
+
+- compila C con `clang`/`cc`;
+- enlaza con `libl400`;
+- cataloga como `*PGM`;
+- marca toolchain en xattrs.
+
+## Seguridad y politica
+
+Estado actual:
+
+- matriz runtime en `auth.rs` para `READ`, `CHANGE`, `EXECUTE`, `ADMIN`;
+- autorizaciones `*USE`, `*CHANGE`, `*ALL`, `*EXCLUDE`;
+- owner implicito con autoridad elevada;
+- `CALL` verifica autoridad antes de ejecutar;
+- auditoria en `QSYS/QHST` y, si existe, `QUSRSYS/QEZJOBLOG`;
+- `DSPPOLICY`, `DSPAUD`, `DSPOBJAUT`, `CHKOBJAUT`, `GRTOBJAUT`, `RVKOBJAUT`;
+- eBPF valida tipo, formato de `*PGM`, `*PUBLIC:*EXCLUDE`, owner UID y autoridad explicita `UID:<uid>`.
+
+## Plataforma y release
+
+Estado actual:
+
+- build userspace con `scripts/build/build_userspace.sh`;
+- build distribucion/ISO;
+- instalador textual;
+- initramfs live/install;
+- `l400-support-report`;
+- `test_release_rc.sh` como gate minimo;
+- QEMU install smoke disponible con `RUN_E2E_INSTALL=1`.
+
+Comandos de validacion usados como base:
 
 ```bash
-L400_ROOT=/l400
-L400_RUN_DIR=/run/l400
-L400_STORAGE_BACKEND=sled        # default
-L400_STORAGE_BACKEND=berkeleydb  # requiere feature berkeleydb
-L400_ZFS_CREATE_DATASETS=0       # desactiva creacion automatica de datasets
-L400_ZFS_DATASET_PREFIX=pool/linux400
-```
-
-## Build y pruebas
-
-Construcciones seguras desde raiz:
-
-```bash
-cargo build -p c400c
-cargo build -p clc
-cargo build -p l400-loader
 cargo test -p l400
-```
-
-Flujos smoke:
-
-```bash
-./scripts/test/test_objects_v1_demo.sh
-./scripts/test/test_toolchain_v1_demo.sh
-./scripts/test/test_workload_demo.sh
-./scripts/test/test_loader_modes.sh
+cargo test -p clc
+cargo test -p os400-tui
 ./scripts/test/test_release_rc.sh
 RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh
 ```
 
-El gate de RC, la matriz de plataformas y el procedimiento de migracion de `/l400` estan definidos en `docs/release_platforms.md`.
+## Limitaciones actuales
 
-eBPF requiere toolchain BPF:
+Estas limitaciones no son el plan; son la foto actual del sistema:
 
-```bash
-cd l400-ebpf
-cargo build --target bpfel-unknown-none --release
-```
-
-## Brechas principales
-
-1. Ejecutar periodicamente `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh` en infraestructura con QEMU/OVMF.
-2. Profundizar compatibilidad IBM i: CPF completos, grupos, owner semantico rico y `*SRVPGM`.
-3. Reemplazar marcas simples de toolchain por firma o manifest verificable.
-4. Expandir tests interactivos de TUI sobre ISO instalada.
+- la compatibilidad IBM i es semantica y parcial, no binaria;
+- `*SRVPGM` y `*OUTQ` estan reconocidos pero no tienen profundidad completa;
+- las marcas de toolchain son simples y no equivalen a firma criptografica;
+- el enforcement eBPF de autoridad cubre ejecucion, pero no todo `file_open` por perfil/grupo;
+- los tests interactivos de TUI son mayormente unitarios/smoke, no una suite 5250 completa;
+- la validacion QEMU depende de host con QEMU/OVMF disponible.
