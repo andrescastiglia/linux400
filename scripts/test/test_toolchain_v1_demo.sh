@@ -23,5 +23,5 @@ grep -q "Objeto nativo L400 creado" <<<"$CLC_BUILD"
 
 CLC_RUN="$("$TMP_ROOT/QSYS/HELLOCL")"
 printf '%s\n' "$CLC_RUN"
-grep -q "\[clc\] Executing CL stub compiled from tests/prueba.clp" <<<"$CLC_RUN"
+grep -q "\[clc\] Ejecutando programa CL compilado desde tests/prueba.clp" <<<"$CLC_RUN"
 grep -q "Hola desde Control Language" <<<"$CLC_RUN"

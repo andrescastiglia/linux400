@@ -281,6 +281,15 @@ expect {
     }
 }
 
+send -- "grep -q '^l400_root_persistent=yes' /run/l400/support-profile && test -d /l400/QSYS && test -d /l400/QGPL && test -d /l400/QUSRSYS && printf '__L400_PERSIST_OK__\\n' || printf '__L400_PERSIST_FAIL__\\n'\r"
+expect {
+    -re {__L400_PERSIST_OK__} {}
+    timeout {
+        send_user "ERROR: /l400 no quedó persistente o no conserva objetos base tras boot instalado\n"
+        exit 1
+    }
+}
+
 send -- "poweroff -f || halt -f\r"
 expect {
     eof {}

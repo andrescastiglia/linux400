@@ -166,7 +166,10 @@ Flujos smoke:
 ./scripts/test/test_workload_demo.sh
 ./scripts/test/test_loader_modes.sh
 ./scripts/test/test_release_rc.sh
+RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh
 ```
+
+El gate de RC, la matriz de plataformas y el procedimiento de migracion de `/l400` estan definidos en `docs/release_platforms.md`.
 
 eBPF requiere toolchain BPF:
 
@@ -177,13 +180,11 @@ cargo build --target bpfel-unknown-none --release
 
 ## Brechas principales
 
-1. `/l400` persistente en instalacion real: hoy el flujo live/installed puede usar `tmpfs`; falta provisionar ZFS o un backend durable con xattrs.
-2. Bootstrap de sistema: crear `QSYS`, `QGPL`, `QUSRSYS`, `QTEMP`, `QCLSRC`, perfiles y objetos base de forma idempotente.
-3. Comandos administrativos completos: perfiles, autorizaciones, jobs, subsistemas, colas, archivos y objetos necesitan opciones accionables, no solo listados.
-4. `SBMJOB` debe empaquetarse y aparecer como comando operativo.
-5. `WRKACTJOB`/`WRKSYSSTS` deben leer consistentemente el job registry real en `L400_RUN_DIR`.
-6. PF/LF necesitan esquema, miembros, RRN, claves y actualizacion automatica de indices mas cercana a OS/400.
-7. `STRSQL` es minimo (`SELECT` sobre `KEY/DATA`); faltan DDL/DML y errores/prompts mas ricos.
-8. `clc` necesita mas CL: variables, `IF/DO`, `MONMSG`, `CALL`, parametros y comandos de objeto.
-9. La politica eBPF debe evolucionar desde tipado/exec a autorizaciones por usuario y auditoria.
-10. La TUI debe completar prompts F4, opciones numericas, mensajes de estado y pantallas de administracion reales.
+1. Validar en QEMU/instalacion real que `/l400` sobrevive reboot con datos de usuario, no solo objetos base.
+2. Agregar confirmaciones visuales dedicadas en TUI para acciones destructivas.
+3. Enriquecer sesion multi-job y validacion interactiva completa desde ISO/TUI.
+4. Completar prompt F4 avanzado con tabulacion campo a campo y validacion por tipo.
+5. Mostrar PF/LF/DTAQ desde TUI con flujos accionables.
+6. Integrar scroll/prompt SQL interactivo dentro de TUI.
+7. Capturar codigos CPF reales para `MONMSG`.
+8. Converger identidad/autorizacion completa con eBPF para usuarios, grupos y owner.

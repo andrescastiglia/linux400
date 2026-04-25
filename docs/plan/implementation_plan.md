@@ -268,26 +268,28 @@ Criterio de aceptacion:
 
 ## Fase 10: Release, CI y matriz de plataformas
 
+**Estado:** implementada en base. `test_release_rc.sh` queda como gate minimo con tests cargo, build userspace, eBPF opcional por toolchain y smoke scripts; CI ejecuta tests de `l400`, `clc`, `os400-tui`, smoke scripts y builds userspace. El build RC exige QEMU smoke mediante `RUN_E2E_INSTALL=1` salvo builds internos con `RUN_RC_GATE=0`. Queda pendiente ejecutar el QEMU gate completo en infraestructura con QEMU/OVMF disponible para cerrar validacion fisica.
+
 Trabajo:
 
 - CI para:
-  - `cargo test -p l400`;
-  - `cargo test -p clc`;
-  - `cargo test -p os400-tui`;
-  - smoke scripts;
-  - build userspace;
-  - build eBPF cuando el toolchain este disponible.
-- QEMU smoke install obligatorio antes de RC.
-- Matriz de soporte:
+  - [x] `cargo test -p l400`;
+  - [x] `cargo test -p clc`;
+  - [x] `cargo test -p os400-tui`;
+  - [x] smoke scripts;
+  - [x] build userspace;
+  - [x] build eBPF cuando el toolchain este disponible.
+- [x] QEMU smoke install obligatorio antes de RC.
+- [x] Matriz de soporte:
   - dev sin BPF/ZFS;
   - degraded con cgroups pero sin eBPF;
   - full con BPF LSM, BTF, ZFS `xattr=sa`.
-- Documentar upgrade/migration de `/l400`.
+- [x] Documentar upgrade/migration de `/l400`.
 
 Criterio de aceptacion:
 
-- `./scripts/test/test_release_rc.sh` queda como gate minimo;
-- `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh` valida instalacion y persistencia.
+- [x] `./scripts/test/test_release_rc.sh` queda como gate minimo;
+- [x] `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh` valida instalacion y persistencia.
 
 ## Prioridad recomendada
 
