@@ -76,22 +76,17 @@ impl CommandLine {
 
         match cmd.as_str() {
             "WRKACTJOB" => {
-                self.output.push("Display Job Activity".to_string());
-                self.output.push("Use option 4 to select a job".to_string());
+                return ScreenResult::goto(ScreenId::WorkManagement);
             }
-            "WRKOBJ" => {
-                self.output.push("Work with Objects".to_string());
-                self.output.push("Use F18 to change library".to_string());
+            "WRKOBJ" | "WRKLIB" => {
+                return ScreenResult::goto(ScreenId::ObjectBrowser);
             }
             cmd if cmd.starts_with("DSPDTAQ") => {
-                let parts: Vec<&str> = cmd.split_whitespace().collect();
-                if parts.len() >= 3 {
-                    self.output
-                        .push(format!("Display Data Queue: {}/{}", parts[1], parts[2]));
-                } else {
-                    self.output
-                        .push("Usage: DSPDTAQ LIBRARY DTAQNAME".to_string());
-                }
+                let tokens = cmd.split_whitespace().collect::<Vec<_>>();
+                let dtaq = extract_command_arg(&tokens[1..], "DTAQ")
+                    .or_else(|| tokens.get(1).map(|value| value.to_string()))
+                    .unwrap_or_else(|| "QUSRSYS/QEZJOBLOG".to_string());
+                return ScreenResult::with_data(ScreenId::DataQueueViewer, dtaq);
             }
             "HELP" => {
                 self.output.push("Available commands:".to_string());
@@ -175,6 +170,12 @@ impl CommandLine {
             "SIGNOFF" => Some(ScreenResult::goto(ScreenId::SignOn)),
             "STRPDM" => Some(ScreenResult::goto(ScreenId::PdmBrowser)),
             "STRSQL" => Some(ScreenResult::goto(ScreenId::StrSql)),
+            "WRKACTJOB" => Some(ScreenResult::goto(ScreenId::WorkManagement)),
+            "WRKOBJ" | "WRKLIB" => Some(ScreenResult::goto(ScreenId::ObjectBrowser)),
+            "WRKSYSSTS" | "WRKSYSVAL" | "WRKUSRPRF" | "WRKSPLF" => {
+                Some(ScreenResult::with_data(ScreenId::SystemPanel, command))
+            }
+            "DSPOBJD" => Some(ScreenResult::with_data(ScreenId::SystemPanel, command)),
             "WRKMBRPDM" => {
                 let file = extract_command_arg(&tokens[1..], "FILE").or_else(|| {
                     tokens
@@ -311,6 +312,10 @@ impl Screen for CommandLine {
 
         match key.code {
             KeyCode::F(3) => ScreenResult::goto(ScreenId::MainMenu),
+            KeyCode::F(4) => {
+                self.apply_prompt_template();
+                ScreenResult::none()
+            }
             KeyCode::F(12) => ScreenResult::goto(ScreenId::MainMenu),
             KeyCode::Enter => self.execute_command(),
             KeyCode::Backspace => {
@@ -445,6 +450,7 @@ impl CommandLine {
     fn render_help(&self, frame: &mut Frame, area: Rect) {
         let help_text = Line::from(vec![
             "F3=Exit   ".into(),
+            "F4=Prompt   ".into(),
             "F12=Cancel   ".into(),
             "Enter=Execute   ".into(),
             "Up/Down=History".into(),
@@ -459,6 +465,35 @@ impl CommandLine {
 
         let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
         frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+    }
+}
+
+impl CommandLine {
+    fn apply_prompt_template(&mut self) {
+        let action = self
+            .command
+            .split_whitespace()
+            .next()
+            .map(str::to_uppercase)
+            .unwrap_or_else(|| "WRKOBJ".to_string());
+        let template = match action.as_str() {
+            "WRKACTJOB" => "WRKACTJOB SBS(*ALL) STATUS(*ALL)",
+            "WRKOBJ" | "WRKLIB" => "WRKOBJ OBJ(QGPL/*ALL) OBJTYPE(*ALL)",
+            "DSPOBJD" => "DSPOBJD OBJ(QGPL/OBJECT) OBJTYPE(*ALL)",
+            "WRKUSRPRF" => "WRKUSRPRF USRPRF(*ALL)",
+            "DSPDTAQ" => "DSPDTAQ DTAQ(QUSRSYS/QEZJOBLOG)",
+            "WRKMBRPDM" => "WRKMBRPDM FILE(QGPL/QCLSRC)",
+            "STRSEU" => "STRSEU FILE(QGPL/QCLSRC) MBR(HELLO.CLP)",
+            "STRSQL" => "STRSQL SELECT * FROM QGPL/CUSTOMERS",
+            "CRTCLPGM" => "CRTCLPGM PGM(QGPL/HELLO) SRCFILE(QGPL/QCLSRC) SRCMBR(HELLO.CLP)",
+            "CALL" => "CALL PGM(QGPL/HELLO)",
+            "WRKSYSVAL" => "WRKSYSVAL",
+            "WRKSYSSTS" => "WRKSYSSTS",
+            "WRKSPLF" => "WRKSPLF",
+            _ => "WRKOBJ OBJ(QGPL/*ALL) OBJTYPE(*ALL)",
+        };
+        self.command = template.to_string();
+        self.cursor_position = self.command.len();
     }
 }
 

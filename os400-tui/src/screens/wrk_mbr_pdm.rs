@@ -218,6 +218,10 @@ impl Screen for WrkMbrPdm {
                 .selected_member_spec()
                 .map(|member| ScreenResult::with_data(ScreenId::StrSeu, member))
                 .unwrap_or_else(ScreenResult::none),
+            KeyCode::Char('2') | KeyCode::Char('5') => self
+                .selected_member_spec()
+                .map(|member| ScreenResult::with_data(ScreenId::StrSeu, member))
+                .unwrap_or_else(ScreenResult::none),
             _ => ScreenResult::none(),
         }
     }
@@ -247,12 +251,14 @@ impl WrkMbrPdm {
 
     fn render_table(&mut self, frame: &mut Frame, area: Rect) {
         let widths = [
+            Constraint::Length(4),
             Constraint::Length(20),
             Constraint::Length(12),
             Constraint::Min(10),
         ];
         let rows = self.members.iter().map(|member| {
             Row::new(vec![
+                " ".to_string(),
                 member.name.clone(),
                 member.type_.clone(),
                 member.text.clone(),
@@ -261,7 +267,7 @@ impl WrkMbrPdm {
 
         let table = Table::new(rows, widths)
             .header(
-                Row::new(vec!["Member", "Type", "Text"])
+                Row::new(vec!["Opt", "Member", "Type", "Text"])
                     .style(STYLE_TABLE_HEADER)
                     .height(1),
             )
@@ -302,6 +308,7 @@ impl WrkMbrPdm {
                 "F3=Exit   ".into(),
                 "F5=Refresh   ".into(),
                 "F6=Create   ".into(),
+                "2/5=Edit   ".into(),
                 "F15=Edit   ".into(),
                 "F16=STRSQL".into(),
             ])

@@ -190,7 +190,15 @@ impl Screen for WorkManagement {
                 self.show_detail();
                 ScreenResult::none()
             }
+            KeyCode::Char('5') => {
+                self.show_detail();
+                ScreenResult::none()
+            }
             KeyCode::F(10) => {
+                self.end_selected_job();
+                ScreenResult::none()
+            }
+            KeyCode::Char('4') => {
                 self.end_selected_job();
                 ScreenResult::none()
             }
@@ -237,7 +245,7 @@ impl WorkManagement {
     }
 
     fn render_jobs(&mut self, frame: &mut Frame, area: Rect) {
-        let header = ["", "Job", "User", "Type", "Status", "Subsystem", "PID"];
+        let header = ["Opt", "Job", "User", "Type", "Status", "Subsystem", "PID"];
         let widths = [3u16, 14, 12, 10, 14, 12, 8];
 
         let rows: Vec<Row> = self
@@ -296,6 +304,8 @@ impl WorkManagement {
             "F5=Refresh   ".into(),
             "F6=Filter   ".into(),
             "F10=End   ".into(),
+            "4=End   ".into(),
+            "5=Detail   ".into(),
             "F11/Enter=Detail   ".into(),
             "F12=Cancel   ".into(),
         ]);

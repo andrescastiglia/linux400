@@ -14,6 +14,7 @@ const COMMAND_BINARIES: &[&str] = &[
     "WRKSYSVAL",
     "DSPLOG",
     "WRKUSRPRF",
+    "WRKSPLF",
     "PWRDWNSYS",
     "SBMJOB",
     "WRKOBJ",
@@ -115,6 +116,10 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             ExitCode::SUCCESS
         }
         "WRKUSRPRF" => dispatch_spec(args, &["USRPRF", "ACTION"], ffi_commands::l400_wrkusrprf),
+        "WRKSPLF" => {
+            ffi_commands::l400_wrksplf();
+            ExitCode::SUCCESS
+        }
         "PWRDWNSYS" => dispatch_spec(args, &["OPTION", "CONFIRM"], ffi_commands::l400_pwrdwnsys),
         "WRKOBJ" => dispatch_spec(
             args,

@@ -39,8 +39,11 @@ impl MainMenu {
             ("5", "Data queues  . . . . . . . . . . . . .", "DSPDTAQ"),
             ("6", "Command entry . . . . . . . . . . . .", "CMD"),
             ("7", "Programming Development Manager . . . .", "STRPDM"),
+            ("8", "System status  . . . . . . . . . . .", "WRKSYSSTS"),
+            ("9", "System values  . . . . . . . . . . .", "WRKSYSVAL"),
             (" ", " ", " "),
-            ("10", "System configuration  . . . . . . . .", "CFG"),
+            ("10", "User profiles . . . . . . . . . . .", "WRKUSRPRF"),
+            ("11", "Spool files . . . . . . . . . . . .", "WRKSPLF"),
         ]
     }
 
@@ -51,7 +54,10 @@ impl MainMenu {
             "5" => ScreenResult::goto(ScreenId::DataQueueViewer),
             "6" => ScreenResult::goto(ScreenId::CommandLine),
             "7" => ScreenResult::goto(ScreenId::PdmBrowser),
-            "10" => ScreenResult::goto(ScreenId::ObjectBrowser),
+            "8" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKSYSSTS"),
+            "9" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKSYSVAL"),
+            "10" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKUSRPRF"),
+            "11" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKSPLF"),
             _ => ScreenResult::none(),
         }
     }
@@ -354,7 +360,8 @@ mod tests {
         let mut menu = MainMenu::new();
         assert_eq!(menu.handle_key(key(KeyCode::Char('1'))).next, None);
         let result = menu.handle_key(key(KeyCode::Char('0')));
-        assert_eq!(result.next, Some(ScreenId::ObjectBrowser));
+        assert_eq!(result.next, Some(ScreenId::SystemPanel));
+        assert_eq!(result.data.as_deref(), Some("WRKUSRPRF"));
     }
 
     #[test]

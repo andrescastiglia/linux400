@@ -23,50 +23,41 @@ pub struct DataQueueViewer {
     messages: Vec<DtaqMessage>,
     state: TableState,
     using_runtime_data: bool,
+    status_message: Option<String>,
 }
 
 impl DataQueueViewer {
     pub fn new() -> Self {
-        let current_library = "QUSRSYS".to_string();
-        let current_dtaq = "QEZJOBLOG".to_string();
+        Self::from_library_dtaq("QUSRSYS", "QEZJOBLOG")
+    }
+
+    pub fn from_spec(spec: &str) -> Self {
+        if let Some((library, dtaq)) = spec.trim().split_once('/') {
+            Self::from_library_dtaq(library, dtaq)
+        } else {
+            Self::from_library_dtaq("QUSRSYS", spec)
+        }
+    }
+
+    fn from_library_dtaq(library: &str, dtaq: &str) -> Self {
+        let current_library = library.trim().to_uppercase();
+        let current_dtaq = dtaq.trim().to_uppercase();
         let (messages, using_runtime_data) = Self::load_messages(&current_library, &current_dtaq);
+        let status_message = messages
+            .is_empty()
+            .then(|| "Sin mensajes runtime para esta DTAQ.".to_string());
         Self {
             current_library,
             current_dtaq,
             messages,
             state: TableState::default(),
             using_runtime_data,
+            status_message,
         }
     }
 
     fn fallback_messages() -> Vec<DtaqMessage> {
-        vec![
-            DtaqMessage {
-                key: "00001".to_string(),
-                data: "Job started at 08:00:00".to_string(),
-                timestamp: "08:00:00".to_string(),
-            },
-            DtaqMessage {
-                key: "00002".to_string(),
-                data: "Processing batch job BATCH001".to_string(),
-                timestamp: "08:01:23".to_string(),
-            },
-            DtaqMessage {
-                key: "00003".to_string(),
-                data: "File opened: CUSTMAST".to_string(),
-                timestamp: "08:02:45".to_string(),
-            },
-            DtaqMessage {
-                key: "00004".to_string(),
-                data: "Record count: 1500".to_string(),
-                timestamp: "08:03:12".to_string(),
-            },
-            DtaqMessage {
-                key: "00005".to_string(),
-                data: "Batch job completed successfully".to_string(),
-                timestamp: "08:05:00".to_string(),
-            },
-        ]
+        Vec::new()
     }
 
     fn load_messages(library: &str, dtaq: &str) -> (Vec<DtaqMessage>, bool) {
@@ -95,9 +86,20 @@ impl DataQueueViewer {
         self.using_runtime_data = using_runtime_data;
         if self.messages.is_empty() {
             self.state.select(None);
+            self.status_message = Some("Sin mensajes runtime para esta DTAQ.".to_string());
         } else if self.state.selected().is_none() {
             self.state.select(Some(0));
+            self.status_message = None;
         }
+    }
+
+    fn show_selected(&mut self) {
+        self.status_message = self
+            .state
+            .selected()
+            .and_then(|index| self.messages.get(index))
+            .map(|message| format!("{}: {}", message.key, message.data))
+            .or_else(|| Some("No hay mensaje seleccionado.".to_string()));
     }
 }
 
@@ -109,12 +111,14 @@ impl Screen for DataQueueViewer {
                 Constraint::Length(4),
                 Constraint::Min(0),
                 Constraint::Length(3),
+                Constraint::Length(3),
             ])
             .split(frame.area());
 
         self.render_header(frame, chunks[0]);
         self.render_messages(frame, chunks[1]);
-        self.render_help(frame, chunks[2]);
+        self.render_status(frame, chunks[2]);
+        self.render_help(frame, chunks[3]);
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
@@ -135,6 +139,10 @@ impl Screen for DataQueueViewer {
             }
             KeyCode::F(5) => {
                 self.refresh();
+                ScreenResult::none()
+            }
+            KeyCode::Enter | KeyCode::Char('5') => {
+                self.show_selected();
                 ScreenResult::none()
             }
             _ => ScreenResult::none(),
@@ -161,11 +169,11 @@ impl DataQueueViewer {
         let source_label = if self.using_runtime_data {
             "Runtime queue"
         } else {
-            "Bundled sample"
+            "Sin catalogo"
         };
         let lines: Vec<Line> = vec![
             Line::from(vec![format!(
-                "Source: {}. Type options, press Enter.",
+                "Source: {}. Options: 5=Display message.",
                 source_label
             )
             .into()]),
@@ -217,7 +225,7 @@ impl DataQueueViewer {
             "F4=Prompt   ".into(),
             "F5=Refresh   ".into(),
             "F12=Cancel   ".into(),
-            "Enter=Display".into(),
+            "5/Enter=Display".into(),
         ]);
 
         let block = Block::default()
@@ -229,6 +237,18 @@ impl DataQueueViewer {
 
         let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
         frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+    }
+
+    fn render_status(&self, frame: &mut Frame, area: Rect) {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(STYLE_BORDER);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        frame.render_widget(
+            Paragraph::new(self.status_message.clone().unwrap_or_default()).style(STYLE_NORMAL),
+            inner,
+        );
     }
 }
 

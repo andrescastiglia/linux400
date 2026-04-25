@@ -10,6 +10,7 @@ use crate::screens::pdm_browser::PdmBrowser;
 use crate::screens::sign_on::SignOnScreen;
 use crate::screens::str_seu::StrSeu;
 use crate::screens::str_sql::StrSql;
+use crate::screens::system_panel::SystemPanel;
 use crate::screens::work_mgmt::WorkManagement;
 use crate::screens::wrk_mbr_pdm::WrkMbrPdm;
 use crate::screens::{Screen, ScreenId};
@@ -99,7 +100,11 @@ impl App {
             ScreenId::MainMenu => Box::new(MainMenu::with_session(self.session.clone())),
             ScreenId::WorkManagement => Box::new(WorkManagement::new()),
             ScreenId::ObjectBrowser => Box::new(ObjectBrowser::with_session(self.session.clone())),
-            ScreenId::DataQueueViewer => Box::new(DataQueueViewer::new()),
+            ScreenId::DataQueueViewer => Box::new(
+                data.as_deref()
+                    .map(DataQueueViewer::from_spec)
+                    .unwrap_or_default(),
+            ),
             ScreenId::CommandLine => Box::new(CommandLine::with_session(self.session.clone())),
             ScreenId::PdmBrowser => Box::new(PdmBrowser::with_session(self.session.clone())),
             ScreenId::WrkMbrPdm => {
@@ -137,6 +142,10 @@ impl App {
                     self.session.clone(),
                 ))
             }
+            ScreenId::SystemPanel => Box::new(SystemPanel::new(
+                data.unwrap_or_else(|| "WRKSYSSTS".to_string()),
+                self.session.clone(),
+            )),
             ScreenId::Exit => {
                 self.should_exit = true;
                 self.session.sign_off();

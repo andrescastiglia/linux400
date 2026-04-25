@@ -301,6 +301,47 @@ pub extern "C" fn l400_dsplog() {
     println!("==============================================");
 }
 
+/// WRKSPLF — Lista spool files si existe un directorio de spool configurado.
+#[no_mangle]
+pub extern "C" fn l400_wrksplf() {
+    println!("=== WRKSPLF - Spool Files ===");
+    let root = crate::object::resolve_l400_root();
+    let candidates = [
+        std::env::var("L400_SPOOL_DIR").ok().map(PathBuf::from),
+        Some(root.join("QUSRSYS").join("QSPL")),
+        Some(root.join("spool")),
+    ];
+    for dir in candidates.into_iter().flatten() {
+        if !dir.exists() {
+            continue;
+        }
+        println!("  Directory: {}", dir.display());
+        println!("  {:20} {:>10} MODIFIED", "FILE", "SIZE");
+        println!("  {}", "-".repeat(56));
+        let mut count = 0usize;
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    count += 1;
+                    println!(
+                        "  {:20} {:>10} {:?}",
+                        entry.file_name().to_string_lossy(),
+                        metadata.len(),
+                        metadata.modified().ok()
+                    );
+                }
+            }
+        }
+        if count == 0 {
+            println!("  Sin spool files.");
+        }
+        println!("=============================");
+        return;
+    }
+    println!("  Sin spool/outq runtime. Configure L400_SPOOL_DIR o cree QUSRSYS/QSPL.");
+    println!("=============================");
+}
+
 /// WRKUSRPRF — Gestiona perfiles de usuario
 #[no_mangle]
 pub extern "C" fn l400_wrkusrprf(usrprf: *const c_char) {

@@ -6,6 +6,7 @@ pub mod pdm_browser;
 pub mod sign_on;
 pub mod str_seu;
 pub mod str_sql;
+pub mod system_panel;
 pub mod work_mgmt;
 pub mod wrk_mbr_pdm;
 
@@ -24,6 +25,7 @@ pub enum ScreenId {
     WrkMbrPdm,
     StrSeu,
     StrSql,
+    SystemPanel,
     Exit,
 }
 

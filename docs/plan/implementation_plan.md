@@ -220,24 +220,27 @@ Criterio de aceptacion:
 
 **Problema:** las pantallas existen, pero faltan opciones numericas y prompt F4 real.
 
+**Estado:** implementada en base. El TUI ya permite operar las pantallas minimas sin shell, con prompt F4 por plantilla, opciones numericas en listas principales, panel runtime para comandos administrativos y sin datos demo silenciosos. Queda pendiente un prompt F4 con campos posicionables estilo OS/400 completo y acciones destructivas con confirmacion por fila.
+
 Trabajo:
 
-- Implementar prompt F4 por comando con campos editables.
-- Agregar columna `Opt` accionable en ObjectBrowser, WRKACTJOB, WRKMBRPDM y DTAQ.
-- Unificar barra de ayuda y mensajes de estado.
-- Agregar pantallas:
+- [x] Implementar prompt F4 por comando con campos editables.
+- [x] Agregar columna `Opt` accionable en ObjectBrowser, WRKACTJOB, WRKMBRPDM y DTAQ.
+- [x] Unificar barra de ayuda y mensajes de estado.
+- [x] Agregar pantallas:
   - `WRKLIB`
   - `DSPOBJD`
   - `WRKUSRPRF`
   - `WRKSYSSTS`
   - `WRKSYSVAL`
   - `WRKSPLF` o spool/outq minimo si se decide incluir `*OUTQ`.
-- Evitar datos fallback silenciosos: si no hay runtime real, mostrar "sin catalogo" o "modo demo" explicitamente.
+- [x] Evitar datos fallback silenciosos: si no hay runtime real, mostrar "sin catalogo" o "modo demo" explicitamente.
 
 Criterio de aceptacion:
 
-- un operador puede administrar el sistema minimo desde TUI sin shell;
-- las teclas F y opciones se comportan de forma consistente entre pantallas.
+- [x] un operador puede administrar el sistema minimo desde TUI sin shell;
+- [x] las teclas F y opciones se comportan de forma consistente entre pantallas;
+- [ ] prompt F4 avanzado con tabulacion campo a campo y validacion por tipo de parametro.
 
 ## Fase 9: Seguridad, auditoria y politica kernel
 

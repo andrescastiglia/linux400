@@ -28,6 +28,7 @@ pub struct ObjectBrowser {
     state: TableState,
     using_runtime_data: bool,
     session: SessionContext,
+    status_message: Option<String>,
 }
 
 impl ObjectBrowser {
@@ -38,74 +39,22 @@ impl ObjectBrowser {
     pub fn with_session(session: SessionContext) -> Self {
         let current_library = session.snapshot().current_library;
         let (objects, using_runtime_data) = Self::load_objects(&current_library);
+        let status_message = objects
+            .is_empty()
+            .then(|| "Sin catalogo runtime para esta biblioteca.".to_string());
         Self {
             current_library,
             objects,
             state: TableState::default(),
             using_runtime_data,
             session,
+            status_message,
         }
     }
 
     fn fallback_objects(library: &str) -> Vec<ObjectInfo> {
-        match library {
-            "QSYS" => vec![
-                ObjectInfo {
-                    library: "QSYS".to_string(),
-                    name: "QCMD".to_string(),
-                    type_: "*PGM".to_string(),
-                    attribute: "CL".to_string(),
-                    text: "Command processing program".to_string(),
-                    owner: "QSYS".to_string(),
-                    public_auth: "*USE".to_string(),
-                },
-                ObjectInfo {
-                    library: "QSYS".to_string(),
-                    name: "QCPYA".to_string(),
-                    type_: "*FILE".to_string(),
-                    attribute: "PF".to_string(),
-                    text: "Physical file".to_string(),
-                    owner: "QSYS".to_string(),
-                    public_auth: "*USE".to_string(),
-                },
-                ObjectInfo {
-                    library: "QSYS".to_string(),
-                    name: "QCLSRC".to_string(),
-                    type_: "*FILE".to_string(),
-                    attribute: "LF".to_string(),
-                    text: "Source file".to_string(),
-                    owner: "QSYS".to_string(),
-                    public_auth: "*USE".to_string(),
-                },
-                ObjectInfo {
-                    library: "QSYS".to_string(),
-                    name: "QSNDDTAQ".to_string(),
-                    type_: "*PGM".to_string(),
-                    attribute: "RPG".to_string(),
-                    text: "Send to data queue".to_string(),
-                    owner: "QSYS".to_string(),
-                    public_auth: "*USE".to_string(),
-                },
-                ObjectInfo {
-                    library: "QSYS".to_string(),
-                    name: "QCMDEXC".to_string(),
-                    type_: "*SRVPGM".to_string(),
-                    attribute: "C".to_string(),
-                    text: "Command execution".to_string(),
-                    owner: "QSYS".to_string(),
-                    public_auth: "*USE".to_string(),
-                },
-            ],
-            _ => vec![ObjectInfo {
-                library: library.to_string(),
-                name: "TESTPGM".to_string(),
-                type_: "*PGM".to_string(),
-                attribute: "C".to_string(),
-                text: "Test program".to_string(),
-                owner: "L400".to_string(),
-                public_auth: "*ALL".to_string(),
-            }],
-        }
+        let _ = library;
+        Vec::new()
     }
 
     fn load_objects(library: &str) -> (Vec<ObjectInfo>, bool) {
@@ -136,9 +85,22 @@ impl ObjectBrowser {
         self.using_runtime_data = using_runtime_data;
         if self.objects.is_empty() {
             self.state.select(None);
+            self.status_message = Some("Sin catalogo runtime para esta biblioteca.".to_string());
         } else if self.state.selected().is_none() {
             self.state.select(Some(0));
+            self.status_message = None;
         }
+    }
+
+    fn selected_object(&self) -> Option<&ObjectInfo> {
+        self.state
+            .selected()
+            .and_then(|index| self.objects.get(index))
+    }
+
+    fn selected_object_spec(&self) -> Option<String> {
+        self.selected_object()
+            .map(|object| format!("{}/{}", object.library, object.name))
     }
 }
 
@@ -150,12 +112,14 @@ impl Screen for ObjectBrowser {
                 Constraint::Length(4),
                 Constraint::Min(0),
                 Constraint::Length(3),
+                Constraint::Length(3),
             ])
             .split(frame.area());
 
         self.render_header(frame, chunks[0]);
         self.render_objects(frame, chunks[1]);
-        self.render_help(frame, chunks[2]);
+        self.render_status(frame, chunks[2]);
+        self.render_help(frame, chunks[3]);
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
@@ -179,6 +143,39 @@ impl Screen for ObjectBrowser {
                 ScreenResult::none()
             }
             KeyCode::PageUp | KeyCode::PageDown => ScreenResult::none(),
+            KeyCode::Char('5') => self
+                .selected_object_spec()
+                .map(|spec| {
+                    ScreenResult::with_data(ScreenId::SystemPanel, format!("DSPOBJD OBJ({spec})"))
+                })
+                .unwrap_or_else(ScreenResult::none),
+            KeyCode::Char('2') => self
+                .selected_object()
+                .filter(|object| object.type_ == "*FILE" && object.attribute == "PF")
+                .map(|object| {
+                    ScreenResult::with_data(
+                        ScreenId::WrkMbrPdm,
+                        format!("{}/{}", object.library, object.name),
+                    )
+                })
+                .unwrap_or_else(|| {
+                    self.status_message =
+                        Some("Opcion 2 requiere un *FILE PF/source file.".to_string());
+                    ScreenResult::none()
+                }),
+            KeyCode::Char('8') => self
+                .selected_object()
+                .filter(|object| object.type_ == "*DTAQ")
+                .map(|object| {
+                    ScreenResult::with_data(
+                        ScreenId::DataQueueViewer,
+                        format!("{}/{}", object.library, object.name),
+                    )
+                })
+                .unwrap_or_else(|| {
+                    self.status_message = Some("Opcion 8 requiere un *DTAQ.".to_string());
+                    ScreenResult::none()
+                }),
             _ => ScreenResult::none(),
         }
     }
@@ -203,11 +200,11 @@ impl ObjectBrowser {
         let source_label = if self.using_runtime_data {
             "Runtime catalog"
         } else {
-            "Bundled sample"
+            "Sin catalogo"
         };
         let lines: Vec<Line> = vec![
             Line::from(vec![format!(
-                "Source: {}. Type options, press Enter.",
+                "Source: {}. Options: 2=Members 5=Display 8=DTAQ.",
                 source_label
             )
             .into()]),
@@ -223,7 +220,7 @@ impl ObjectBrowser {
 
     fn render_objects(&mut self, frame: &mut Frame, area: Rect) {
         let header = [
-            "",
+            "Opt",
             "Object",
             "Type",
             "Attribute",
@@ -271,6 +268,9 @@ impl ObjectBrowser {
             "F3=Exit   ".into(),
             "F4=Prompt   ".into(),
             "F5=Refresh   ".into(),
+            "2=Members   ".into(),
+            "5=Display   ".into(),
+            "8=DTAQ   ".into(),
             "F12=Cancel".into(),
         ]);
 
@@ -283,6 +283,16 @@ impl ObjectBrowser {
 
         let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
         frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+    }
+
+    fn render_status(&self, frame: &mut Frame, area: Rect) {
+        let message = self.status_message.clone().unwrap_or_default();
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(STYLE_BORDER);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        frame.render_widget(Paragraph::new(message).style(STYLE_NORMAL), inner);
     }
 }
 

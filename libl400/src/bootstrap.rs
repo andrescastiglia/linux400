@@ -57,6 +57,7 @@ const BASE_COMMANDS: &[(&str, &str)] = &[
     ("WRKSYSSTS", "Work with system status"),
     ("WRKSYSVAL", "Work with system values"),
     ("WRKUSRPRF", "Work with user profiles"),
+    ("WRKSPLF", "Work with spool files"),
     ("RCVDTAQ", "Receive data queue message"),
     ("WRTPFM", "Write physical file member record"),
 ];
