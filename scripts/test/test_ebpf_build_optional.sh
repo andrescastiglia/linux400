@@ -8,6 +8,11 @@ LOG_DIR="${LOG_DIR:-${L400_SRC_DIR}/output/test-logs}"
 
 mkdir -p "${LOG_DIR}"
 
+if ! command -v bpf-linker >/dev/null 2>&1; then
+    echo "Skipping eBPF build: bpf-linker is not available."
+    exit 0
+fi
+
 run_build() {
     local log_file="$1"
     shift
