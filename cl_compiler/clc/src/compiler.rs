@@ -230,6 +230,15 @@ fn generate_command_call(command: &crate::ast::Command) -> String {
     }
 }
 
+fn msgid_to_numeric(msgid: &str) -> u32 {
+    msgid
+        .trim()
+        .strip_prefix("CPF")
+        .unwrap_or(msgid.trim())
+        .parse::<u32>()
+        .unwrap_or(0)
+}
+
 fn condition_to_c(condition: &crate::ast::Condition) -> String {
     let left = value_to_c_expr(&condition.left);
     let right = value_to_c_expr(&condition.right);
@@ -250,6 +259,7 @@ fn generate_statement(statement: &crate::ast::Statement, indent: usize, out: &mu
         crate::ast::Statement::Command(command) => {
             let line = generate_command_call(command);
             if !line.is_empty() {
+                out.push(format!("{pad}l400_clear_status();"));
                 out.push(format!("{pad}{line}"));
             }
         }
@@ -273,14 +283,18 @@ fn generate_statement(statement: &crate::ast::Statement, indent: usize, out: &mu
             }
         }
         crate::ast::Statement::MonMsg { msgid, exec } => {
-            out.push(format!(
-                "{pad}/* MONMSG {}: runtime status hooks pending; EXEC is emitted as recovery path. */",
-                msgid
-            ));
+            let code = msgid_to_numeric(msgid);
             if let Some(exec) = exec {
                 let line = generate_command_call(exec);
                 if !line.is_empty() {
-                    out.push(format!("{pad}{line}"));
+                    if code == 0 {
+                        out.push(format!("{pad}if (l400_last_cpf_code() != 0) {{"));
+                    } else {
+                        out.push(format!("{pad}if (l400_last_cpf_code() == {code}) {{"));
+                    }
+                    out.push(format!("{pad}    l400_clear_status();"));
+                    out.push(format!("{pad}    {line}"));
+                    out.push(format!("{pad}}}"));
                 }
             }
         }
@@ -336,6 +350,8 @@ fn generate_c_backend(source_path: &str, ast: &crate::ast::Program) -> String {
         "#include <stdio.h>\n\
          #include <string.h>\n\
          extern void l400_sndpgmmsg(const char*);\n\
+         extern unsigned int l400_last_cpf_code(void);\n\
+         extern void l400_clear_status(void);\n\
          extern void l400_wrksyssts(void);\n\
          extern void l400_wrkactjob(void);\n\
          extern void l400_wrksysval(void);\n\
@@ -551,6 +567,38 @@ mod tests {
         assert!(code.contains("l400_strseu(\"QGPL/QCLSRC\", \"HELLO.CLP\");"));
         assert!(code.contains("l400_strsql();"));
         assert!(code.contains("l400_wrkmbrpdm(\"QGPL/QCLSRC\");"));
+    }
+
+    #[test]
+    fn monmsg_checks_runtime_cpf_status() {
+        let program = Program {
+            commands: Vec::new(),
+            statements: vec![
+                Statement::Command(Command {
+                    name: "CALL".to_string(),
+                    parameters: vec![Parameter::Named(
+                        "PGM".to_string(),
+                        Value::Identifier("QGPL/MISSING".to_string()),
+                    )],
+                }),
+                Statement::MonMsg {
+                    msgid: "CPF2204".to_string(),
+                    exec: Some(Command {
+                        name: "SNDPGMMSG".to_string(),
+                        parameters: vec![Parameter::Named(
+                            "MSG".to_string(),
+                            Value::StringLiteral("caught".to_string()),
+                        )],
+                    }),
+                },
+            ],
+            parameters: Vec::new(),
+        };
+        let code = generate_c_backend("demo.clp", &program);
+
+        assert!(code.contains("l400_last_cpf_code() == 2204"));
+        assert!(code.contains("l400_clear_status();"));
+        assert!(code.contains("caught"));
     }
 
     #[test]

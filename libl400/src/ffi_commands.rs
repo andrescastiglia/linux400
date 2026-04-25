@@ -90,6 +90,14 @@ fn runtime_user() -> String {
     crate::audit::current_l400_user()
 }
 
+fn clear_status() {
+    crate::ffi::clear_last_cpf();
+}
+
+fn set_status(code: &str) {
+    crate::ffi::set_last_cpf(code);
+}
+
 // l400_sndpgmmsg está definida en ffi.rs — no se duplica aquí.
 
 // Gestión de sistema
@@ -1284,6 +1292,7 @@ pub extern "C" fn l400_call(pgm: *const c_char) {
     let user = runtime_user();
     match crate::object::describe_object(&path) {
         Ok(object) if object.objtype != "*PGM" => {
+            set_status("CPF9801");
             audit_runtime(
                 "ACCESS_DENIED",
                 &path,
@@ -1294,6 +1303,7 @@ pub extern "C" fn l400_call(pgm: *const c_char) {
         }
         Ok(_) => {}
         Err(error) => {
+            set_status("CPF2204");
             audit_runtime(
                 "ACCESS_DENIED",
                 &path,
@@ -1311,6 +1321,7 @@ pub extern "C" fn l400_call(pgm: *const c_char) {
     match crate::auth::check_command_authority(&path, &user, "CALL") {
         Ok(true) => {}
         Ok(false) => {
+            set_status("CPF9802");
             audit_runtime(
                 "ACCESS_DENIED",
                 &path,
@@ -1324,6 +1335,7 @@ pub extern "C" fn l400_call(pgm: *const c_char) {
             return;
         }
         Err(error) => {
+            set_status("CPF9802");
             audit_runtime(
                 "ACCESS_DENIED",
                 &path,
@@ -1336,10 +1348,17 @@ pub extern "C" fn l400_call(pgm: *const c_char) {
     audit_runtime("PGM_EXEC", &path, &format!("CALL user={}", user));
     match std::process::Command::new(&path).status() {
         Ok(status) if status.success() => {
+            clear_status();
             println!("[CALL] {} finalizo correctamente.", path.display())
         }
-        Ok(status) => println!("[CALL] {} finalizo con estado {}.", path.display(), status),
-        Err(error) => println!("[CALL] Error ejecutando {}: {}", path.display(), error),
+        Ok(status) => {
+            set_status("CPF0001");
+            println!("[CALL] {} finalizo con estado {}.", path.display(), status)
+        }
+        Err(error) => {
+            set_status("CPF0001");
+            println!("[CALL] Error ejecutando {}: {}", path.display(), error)
+        }
     }
 }
 

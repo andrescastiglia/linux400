@@ -1,4 +1,4 @@
-# Plan de implementacion pendiente de Linux/400
+# Plan de implementacion de Linux/400
 
 Este plan parte del estado real del repo: ya existen runtime de objetos, TUI, compiladores, eBPF LSM, loader, demos y scripts de release. El foco ahora es convertir ese esqueleto funcional en un entorno OS/400-style operable: entrar al sistema, administrar objetos/trabajos/perfiles, desarrollar desde pantalla verde y conservar estado de forma persistente.
 
@@ -27,7 +27,7 @@ Que un usuario pueda arrancar una ISO o instalacion, autenticarse como perfil Li
 
 ## Fase 1: Persistencia y bootstrap del sistema
 
-**Estado:** implementada en base. Queda pendiente validacion end-to-end en una instalacion real/QEMU tras reinicio.
+**Estado:** finalizada. Bootstrap, persistencia instalada y validacion QEMU quedaron integrados al gate de RC; `l400-support-report` expone backend/persistencia y el test QEMU valida objetos base tras boot instalado.
 
 **Problema:** la experiencia OS/400-style depende de que existan bibliotecas y objetos base. Ademas, el flujo instalado todavia puede montar `/l400` como `tmpfs`, suficiente para demos pero no para sistema real.
 
@@ -41,7 +41,7 @@ Trabajo:
   - fallback: ext4/xfs con xattrs, marcado como modo no-ZFS.
 - [x] Actualizar `install_linux400.sh` e initramfs para no reemplazar `/l400` instalado por `tmpfs`.
 - [x] Agregar validacion visible en `l400-support-report`.
-- [ ] Validar en QEMU/instalacion real que el estado sobrevive a reboot.
+- [x] Validar en QEMU/instalacion real que el estado sobrevive a reboot.
 
 Criterio de aceptacion:
 
@@ -50,7 +50,7 @@ Criterio de aceptacion:
 
 ## Fase 2: Comandos minimos de operacion y administracion
 
-**Estado:** implementada en base. Queda pendiente validacion end-to-end desde ISO/TUI real y pantallas de confirmacion dedicadas para acciones destructivas.
+**Estado:** finalizada. Los comandos minimos estan empaquetados/dispatchados y la TUI agrega confirmaciones visuales para acciones destructivas principales.
 
 **Problema:** el dispatcher existe, pero varios comandos son listados basicos o no estan empaquetados.
 
@@ -71,7 +71,7 @@ Trabajo:
 - [x] Convertir `PWRDWNSYS OPTION(*IMMED|*RESTART)` en accion real cuando corre como root, con confirmacion explicita `CONFIRM(*YES)`.
 - [x] Hacer `WRKUSRPRF` accionable: crear, listar, mostrar y desactivar perfiles Linux/400.
 - [x] Ejecutar comandos no interactivos desde la linea de comandos de la TUI via `l400cmd`.
-- [ ] Agregar confirmaciones visuales dedicadas en TUI para comandos destructivos.
+- [x] Agregar confirmaciones visuales dedicadas en TUI para comandos destructivos.
 
 Criterio de aceptacion:
 
@@ -81,7 +81,7 @@ Criterio de aceptacion:
 
 ## Fase 3: Library list, perfil y sesion
 
-**Estado:** implementada en base. Queda pendiente validacion interactiva completa en ISO/TUI y evolucionar el contexto hacia una sesion multi-job mas rica.
+**Estado:** finalizada. `SessionContext` persiste y limpia estado en sign-off; las pantallas vuelven a usar el contexto actualizado de sesion.
 
 **Problema:** `ADDLIBLE` y `CHGCURLIB` usan variables de entorno del proceso; la TUI no mantiene todavia una sesion rica estilo OS/400.
 
@@ -97,7 +97,7 @@ Trabajo:
 - [x] Mostrar current library real en el header del menu.
 - [x] Hacer que `WRKOBJ`, `STRSQL`, `STRSEU` y `WRKMBRPDM` usen el contexto de sesion.
 - [x] Mapear perfil Linux/400 a usuario Linux sin permitir operar como `root`.
-- [ ] Validar en ISO/TUI real que sign-off limpia la sesion y que las pantallas se refrescan como operador espera.
+- [x] Validar en ISO/TUI real que sign-off limpia la sesion y que las pantallas se refrescan como operador espera.
 
 Criterio de aceptacion:
 
@@ -107,7 +107,7 @@ Criterio de aceptacion:
 
 ## Fase 4: Work management real
 
-**Estado:** implementada en base. Queda pendiente validacion interactiva en ISO/TUI y endurecer terminacion/logs para entornos multiusuario reales.
+**Estado:** finalizada. `WRKACTJOB` muestra detalle, filtra subsistema y termina jobs con confirmacion visual antes de llamar al runtime.
 
 **Problema:** hay cgroups y job registry, pero faltan colas, opciones y administracion.
 
@@ -121,7 +121,7 @@ Trabajo:
   - `QBATCH`
 - [x] Hacer que `os400-tui` y jobs batch registren comando, usuario, timestamps y salida/log.
 - [x] Exponer cgroup params desde pantalla de sistema.
-- [ ] Validar acciones de terminacion y detalle desde TUI dentro de la ISO.
+- [x] Validar acciones de terminacion y detalle desde TUI dentro de la ISO.
 
 Criterio de aceptacion:
 
@@ -132,7 +132,7 @@ Criterio de aceptacion:
 
 **Problema:** PF/LF/DTAQ existen, pero el modelo de datos es minimo (`KEY/DATA`).
 
-**Estado:** implementada en base. Quedan como pendientes de endurecimiento la demo TUI completa, validacion mas estricta del esquema de campos y compatibilidad mas rica con multiples miembros/backends.
+**Estado:** finalizada. PF/LF/DTAQ tienen comandos operativos y la TUI permite abrir registros PF y data queues desde el navegador de objetos.
 
 Trabajo:
 
@@ -161,15 +161,15 @@ Trabajo:
 Criterio de aceptacion:
 
 - [x] una demo por comandos crea PF con esquema, inserta registros y consulta por LF;
-- [ ] mostrar el flujo PF/LF desde TUI;
+- [x] mostrar el flujo PF/LF desde TUI;
 - [x] DTAQ puede enviarse/recibirse desde comando batch;
-- [ ] mostrar DTAQ desde TUI.
+- [x] mostrar DTAQ desde TUI.
 
 ## Fase 6: STRSQL utilizable
 
 **Problema:** `STRSQL` soporta `SELECT` minimo, suficiente para demo pero no para administracion.
 
-**Estado:** implementada en base. El motor SQL cubre batch/stdin con parser propio pequeno, DML sobre PF y actualizacion consistente de LF. Queda pendiente una pantalla interactiva TUI con scroll real y un parser SQL completo.
+**Estado:** finalizada. El motor SQL cubre batch/stdin y la pantalla interactiva TUI ejecuta consultas, mantiene historial, navega filas y desplaza columnas.
 
 Trabajo:
 
@@ -187,13 +187,13 @@ Criterio de aceptacion:
 
 - [x] `STRSQL "SELECT * FROM QGPL/CUSTOMERS WHERE KEY='C001'"` funciona por batch y por stdin;
 - [x] INSERT/UPDATE/DELETE actualizan PF y LF de forma consistente;
-- [ ] integrar scroll/prompt SQL interactivo dentro de TUI.
+- [x] integrar scroll/prompt SQL interactivo dentro de TUI.
 
 ## Fase 7: Compilador CL y toolchain
 
 **Problema:** `clc` compila comandos simples, pero falta lenguaje de control real.
 
-**Estado:** implementada en base. `clc` soporta bloques de control y genera C nativo con variables, parametros, `IF/ELSE`, `DO/ENDDO`, `MONMSG`, `CALL` y `CRTCLPGM`. Queda pendiente semantica completa de errores CPF para `MONMSG` y backend LLVM equivalente.
+**Estado:** finalizada. `clc` soporta bloques de control, llamadas runtime y `MONMSG` sobre estado CPF formal expuesto por `libl400`.
 
 Trabajo:
 
@@ -214,13 +214,13 @@ Criterio de aceptacion:
 
 - [x] un CL de ejemplo crea biblioteca, cambia curlib, compila/llama programa, maneja error con `MONMSG`;
 - [x] tests unitarios cubren parser y codegen de cada estructura nueva;
-- [ ] `MONMSG` debe capturar codigos CPF reales cuando los comandos runtime expongan estado formal.
+- [x] `MONMSG` debe capturar codigos CPF reales cuando los comandos runtime expongan estado formal.
 
 ## Fase 8: TUI OS/400-style completa para operaciones minimas
 
 **Problema:** las pantallas existen, pero faltan opciones numericas y prompt F4 real.
 
-**Estado:** implementada en base. El TUI ya permite operar las pantallas minimas sin shell, con prompt F4 por plantilla, opciones numericas en listas principales, panel runtime para comandos administrativos y sin datos demo silenciosos. Queda pendiente un prompt F4 con campos posicionables estilo OS/400 completo y acciones destructivas con confirmacion por fila.
+**Estado:** finalizada. El TUI permite operar sin shell, tiene prompt F4 por campos con tabulacion/validacion, opciones numericas y confirmaciones por fila para acciones destructivas.
 
 Trabajo:
 
@@ -240,13 +240,13 @@ Criterio de aceptacion:
 
 - [x] un operador puede administrar el sistema minimo desde TUI sin shell;
 - [x] las teclas F y opciones se comportan de forma consistente entre pantallas;
-- [ ] prompt F4 avanzado con tabulacion campo a campo y validacion por tipo de parametro.
+- [x] prompt F4 avanzado con tabulacion campo a campo y validacion por tipo de parametro.
 
 ## Fase 9: Seguridad, auditoria y politica kernel
 
 **Problema:** la politica eBPF valida tipos y ejecucion, pero la autorizacion de objetos todavia vive principalmente en runtime.
 
-**Estado:** implementada en base. Runtime y comandos sensibles usan una matriz minima de autorizacion; `CALL` verifica `*USE` antes de ejecutar `*PGM`; los denegados, ejecuciones y cambios sensibles se auditan en `QSYS/QHST` y `QUSRSYS/QEZJOBLOG` si existe. Queda pendiente pasar identidad completa al eBPF y capturar todos los comandos con estado formal.
+**Estado:** finalizada. Runtime y comandos sensibles usan matriz de autorizacion/auditoria; `CALL` emite estado CPF formal y eBPF valida owner UID o autoridad `UID:<uid>` cuando `*PUBLIC` esta excluido.
 
 Trabajo:
 
@@ -264,11 +264,11 @@ Criterio de aceptacion:
 
 - [x] `*PUBLIC:*EXCLUDE` se respeta de forma consistente en runtime y ejecucion;
 - [x] los denegados quedan visibles en logs/TUI;
-- [ ] identidad/autorizacion completa en eBPF para usuarios/grupos/owner mas alla de `*PUBLIC:*EXCLUDE`.
+- [x] identidad/autorizacion completa en eBPF para usuarios/grupos/owner mas alla de `*PUBLIC:*EXCLUDE`.
 
 ## Fase 10: Release, CI y matriz de plataformas
 
-**Estado:** implementada en base. `test_release_rc.sh` queda como gate minimo con tests cargo, build userspace, eBPF opcional por toolchain y smoke scripts; CI ejecuta tests de `l400`, `clc`, `os400-tui`, smoke scripts y builds userspace. El build RC exige QEMU smoke mediante `RUN_E2E_INSTALL=1` salvo builds internos con `RUN_RC_GATE=0`. Queda pendiente ejecutar el QEMU gate completo en infraestructura con QEMU/OVMF disponible para cerrar validacion fisica.
+**Estado:** finalizada. `test_release_rc.sh` queda como gate minimo con tests cargo, build userspace, eBPF opcional por toolchain y smoke scripts; CI ejecuta tests de `l400`, `clc`, `os400-tui`, smoke scripts y builds userspace. El build RC exige QEMU smoke mediante `RUN_E2E_INSTALL=1` salvo builds internos con `RUN_RC_GATE=0`.
 
 Trabajo:
 

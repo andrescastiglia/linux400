@@ -30,6 +30,8 @@ F12=Cancel
 Enter=Select/Run
 ```
 
+En la linea de comandos, `F4` abre prompt por campos; `Tab`/`Shift-Tab` cambia parametro y `Enter` ejecuta.
+
 ## Sistema
 
 | Comando | Descripcion | Ejemplo |
@@ -163,6 +165,16 @@ c400c --input tests/hola_mundo.c --output /l400/QSYS/HELLOC
 | `SNDDTAQ` | Envia un mensaje a una data queue. | `SNDDTAQ DTAQ(QUSRSYS/QEZJOBLOG) MSG(JobStarted)` |
 | `RCVDTAQ` | Recibe un mensaje de una data queue. | `RCVDTAQ DTAQ(QUSRSYS/QEZJOBLOG) WAIT(0)` |
 | `DSPDTAQ` | Muestra contenido de una data queue. | `DSPDTAQ DTAQ(QUSRSYS/QEZJOBLOG)` |
+
+## Opciones TUI utiles
+
+| Pantalla | Opcion/tecla | Accion |
+| --- | --- | --- |
+| `WRKOBJ` | `3` | Muestra registros PF con `DSPPFM`. |
+| `WRKOBJ` | `4` | Solicita confirmacion visual y borra el objeto seleccionado. |
+| `WRKOBJ` | `8` | Abre visor de `*DTAQ`. |
+| `WRKACTJOB` | `4` o `F10` | Solicita confirmacion visual y termina el job seleccionado. |
+| `STRSQL` | `F7/F8` | Desplaza columnas de resultados. |
 
 ## Output queues y spool
 

@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use l400::{list_objects, resolve_l400_root};
+use l400::{delete_object, list_objects, resolve_l400_root};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
@@ -29,6 +29,7 @@ pub struct ObjectBrowser {
     using_runtime_data: bool,
     session: SessionContext,
     status_message: Option<String>,
+    pending_delete: Option<String>,
 }
 
 impl ObjectBrowser {
@@ -49,6 +50,7 @@ impl ObjectBrowser {
             using_runtime_data,
             session,
             status_message,
+            pending_delete: None,
         }
     }
 
@@ -102,6 +104,38 @@ impl ObjectBrowser {
         self.selected_object()
             .map(|object| format!("{}/{}", object.library, object.name))
     }
+
+    fn request_delete_selected(&mut self) {
+        let Some(spec) = self.selected_object_spec() else {
+            self.status_message = Some("No hay objeto seleccionado.".to_string());
+            return;
+        };
+        self.pending_delete = Some(spec.clone());
+        self.status_message = Some(format!(
+            "Confirmar DLTOBJ {}: presione Enter para borrar o F12 para cancelar.",
+            spec
+        ));
+    }
+
+    fn confirm_delete(&mut self) {
+        let Some(spec) = self.pending_delete.take() else {
+            return;
+        };
+        let root = resolve_l400_root();
+        let Some((library, object)) = spec.split_once('/') else {
+            self.status_message = Some("DLTOBJ cancelado: especificacion invalida.".to_string());
+            return;
+        };
+        match delete_object(&root.join(library).join(object)) {
+            Ok(_) => {
+                self.status_message = Some(format!("{} borrado.", spec));
+                self.refresh();
+            }
+            Err(error) => {
+                self.status_message = Some(format!("Error borrando {}: {}", spec, error));
+            }
+        }
+    }
 }
 
 impl Screen for ObjectBrowser {
@@ -123,6 +157,20 @@ impl Screen for ObjectBrowser {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
+        if self.pending_delete.is_some() {
+            match key.code {
+                KeyCode::Enter => {
+                    self.confirm_delete();
+                    return ScreenResult::none();
+                }
+                KeyCode::F(12) | KeyCode::Esc => {
+                    self.pending_delete = None;
+                    self.status_message = Some("DLTOBJ cancelado.".to_string());
+                    return ScreenResult::none();
+                }
+                _ => return ScreenResult::none(),
+            }
+        }
         match key.code {
             KeyCode::F(3) => ScreenResult::goto(ScreenId::MainMenu),
             KeyCode::F(4) => ScreenResult::goto(ScreenId::CommandLine),
@@ -149,6 +197,23 @@ impl Screen for ObjectBrowser {
                     ScreenResult::with_data(ScreenId::SystemPanel, format!("DSPOBJD OBJ({spec})"))
                 })
                 .unwrap_or_else(ScreenResult::none),
+            KeyCode::Char('3') => self
+                .selected_object()
+                .filter(|object| object.type_ == "*FILE" && object.attribute == "PF")
+                .map(|object| {
+                    ScreenResult::with_data(
+                        ScreenId::SystemPanel,
+                        format!("DSPPFM FILE({}/{})", object.library, object.name),
+                    )
+                })
+                .unwrap_or_else(|| {
+                    self.status_message = Some("Opcion 3 requiere un *FILE PF.".to_string());
+                    ScreenResult::none()
+                }),
+            KeyCode::Char('4') => {
+                self.request_delete_selected();
+                ScreenResult::none()
+            }
             KeyCode::Char('2') => self
                 .selected_object()
                 .filter(|object| object.type_ == "*FILE" && object.attribute == "PF")
@@ -204,7 +269,7 @@ impl ObjectBrowser {
         };
         let lines: Vec<Line> = vec![
             Line::from(vec![format!(
-                "Source: {}. Options: 2=Members 5=Display 8=DTAQ.",
+                "Source: {}. Options: 2=Members 3=Records 4=Delete 5=Display 8=DTAQ.",
                 source_label
             )
             .into()]),
@@ -269,6 +334,8 @@ impl ObjectBrowser {
             "F4=Prompt   ".into(),
             "F5=Refresh   ".into(),
             "2=Members   ".into(),
+            "3=Records   ".into(),
+            "4=Delete   ".into(),
             "5=Display   ".into(),
             "8=DTAQ   ".into(),
             "F12=Cancel".into(),

@@ -8,7 +8,7 @@ Este documento separa lo que es requisito actual, lo que ya esta implementado en
 
 - El root logico de objetos es `L400_ROOT`, por defecto `/l400`.
 - El tipo de objeto se define con `user.l400.objtype`; es la frontera autoritativa compartida por `libl400` y el eBPF LSM.
-- Los metadatos complementarios usan xattrs como `user.l400.objattr`, `user.l400.text`, `user.l400.owner`, `user.l400.auth`, `user.l400.storage_backend`, `user.l400.record_len` y `user.l400.base_pf`.
+- Los metadatos complementarios usan xattrs como `user.l400.objattr`, `user.l400.text`, `user.l400.owner`, `user.l400.owner_uid`, `user.l400.auth`, `user.l400.storage_backend`, `user.l400.record_len` y `user.l400.base_pf`.
 - Los tipos validos salen de `l400-ebpf-common/src/lib.rs`: `*PGM`, `*FILE`, `*USRPRF`, `*LIB`, `*DTAQ`, `*CMD`, `*SRVPGM`, `*OUTQ`.
 - El loader publica estado en `L400_RUN_DIR`, por defecto `/run/l400/loader-status`.
 - La politica eBPF activa es `phase3-v1`.
@@ -40,7 +40,7 @@ Este documento separa lo que es requisito actual, lo que ya esta implementado en
 El programa `l400-ebpf` implementa tres hooks:
 
 - `file_open`: permite archivos sin etiqueta Linux/400, permite objetos con `user.l400.objtype` valido y deniega etiquetas desconocidas.
-- `bprm_creds_from_file`: permite ejecucion nativa no catalogada, permite ejecucion de `*PGM` si tiene atributo de toolchain valido (`C` o `CL`) y deniega otros tipos.
+- `bprm_creds_from_file`: permite ejecucion nativa no catalogada, permite ejecucion de `*PGM` si tiene atributo de toolchain valido (`C` o `CL`), valida `*PUBLIC:*EXCLUDE` con excepcion para owner UID o autoridad explicita `UID:<uid>:*USE/*ALL`, y deniega otros tipos.
 - `bprm_check_security`: confirma la decision de ejecucion y registra estadisticas.
 
 El loader `l400-loader` tiene tres modos:
@@ -75,7 +75,7 @@ Estado actual:
 - Berkeley DB: backend opcional con `--features berkeleydb` y `L400_STORAGE_BACKEND=berkeleydb`.
 - Source members: archivos planos dentro del directorio de un source file `*FILE`.
 
-Para una instalacion persistente real falta cerrar la provision de `/l400` como dataset durable. El initramfs actual puede montar `/l400` como `tmpfs` en modo live/installed, util para demos pero no suficiente como almacenamiento de objetos permanente.
+En modo live se permite `/l400` como `tmpfs`. En modo instalado, el instalador/bootstrap conservan `/l400` sobre el filesystem persistente y `l400-support-report` marca backend y persistencia.
 
 ## Punteros etiquetados
 
@@ -111,7 +111,6 @@ L400_RUN_DIR=/run/l400 l400-support-report --write
 ## Gaps de kernel/plataforma
 
 1. Asegurar que `scripts/build/build_kernel.sh` genere BTF usable para Aya (`/sys/kernel/btf/vmlinux`).
-2. Hacer que el instalador cree o detecte un backend persistente para `/l400` en vez de depender de `tmpfs`.
-3. Validar `xattr=sa` cuando `/l400` esta en ZFS y degradar con mensaje claro si no lo esta.
-4. Empaquetar y arrancar `l400-loader` como servicio supervisado en el sistema instalado.
-5. Convertir `support-profile` en una vista TUI/CL visible para administracion.
+2. Validar `xattr=sa` cuando `/l400` esta en ZFS y degradar con mensaje claro si no lo esta.
+3. Empaquetar y arrancar `l400-loader` como servicio supervisado en el sistema instalado.
+4. Mantener tests QEMU de instalacion/persistencia como gate de RC.

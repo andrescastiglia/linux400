@@ -12,6 +12,13 @@ use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::session::SessionContext;
 use crate::style::*;
 
+#[derive(Clone, Debug)]
+struct PromptField {
+    name: &'static str,
+    value: String,
+    required: bool,
+}
+
 pub struct CommandLine {
     command: String,
     history: Vec<String>,
@@ -20,6 +27,11 @@ pub struct CommandLine {
     output: Vec<String>,
     show_output: bool,
     session: SessionContext,
+    prompt_command: Option<String>,
+    prompt_fields: Vec<PromptField>,
+    prompt_index: usize,
+    prompt_cursor: usize,
+    prompt_error: Option<String>,
 }
 
 impl CommandLine {
@@ -40,6 +52,11 @@ impl CommandLine {
             output: Vec::new(),
             show_output: false,
             session,
+            prompt_command: None,
+            prompt_fields: Vec::new(),
+            prompt_index: 0,
+            prompt_cursor: 0,
+            prompt_error: None,
         }
     }
 
@@ -147,6 +164,197 @@ impl CommandLine {
         self.command.clear();
         self.cursor_position = 0;
         self.history_index = 0;
+        ScreenResult::none()
+    }
+
+    fn start_prompt(&mut self) {
+        let action = self
+            .command
+            .split_whitespace()
+            .next()
+            .map(str::to_uppercase)
+            .unwrap_or_else(|| "WRKOBJ".to_string());
+        let fields = match action.as_str() {
+            "WRKOBJ" | "WRKLIB" => vec![
+                PromptField {
+                    name: "OBJ",
+                    value: "QGPL/*ALL".to_string(),
+                    required: true,
+                },
+                PromptField {
+                    name: "OBJTYPE",
+                    value: "*ALL".to_string(),
+                    required: false,
+                },
+            ],
+            "DLTOBJ" => vec![
+                PromptField {
+                    name: "OBJ",
+                    value: "QGPL/OBJECT".to_string(),
+                    required: true,
+                },
+                PromptField {
+                    name: "OBJTYPE",
+                    value: "*ALL".to_string(),
+                    required: false,
+                },
+                PromptField {
+                    name: "CONFIRM",
+                    value: "*YES".to_string(),
+                    required: true,
+                },
+            ],
+            "DSPPFM" | "CLRPFM" | "ADDPFM" | "WRTPFM" => vec![
+                PromptField {
+                    name: "FILE",
+                    value: "QGPL/CUSTOMERS".to_string(),
+                    required: true,
+                },
+                PromptField {
+                    name: "MBR",
+                    value: "*FIRST".to_string(),
+                    required: false,
+                },
+            ],
+            "DSPDTAQ" | "SNDDTAQ" | "RCVDTAQ" | "CRTDTAQ" => vec![PromptField {
+                name: "DTAQ",
+                value: "QUSRSYS/QEZJOBLOG".to_string(),
+                required: true,
+            }],
+            "STRSEU" | "WRKMBRPDM" => vec![
+                PromptField {
+                    name: "FILE",
+                    value: "QGPL/QCLSRC".to_string(),
+                    required: true,
+                },
+                PromptField {
+                    name: "MBR",
+                    value: "HELLO.CLP".to_string(),
+                    required: action == "STRSEU",
+                },
+            ],
+            "CRTCLPGM" => vec![
+                PromptField {
+                    name: "PGM",
+                    value: "QGPL/HELLO".to_string(),
+                    required: true,
+                },
+                PromptField {
+                    name: "SRCFILE",
+                    value: "QGPL/QCLSRC".to_string(),
+                    required: true,
+                },
+                PromptField {
+                    name: "SRCMBR",
+                    value: "HELLO.CLP".to_string(),
+                    required: true,
+                },
+            ],
+            "CALL" => vec![PromptField {
+                name: "PGM",
+                value: "QGPL/HELLO".to_string(),
+                required: true,
+            }],
+            _ => vec![PromptField {
+                name: "OBJ",
+                value: "QGPL/*ALL".to_string(),
+                required: true,
+            }],
+        };
+
+        self.prompt_command = Some(action);
+        self.prompt_fields = fields;
+        self.prompt_index = 0;
+        self.prompt_cursor = self
+            .prompt_fields
+            .first()
+            .map(|field| field.value.len())
+            .unwrap_or_default();
+        self.prompt_error = None;
+    }
+
+    fn finish_prompt(&mut self) -> bool {
+        if let Some(field) = self
+            .prompt_fields
+            .iter()
+            .find(|field| field.required && field.value.trim().is_empty())
+        {
+            self.prompt_error = Some(format!("{} es requerido.", field.name));
+            return false;
+        }
+        let command = self
+            .prompt_command
+            .clone()
+            .unwrap_or_else(|| "WRKOBJ".to_string());
+        let params = self
+            .prompt_fields
+            .iter()
+            .filter(|field| !field.value.trim().is_empty())
+            .map(|field| format!("{}({})", field.name, field.value.trim()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        self.command = format!("{command} {params}");
+        self.cursor_position = self.command.len();
+        self.prompt_command = None;
+        self.prompt_fields.clear();
+        self.prompt_error = None;
+        true
+    }
+
+    fn handle_prompt_key(&mut self, key: KeyEvent) -> ScreenResult {
+        match key.code {
+            KeyCode::F(12) | KeyCode::Esc => {
+                self.prompt_command = None;
+                self.prompt_fields.clear();
+                self.prompt_error = None;
+            }
+            KeyCode::Tab | KeyCode::Down if !self.prompt_fields.is_empty() => {
+                self.prompt_index = (self.prompt_index + 1) % self.prompt_fields.len();
+                self.prompt_cursor = self.prompt_fields[self.prompt_index].value.len();
+            }
+            KeyCode::BackTab | KeyCode::Up if !self.prompt_fields.is_empty() => {
+                self.prompt_index = if self.prompt_index == 0 {
+                    self.prompt_fields.len() - 1
+                } else {
+                    self.prompt_index - 1
+                };
+                self.prompt_cursor = self.prompt_fields[self.prompt_index].value.len();
+            }
+            KeyCode::Enter if self.finish_prompt() => {
+                return self.execute_command();
+            }
+            KeyCode::Backspace => {
+                if let Some(field) = self.prompt_fields.get_mut(self.prompt_index) {
+                    if self.prompt_cursor > 0 {
+                        self.prompt_cursor -= 1;
+                        field.value.remove(self.prompt_cursor);
+                    }
+                }
+            }
+            KeyCode::Delete => {
+                if let Some(field) = self.prompt_fields.get_mut(self.prompt_index) {
+                    if self.prompt_cursor < field.value.len() {
+                        field.value.remove(self.prompt_cursor);
+                    }
+                }
+            }
+            KeyCode::Left => {
+                self.prompt_cursor = self.prompt_cursor.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                if let Some(field) = self.prompt_fields.get(self.prompt_index) {
+                    self.prompt_cursor =
+                        self.prompt_cursor.saturating_add(1).min(field.value.len());
+                }
+            }
+            KeyCode::Char(c) => {
+                if let Some(field) = self.prompt_fields.get_mut(self.prompt_index) {
+                    field.value.insert(self.prompt_cursor, c);
+                    self.prompt_cursor += 1;
+                }
+            }
+            _ => {}
+        }
         ScreenResult::none()
     }
 
@@ -282,6 +490,10 @@ impl CommandLine {
 
 impl Screen for CommandLine {
     fn render(&mut self, frame: &mut Frame) {
+        if self.prompt_command.is_some() {
+            self.render_prompt(frame);
+            return;
+        }
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -299,6 +511,9 @@ impl Screen for CommandLine {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
+        if self.prompt_command.is_some() {
+            return self.handle_prompt_key(key);
+        }
         if self.show_output {
             match key.code {
                 KeyCode::F(3) => return ScreenResult::goto(ScreenId::MainMenu),
@@ -313,7 +528,7 @@ impl Screen for CommandLine {
         match key.code {
             KeyCode::F(3) => ScreenResult::goto(ScreenId::MainMenu),
             KeyCode::F(4) => {
-                self.apply_prompt_template();
+                self.start_prompt();
                 ScreenResult::none()
             }
             KeyCode::F(12) => ScreenResult::goto(ScreenId::MainMenu),
@@ -409,6 +624,82 @@ fn normalize_file_spec(spec: &str, session: &SessionContext) -> String {
 }
 
 impl CommandLine {
+    fn render_prompt(&self, frame: &mut Frame) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(0),
+                Constraint::Length(3),
+            ])
+            .split(frame.area());
+
+        let command = self.prompt_command.as_deref().unwrap_or("WRKOBJ");
+        let block = Block::default()
+            .title(format!(" Prompt {} ", command))
+            .style(STYLE_HEADER)
+            .borders(Borders::ALL)
+            .border_style(STYLE_BORDER);
+        let inner = block.inner(chunks[0]);
+        frame.render_widget(block, chunks[0]);
+        frame.render_widget(
+            Paragraph::new(
+                self.prompt_error
+                    .clone()
+                    .unwrap_or_else(|| "Tab/Shift-Tab cambia de campo. Enter ejecuta.".to_string()),
+            )
+            .style(STYLE_NORMAL),
+            inner,
+        );
+
+        let lines = self
+            .prompt_fields
+            .iter()
+            .enumerate()
+            .map(|(index, field)| {
+                let marker = if index == self.prompt_index { ">" } else { " " };
+                Line::from(format!(
+                    "{} {:<10} {}{}",
+                    marker,
+                    field.name,
+                    field.value,
+                    if field.required { "  *REQ" } else { "" }
+                ))
+            })
+            .collect::<Vec<_>>();
+        let field_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(STYLE_BORDER);
+        let field_inner = field_block.inner(chunks[1]);
+        frame.render_widget(field_block, chunks[1]);
+        frame.render_widget(
+            Paragraph::new(Text::from(lines)).style(STYLE_NORMAL),
+            field_inner,
+        );
+
+        let help_text = Line::from(vec![
+            "Enter=Run   ".into(),
+            "Tab=Next   ".into(),
+            "Shift-Tab=Prev   ".into(),
+            "F12=Cancel".into(),
+        ]);
+        let help = Block::default()
+            .style(STYLE_HELP)
+            .borders(Borders::ALL)
+            .border_style(STYLE_BORDER);
+        let help_inner = Rect::new(chunks[2].x + 1, chunks[2].y + 1, chunks[2].width - 2, 1);
+        frame.render_widget(help, chunks[2]);
+        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), help_inner);
+
+        let cursor_y = field_inner.y + self.prompt_index as u16;
+        let cursor_x = field_inner.x + 13 + self.prompt_cursor as u16;
+        if cursor_y < field_inner.y + field_inner.height
+            && cursor_x < field_inner.x + field_inner.width
+        {
+            frame.set_cursor_position((cursor_x, cursor_y));
+        }
+    }
+
     fn render_command_line(&self, frame: &mut Frame, area: Rect) {
         let display = format!("> {}", self.command);
 
@@ -468,35 +759,6 @@ impl CommandLine {
     }
 }
 
-impl CommandLine {
-    fn apply_prompt_template(&mut self) {
-        let action = self
-            .command
-            .split_whitespace()
-            .next()
-            .map(str::to_uppercase)
-            .unwrap_or_else(|| "WRKOBJ".to_string());
-        let template = match action.as_str() {
-            "WRKACTJOB" => "WRKACTJOB SBS(*ALL) STATUS(*ALL)",
-            "WRKOBJ" | "WRKLIB" => "WRKOBJ OBJ(QGPL/*ALL) OBJTYPE(*ALL)",
-            "DSPOBJD" => "DSPOBJD OBJ(QGPL/OBJECT) OBJTYPE(*ALL)",
-            "WRKUSRPRF" => "WRKUSRPRF USRPRF(*ALL)",
-            "DSPDTAQ" => "DSPDTAQ DTAQ(QUSRSYS/QEZJOBLOG)",
-            "WRKMBRPDM" => "WRKMBRPDM FILE(QGPL/QCLSRC)",
-            "STRSEU" => "STRSEU FILE(QGPL/QCLSRC) MBR(HELLO.CLP)",
-            "STRSQL" => "STRSQL SELECT * FROM QGPL/CUSTOMERS",
-            "CRTCLPGM" => "CRTCLPGM PGM(QGPL/HELLO) SRCFILE(QGPL/QCLSRC) SRCMBR(HELLO.CLP)",
-            "CALL" => "CALL PGM(QGPL/HELLO)",
-            "WRKSYSVAL" => "WRKSYSVAL",
-            "WRKSYSSTS" => "WRKSYSSTS",
-            "WRKSPLF" => "WRKSPLF",
-            _ => "WRKOBJ OBJ(QGPL/*ALL) OBJTYPE(*ALL)",
-        };
-        self.command = template.to_string();
-        self.cursor_position = self.command.len();
-    }
-}
-
 impl Default for CommandLine {
     fn default() -> Self {
         Self::new()
@@ -515,5 +777,19 @@ mod tests {
         let result = cmd.execute_command();
 
         assert_eq!(result.next, Some(ScreenId::SignOn));
+    }
+
+    #[test]
+    fn f4_prompt_builds_field_based_command() {
+        let mut cmd = CommandLine::new();
+        cmd.command = "CALL".to_string();
+        cmd.start_prompt();
+
+        assert_eq!(cmd.prompt_command.as_deref(), Some("CALL"));
+        assert_eq!(cmd.prompt_fields[0].name, "PGM");
+
+        cmd.prompt_fields[0].value = "QGPL/HELLO".to_string();
+        assert!(cmd.finish_prompt());
+        assert_eq!(cmd.command, "CALL PGM(QGPL/HELLO)");
     }
 }

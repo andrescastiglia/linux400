@@ -30,6 +30,7 @@ pub struct WorkManagement {
     scroll_offset: usize,
     subsystem_filter: Option<String>,
     detail: Option<String>,
+    pending_end_pid: Option<u64>,
 }
 
 impl WorkManagement {
@@ -45,6 +46,7 @@ impl WorkManagement {
             scroll_offset: 0,
             subsystem_filter: None,
             detail: None,
+            pending_end_pid: None,
         }
     }
 
@@ -113,7 +115,7 @@ impl WorkManagement {
         });
     }
 
-    fn end_selected_job(&mut self) {
+    fn request_end_selected_job(&mut self) {
         let Some(job) = self.selected_job() else {
             self.detail = Some("No job selected.".to_string());
             return;
@@ -124,6 +126,23 @@ impl WorkManagement {
         }
         let pid = job.pid;
         let name = job.name.clone();
+        self.pending_end_pid = Some(pid);
+        self.detail = Some(format!(
+            "Confirm end job {} PID={}. Press Enter to confirm or F12 to cancel.",
+            name, pid
+        ));
+    }
+
+    fn confirm_end_job(&mut self) {
+        let Some(pid) = self.pending_end_pid.take() else {
+            return;
+        };
+        let name = self
+            .jobs
+            .iter()
+            .find(|job| job.pid == pid)
+            .map(|job| job.name.clone())
+            .unwrap_or_else(|| pid.to_string());
         match end_job(pid) {
             Ok(_) => self.detail = Some(format!("Job {} PID={} ended.", name, pid)),
             Err(error) => self.detail = Some(format!("Error ending job {}: {}", name, error)),
@@ -149,6 +168,20 @@ impl Screen for WorkManagement {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
+        if self.pending_end_pid.is_some() {
+            match key.code {
+                KeyCode::Enter => {
+                    self.confirm_end_job();
+                    return ScreenResult::none();
+                }
+                KeyCode::F(12) | KeyCode::Esc => {
+                    self.pending_end_pid = None;
+                    self.detail = Some("End job cancelled.".to_string());
+                    return ScreenResult::none();
+                }
+                _ => return ScreenResult::none(),
+            }
+        }
         match key.code {
             KeyCode::F(3) => ScreenResult::goto(ScreenId::MainMenu),
             KeyCode::F(4) => ScreenResult::goto(ScreenId::CommandLine),
@@ -195,11 +228,11 @@ impl Screen for WorkManagement {
                 ScreenResult::none()
             }
             KeyCode::F(10) => {
-                self.end_selected_job();
+                self.request_end_selected_job();
                 ScreenResult::none()
             }
             KeyCode::Char('4') => {
-                self.end_selected_job();
+                self.request_end_selected_job();
                 ScreenResult::none()
             }
             _ => ScreenResult::none(),

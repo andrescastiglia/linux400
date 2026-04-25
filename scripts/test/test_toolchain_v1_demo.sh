@@ -8,6 +8,7 @@ trap 'rm -rf "$TMP_ROOT"' EXIT
 cd "$ROOT_DIR"
 
 cargo run -p l400 --example objects_v1_demo -- "$TMP_ROOT" >/dev/null
+cargo build -p l400 --lib >/dev/null
 
 C400_BUILD="$(cargo run -p c400c -- --input tests/hola_mundo.c --output "$TMP_ROOT/QSYS/HELLOC")"
 printf '%s\n' "$C400_BUILD"

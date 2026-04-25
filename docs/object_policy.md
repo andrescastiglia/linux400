@@ -37,12 +37,13 @@ Agregar un tipo nuevo exige actualizar `l400-ebpf-common`, `libl400` y la matriz
 | `user.l400.objattr` | Atributo de objeto (`C`, `CL`, `PF`, `LF`, `SRC`, `DTAQ`, etc.). |
 | `user.l400.text` | Texto descriptivo. |
 | `user.l400.owner` | Propietario logico inicial. |
+| `user.l400.owner_uid` | UID Linux efectivo que catalogo el objeto; usado por eBPF para excepcion de owner. |
 | `user.l400.auth` | Autorizaciones runtime (`USER:*USE`, `*PUBLIC:*EXCLUDE`, etc.). |
 | `user.l400.storage_backend` | Backend de PF/LF/DTAQ (`sled` o `berkeleydb`). |
 | `user.l400.record_len` | Longitud de registro PF. |
 | `user.l400.base_pf` | PF base de un LF. |
 
-La politica eBPF actual lee `objtype`, `objattr` y una parte de `auth`. El runtime usa el resto para catalogo, storage y pantallas.
+La politica eBPF actual lee `objtype`, `objattr`, `owner_uid` y una parte de `auth`. El runtime usa el resto para catalogo, storage y pantallas.
 
 ## Hooks eBPF activos
 
@@ -79,7 +80,7 @@ Un objeto `*PGM` puede ejecutarse si:
 2. `user.l400.objattr` indica salida valida de toolchain:
    - `C`
    - `CL`
-3. `user.l400.auth` no contiene `*PUBLIC:*EXCLUDE` ni `*PUBLIC:EXCLUDE`.
+3. Si `user.l400.auth` contiene `*PUBLIC:*EXCLUDE` o `*PUBLIC:EXCLUDE`, el UID actual debe coincidir con `user.l400.owner_uid` o tener una entrada `UID:<uid>:*USE`/`UID:<uid>:*ALL`.
 
 Si el objeto es `*PGM` pero no tiene atributo `C` o `CL`, se deniega como formato invalido. Esto es una marca minima de toolchain, no una firma criptografica.
 
@@ -118,7 +119,7 @@ Reglas runtime:
 - el owner puede tener `*ALL` implicito;
 - sin owner ni permiso aplicable, se deniega.
 
-Brecha actual: eBPF solo reconoce `*PUBLIC:*EXCLUDE` durante ejecucion. No aplica todavia permisos por usuario, grupos, owner ni `*USE/*CHANGE/*ALL` para `file_open`.
+La ruta eBPF aplica una identidad minima en ejecucion: owner UID y entradas `UID:<uid>:*USE/*ALL` pueden superar el fallback `*PUBLIC:*EXCLUDE`. La matriz completa por perfil/grupo sigue viviendo en runtime para operaciones no ejecutables.
 
 ## Loader y modos de enforcement
 
@@ -161,6 +162,8 @@ El mapa eBPF `L400_STATS` expone contadores:
 | `STAT_EXEC_CHECK_DENIED` | Confirmaciones de exec denegado. |
 | `STAT_EXEC_DENIED_INVALID_FORMAT` | `*PGM` sin atributo `C` o `CL`. |
 | `STAT_EXEC_DENIED_EXCLUDE` | `*PGM` denegado por `*PUBLIC:*EXCLUDE`. |
+| `STAT_EXEC_ALLOWED_OWNER` | `*PGM` permitido porque el UID actual es owner. |
+| `STAT_EXEC_ALLOWED_USER_AUTH` | `*PGM` permitido por autoridad explicita `UID:<uid>`. |
 | `STAT_OBJTYPE_BASE + n` | Conteo por tipo valido. |
 
 `l400-loader` imprime estos contadores cuando corre en modo activo.
@@ -169,24 +172,12 @@ El mapa eBPF `L400_STATS` expone contadores:
 
 Estado actual:
 
-- `WRKOBJ`: muestra catalogo basico de objetos.
-- `CRTLIB`, `DLTLIB`, `RNMOBJ`, `CRTPGM`: gestion inicial de objetos.
+- `WRKOBJ`: muestra catalogo de objetos y desde TUI permite `DSPPFM`, `DSPOBJD`, `DSPDTAQ` y `DLTOBJ` con confirmacion.
+- `CRTLIB`, `DLTLIB`, `RNMOBJ`, `CRTPGM`, `DLTOBJ`, `CPYOBJ`, `CHGOBJD`: gestion de objetos.
+- `DSPOBJAUT`, `CHKOBJAUT`, `GRTOBJAUT`, `RVKOBJAUT`, `DSPPOLICY`, `DSPAUD`: administracion de politica y auditoria.
 - `STRPDM`, `WRKMBRPDM`, `STRSEU`, `STRSQL`: flujo de desarrollo.
-- `WRKACTJOB`, `WRKSYSSTS`: estado del sistema y trabajos.
+- `WRKACTJOB`, `WRKSYSSTS`: estado del sistema y trabajos, con detalle y terminacion confirmada desde TUI.
 - `l400-support-report`: clasifica plataforma, loader, BPF, cgroups y xattrs/ZFS.
-
-Pendiente:
-
-- `DSPOBJD`
-- `CHGOBJD`
-- `DLTOBJ`
-- `CPYOBJ`
-- `DSPOBJAUT`
-- `CHKOBJAUT`
-- `GRTOBJAUT`
-- `RVKOBJAUT`
-- `DSPPOLICY`
-- `DSPAUD`
 
 La fase 9 agrega una matriz runtime minima:
 
@@ -232,13 +223,10 @@ cargo run -p l400-loader -- --mode degraded --once
 
 ## Brechas de politica
 
-1. Unificar autorizaciones runtime y enforcement eBPF.
-2. Aplicar permisos por usuario/owner/grupo en `file_open`.
-3. Reemplazar `objattr=C|CL` por firma o manifest de toolchain mas robusto.
-4. Auditar denegados y ejecuciones en `QHST` o `*DTAQ`.
-5. Exponer comandos `DSPOBJAUT`, `GRTOBJAUT` y `RVKOBJAUT`.
-6. Definir si `*SRVPGM` sera cargable como dependencia de `*PGM` y bajo que reglas.
-7. Agregar tests e2e para `*PUBLIC:*EXCLUDE`, tipo incorrecto y formato invalido.
+1. Aplicar permisos por usuario/owner/grupo tambien en `file_open`.
+2. Reemplazar `objattr=C|CL` por firma o manifest de toolchain mas robusto.
+3. Definir si `*SRVPGM` sera cargable como dependencia de `*PGM` y bajo que reglas.
+4. Mantener tests e2e para `*PUBLIC:*EXCLUDE`, tipo incorrecto, owner UID y formato invalido.
 
 ## Criterio de avance
 

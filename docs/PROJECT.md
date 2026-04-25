@@ -99,7 +99,7 @@ La unidad basica es un archivo o directorio con xattrs Linux/400.
 | Archivo logico LF | Objeto `*FILE`, atributo `LF`, indice secundario `LF_IDX_<name>` y xattr `base_pf`. |
 | Data queue `*DTAQ` | Objeto catalogado, tree `DTAQ`, lectura FIFO por clave creciente. |
 | Source file | Directorio `*FILE` con atributo `SRC`; miembros como archivos planos. |
-| Perfil `*USRPRF` | Soporte inicial de objeto y comandos; integracion completa con usuarios Linux pendiente. |
+| Perfil `*USRPRF` | Objeto de perfil administrable desde `WRKUSRPRF`; la TUI bloquea `ROOT` y usa perfil Linux/400 para sesion. |
 
 El tipo autorizado se valida en `l400-ebpf-common/src/lib.rs`. Agregar un tipo nuevo requiere actualizar ese crate y revisar runtime/eBPF.
 
@@ -116,11 +116,14 @@ Comandos disponibles hoy en el dispatcher:
 
 ```text
 WRKSYSSTS WRKACTJOB WRKSYSVAL DSPLOG WRKUSRPRF PWRDWNSYS
-WRKOBJ CRTLIB DLTLIB ADDLIBLE CHGCURLIB RNMOBJ CRTPGM
-GO SIGNOFF STRPDM STRSEU STRSQL WRKMBRPDM
+WRKOBJ CRTLIB DLTLIB ADDLIBLE CHGCURLIB RNMOBJ DLTOBJ CPYOBJ
+DSPOBJD CHGOBJD DSPOBJAUT CHKOBJAUT GRTOBJAUT RVKOBJAUT
+CRTPGM CRTCLPGM CALL SBMJOB CRTPF CRTLF DSPPFM CLRPFM ADDPFM WRTPFM
+CRTDTAQ SNDDTAQ RCVDTAQ DSPDTAQ DSPPOLICY DSPAUD
+GO SIGNOFF STRPDM STRSEU STRSQL WRKMBRPDM WRKSPLF
 ```
 
-`SBMJOB` existe como bin Rust, pero todavia debe integrarse al empaquetado y al dispatcher operativo.
+`SBMJOB` se empaqueta como binario y comando operativo para jobs batch.
 
 ## Seguridad y autorizaciones
 
@@ -128,9 +131,9 @@ Hay tres capas:
 
 - **Catalogo**: `user.l400.objtype` y metadatos de objeto.
 - **Runtime**: `user.l400.auth` con autorizaciones estilo OS/400 (`*PUBLIC`, usuario especifico, `*EXCLUDE`).
-- **eBPF LSM**: enforcement basico de tipos y ejecucion de `*PGM`.
+- **eBPF LSM**: enforcement de tipos, ejecucion de `*PGM`, marca de toolchain y excepciones minimas por owner/UID cuando `*PUBLIC` esta excluido.
 
-Pendiente importante: hacer que las autorizaciones runtime y el enforcement kernel converjan en una politica unica visible desde comandos administrativos.
+La politica efectiva es visible con `DSPPOLICY`, `DSPAUD`, `DSPOBJAUT` y `CHKOBJAUT`; runtime mantiene la matriz completa y eBPF refuerza tipo/ejecucion con owner UID y autoridad UID minima.
 
 ## Almacenamiento
 
@@ -180,11 +183,7 @@ cargo build --target bpfel-unknown-none --release
 
 ## Brechas principales
 
-1. Validar en QEMU/instalacion real que `/l400` sobrevive reboot con datos de usuario, no solo objetos base.
-2. Agregar confirmaciones visuales dedicadas en TUI para acciones destructivas.
-3. Enriquecer sesion multi-job y validacion interactiva completa desde ISO/TUI.
-4. Completar prompt F4 avanzado con tabulacion campo a campo y validacion por tipo.
-5. Mostrar PF/LF/DTAQ desde TUI con flujos accionables.
-6. Integrar scroll/prompt SQL interactivo dentro de TUI.
-7. Capturar codigos CPF reales para `MONMSG`.
-8. Converger identidad/autorizacion completa con eBPF para usuarios, grupos y owner.
+1. Ejecutar periodicamente `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh` en infraestructura con QEMU/OVMF.
+2. Profundizar compatibilidad IBM i: CPF completos, grupos, owner semantico rico y `*SRVPGM`.
+3. Reemplazar marcas simples de toolchain por firma o manifest verificable.
+4. Expandir tests interactivos de TUI sobre ISO instalada.

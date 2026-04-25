@@ -12,6 +12,7 @@ pub const DEFAULT_L400_ROOT: &str = "/l400";
 pub const L400_OBJATTR_ATTR: &str = "user.l400.objattr";
 pub const L400_TEXT_ATTR: &str = "user.l400.text";
 pub const L400_OWNER_ATTR: &str = "user.l400.owner";
+pub const L400_OWNER_UID_ATTR: &str = "user.l400.owner_uid";
 
 #[derive(Error, Debug)]
 pub enum ObjectError {
@@ -84,6 +85,10 @@ fn current_owner_name() -> Option<String> {
         .ok()
         .or_else(|| env::var("USER").ok())
         .filter(|value| !value.is_empty())
+}
+
+fn current_owner_uid() -> String {
+    unsafe { libc::geteuid().to_string() }
 }
 
 fn object_default_attribute(objtype: &str) -> Option<&'static str> {
@@ -232,6 +237,7 @@ pub fn catalog_object(
     )?;
     write_l400_attr(path, L400_TEXT_ATTR, text)?;
     write_l400_attr(path, L400_OWNER_ATTR, current_owner_name().as_deref())?;
+    write_l400_attr(path, L400_OWNER_UID_ATTR, Some(&current_owner_uid()))?;
     Ok(())
 }
 

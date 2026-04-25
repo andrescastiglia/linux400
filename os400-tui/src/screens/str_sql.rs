@@ -18,6 +18,7 @@ pub struct StrSql {
     columns: Vec<String>,
     error: Option<String>,
     table_state: TableState,
+    column_offset: usize,
     history: Vec<String>,
     history_idx: usize,
     default_library: Option<String>,
@@ -61,6 +62,7 @@ impl StrSql {
             columns: Vec::new(),
             error: None,
             table_state: TableState::default(),
+            column_offset: 0,
             history: Vec::new(),
             history_idx: 0,
             default_library,
@@ -91,6 +93,7 @@ impl StrSql {
         self.columns.clear();
         self.error = None;
         self.table_state.select(None);
+        self.column_offset = 0;
 
         self.session.apply_env();
         let snapshot = self.session.snapshot();
@@ -147,6 +150,17 @@ impl Screen for StrSql {
                 self.results.clear();
                 self.columns.clear();
                 self.error = None;
+                self.column_offset = 0;
+                ScreenResult::none()
+            }
+            KeyCode::F(7) => {
+                self.column_offset = self.column_offset.saturating_sub(1);
+                ScreenResult::none()
+            }
+            KeyCode::F(8) => {
+                if self.column_offset + 1 < self.columns.len() {
+                    self.column_offset += 1;
+                }
                 ScreenResult::none()
             }
             KeyCode::Enter => {
@@ -270,16 +284,30 @@ impl StrSql {
             return;
         }
 
-        let widths = self
+        let visible_columns = self
             .columns
+            .iter()
+            .skip(self.column_offset)
+            .take(4)
+            .cloned()
+            .collect::<Vec<_>>();
+        let widths = visible_columns
             .iter()
             .map(|_| Constraint::Min(20))
             .collect::<Vec<_>>();
-        let rows = self.results.iter().map(|row| Row::new(row.clone()));
+        let rows = self.results.iter().map(|row| {
+            Row::new(
+                row.iter()
+                    .skip(self.column_offset)
+                    .take(4)
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
+        });
 
         let table = Table::new(rows, widths)
             .header(
-                Row::new(self.columns.clone())
+                Row::new(visible_columns)
                     .style(STYLE_TABLE_HEADER)
                     .height(1),
             )
@@ -311,6 +339,7 @@ impl StrSql {
         let help_text = Line::from(vec![
             "F3=Exit   ".into(),
             "F5=Clear   ".into(),
+            "F7/F8=Cols   ".into(),
             "F12=Cancel   ".into(),
             "Enter=Run   ".into(),
             "Up/Down=History".into(),

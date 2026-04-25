@@ -63,6 +63,17 @@ impl SessionContext {
     }
 
     pub fn sign_off(&self) {
+        {
+            let mut state = self.inner.lock().expect("session lock poisoned");
+            state.user_profile = "QSECOFR".to_string();
+            state.current_library = "QGPL".to_string();
+            state.library_list = vec![
+                "QGPL".to_string(),
+                "QUSRSYS".to_string(),
+                "QSYS".to_string(),
+            ];
+            state.last_message = Some("Signed off".to_string());
+        }
         let _ = std::fs::remove_file(&self.state_path);
         unsafe {
             std::env::remove_var("L400_USER");
@@ -198,5 +209,7 @@ mod tests {
 
         session.sign_off();
         assert!(!session.state_path().exists());
+        assert_eq!(std::env::var("L400_USER").ok(), None);
+        assert_eq!(session.snapshot().current_library, "QGPL");
     }
 }
