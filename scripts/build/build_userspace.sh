@@ -44,6 +44,16 @@ COMMAND_BINARIES=(
     STRSEU
     STRSQL
     WRKMBRPDM
+    CRTPF
+    CRTLF
+    DSPPFM
+    CLRPFM
+    ADDPFM
+    WRTPFM
+    CRTDTAQ
+    SNDDTAQ
+    RCVDTAQ
+    DSPDTAQ
 )
 
 echo "=== Compilando userspace Linux/400 ==="

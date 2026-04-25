@@ -23,13 +23,20 @@ const BASE_PROFILES: &[(&str, &str)] = &[
 const BASE_COMMANDS: &[(&str, &str)] = &[
     ("ADDLIBLE", "Add library list entry"),
     ("CHGCURLIB", "Change current library"),
+    ("ADDPFM", "Add physical file member"),
     ("CRTLIB", "Create library"),
+    ("CRTDTAQ", "Create data queue"),
+    ("CRTLF", "Create logical file"),
+    ("CRTPF", "Create physical file"),
     ("CRTPGM", "Create program"),
+    ("CLRPFM", "Clear physical file member"),
     ("CPYOBJ", "Copy object"),
     ("DLTLIB", "Delete library"),
     ("DLTOBJ", "Delete object"),
+    ("DSPDTAQ", "Display data queue"),
     ("DSPOBJAUT", "Display object authority"),
     ("DSPOBJD", "Display object description"),
+    ("DSPPFM", "Display physical file member"),
     ("DSPLOG", "Display log"),
     ("GO", "Show menu"),
     ("GRTOBJAUT", "Grant object authority"),
@@ -38,6 +45,7 @@ const BASE_COMMANDS: &[(&str, &str)] = &[
     ("RVKOBJAUT", "Revoke object authority"),
     ("SBMJOB", "Submit job"),
     ("SIGNOFF", "Sign off"),
+    ("SNDDTAQ", "Send data queue message"),
     ("STRPDM", "Start PDM"),
     ("STRSEU", "Start SEU"),
     ("STRSQL", "Start SQL"),
@@ -47,6 +55,8 @@ const BASE_COMMANDS: &[(&str, &str)] = &[
     ("WRKSYSSTS", "Work with system status"),
     ("WRKSYSVAL", "Work with system values"),
     ("WRKUSRPRF", "Work with user profiles"),
+    ("RCVDTAQ", "Receive data queue message"),
+    ("WRTPFM", "Write physical file member record"),
 ];
 
 const HELLO_CL: &str = "PGM\n    /* Linux/400 bootstrap source member */\nENDPGM\n";

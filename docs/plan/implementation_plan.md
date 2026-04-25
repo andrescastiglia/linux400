@@ -132,23 +132,26 @@ Criterio de aceptacion:
 
 **Problema:** PF/LF/DTAQ existen, pero el modelo de datos es minimo (`KEY/DATA`).
 
+**Estado:** implementada en base. Quedan como pendientes de endurecimiento la demo TUI completa, validacion mas estricta del esquema de campos y compatibilidad mas rica con multiples miembros/backends.
+
 Trabajo:
 
-- Definir metadata de esquema para PF:
+- [x] Definir metadata de esquema para PF:
   - record length;
   - campos;
   - tipo/longitud;
   - texto;
   - keyed fields.
-- Agregar miembros PF reales y comandos:
+- [x] Agregar miembros PF reales y comandos:
   - `CRTPF`
   - `CRTLF`
   - `DSPPFM`
   - `CLRPFM`
-  - `ADDPFM` o equivalente minimo.
-- Mantener LF automaticamente al escribir/borrar registros de PF.
-- Agregar RRN/arrival sequence de forma explicita.
-- Extender DTAQ:
+  - `ADDPFM`
+  - `WRTPFM` como equivalente minimo para carga operativa.
+- [x] Mantener LF automaticamente al escribir/borrar registros de PF.
+- [x] Agregar RRN/arrival sequence de forma explicita.
+- [x] Extender DTAQ:
   - `CRTDTAQ`
   - `SNDDTAQ`
   - `RCVDTAQ`
@@ -157,8 +160,10 @@ Trabajo:
 
 Criterio de aceptacion:
 
-- una demo crea PF con esquema, inserta registros, consulta por LF y muestra datos desde TUI;
-- DTAQ puede enviarse/recibirse desde comando batch y verse en TUI.
+- [x] una demo por comandos crea PF con esquema, inserta registros y consulta por LF;
+- [ ] mostrar el flujo PF/LF desde TUI;
+- [x] DTAQ puede enviarse/recibirse desde comando batch;
+- [ ] mostrar DTAQ desde TUI.
 
 ## Fase 6: STRSQL utilizable
 

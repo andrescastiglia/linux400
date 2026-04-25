@@ -3,7 +3,8 @@ use crate::object::{catalog_object, ObjectError};
 use crate::storage::{
     default_storage_backend, open_sled_db, read_storage_backend, read_string_attr, read_u32_attr,
     write_storage_backend, write_string_attr, write_u32_attr, StorageBackend, StorageError,
-    L400_BASE_PF_ATTR, L400_RECORD_LEN_ATTR,
+    L400_BASE_PF_ATTR, L400_FIELD_SCHEMA_ATTR, L400_KEY_FIELDS_ATTR, L400_PF_MEMBERS_ATTR,
+    L400_RECORD_LEN_ATTR,
 };
 use crate::zfs::{get_objtype, validate_objtype, ZfsError};
 use sled::{Db, Tree};
@@ -13,6 +14,7 @@ use thiserror::Error;
 pub type Record = Vec<u8>;
 pub type RecordPair = (Record, Record);
 pub type RecordSet = Vec<RecordPair>;
+pub const DEFAULT_PF_MEMBER: &str = "PF_MEMBER";
 
 #[derive(Error, Debug)]
 pub enum DbError {
@@ -60,9 +62,49 @@ pub struct PhysicalFile {
     storage: PhysicalFileStorage,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PfField {
+    pub name: String,
+    pub type_: String,
+    pub length: u32,
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PfSchema {
+    pub record_len: u32,
+    pub fields: Vec<PfField>,
+    pub key_fields: Vec<String>,
+}
+
+impl PfSchema {
+    pub fn minimal(record_len: u32) -> Self {
+        Self {
+            record_len,
+            fields: Vec::new(),
+            key_fields: vec!["KEY".to_string()],
+        }
+    }
+}
+
 fn open_sled_pf(path: &Path) -> Result<PhysicalFileStorage, DbError> {
     let db = open_sled_db(path)?;
-    let tree = db.open_tree("PF_MEMBER")?;
+    let tree = db.open_tree(DEFAULT_PF_MEMBER)?;
+    Ok(PhysicalFileStorage::Sled { db, tree })
+}
+
+fn pf_member_tree_name(member: &str) -> String {
+    let member = member.trim().to_uppercase();
+    if member.is_empty() || member == DEFAULT_PF_MEMBER {
+        DEFAULT_PF_MEMBER.to_string()
+    } else {
+        format!("PF_MEMBER_{member}")
+    }
+}
+
+fn open_sled_pf_member(path: &Path, member: &str) -> Result<PhysicalFileStorage, DbError> {
+    let db = open_sled_db(path)?;
+    let tree = db.open_tree(pf_member_tree_name(member).as_bytes())?;
     Ok(PhysicalFileStorage::Sled { db, tree })
 }
 
@@ -96,6 +138,8 @@ pub fn create_pf(lib_path: &Path, name: &str, record_len: usize) -> Result<Physi
     catalog_object(&target, "*FILE", Some("PF"), Some("Physical file"))?;
     write_storage_backend(&target, backend)?;
     write_u32_attr(&target, L400_RECORD_LEN_ATTR, record_len as u32)?;
+    write_string_attr(&target, L400_KEY_FIELDS_ATTR, "KEY")?;
+    write_string_attr(&target, L400_PF_MEMBERS_ATTR, DEFAULT_PF_MEMBER)?;
 
     Ok(PhysicalFile {
         name: name.to_string(),
@@ -106,11 +150,121 @@ pub fn create_pf(lib_path: &Path, name: &str, record_len: usize) -> Result<Physi
     })
 }
 
+pub fn write_pf_schema(path: &Path, schema: &PfSchema) -> Result<(), DbError> {
+    write_u32_attr(path, L400_RECORD_LEN_ATTR, schema.record_len)?;
+    let fields = schema
+        .fields
+        .iter()
+        .map(|field| {
+            format!(
+                "{}:{}:{}:{}",
+                field.name,
+                field.type_,
+                field.length,
+                field.text.as_deref().unwrap_or("")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    write_string_attr(path, L400_FIELD_SCHEMA_ATTR, &fields)?;
+    write_string_attr(path, L400_KEY_FIELDS_ATTR, &schema.key_fields.join(","))?;
+    Ok(())
+}
+
+pub fn read_pf_schema(path: &Path) -> Result<PfSchema, DbError> {
+    let record_len = read_u32_attr(path, L400_RECORD_LEN_ATTR)?.unwrap_or_default();
+    let fields = read_string_attr(path, L400_FIELD_SCHEMA_ATTR)?
+        .unwrap_or_default()
+        .split(',')
+        .filter(|part| !part.trim().is_empty())
+        .filter_map(|part| {
+            let mut pieces = part.splitn(4, ':');
+            let name = pieces.next()?.trim().to_uppercase();
+            let type_ = pieces.next().unwrap_or("CHAR").trim().to_uppercase();
+            let length = pieces
+                .next()
+                .and_then(|value| value.trim().parse::<u32>().ok())
+                .unwrap_or_default();
+            let text = pieces
+                .next()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            Some(PfField {
+                name,
+                type_,
+                length,
+                text,
+            })
+        })
+        .collect::<Vec<_>>();
+    let key_fields = read_string_attr(path, L400_KEY_FIELDS_ATTR)?
+        .unwrap_or_else(|| "KEY".to_string())
+        .split(',')
+        .map(|field| field.trim().to_uppercase())
+        .filter(|field| !field.is_empty())
+        .collect::<Vec<_>>();
+    Ok(PfSchema {
+        record_len,
+        fields,
+        key_fields,
+    })
+}
+
+pub fn list_pf_members(path: &Path) -> Result<Vec<String>, DbError> {
+    Ok(read_string_attr(path, L400_PF_MEMBERS_ATTR)?
+        .unwrap_or_else(|| DEFAULT_PF_MEMBER.to_string())
+        .split(',')
+        .map(|member| member.trim().to_uppercase())
+        .filter(|member| !member.is_empty())
+        .collect())
+}
+
+pub fn add_pf_member(path: &Path, member: &str) -> Result<(), DbError> {
+    let member = member.trim().to_uppercase();
+    if member.is_empty() {
+        return Err(DbError::InvalidQuery("member name is empty".to_string()));
+    }
+    let backend = read_storage_backend(path)?.unwrap_or(default_storage_backend());
+    if backend == StorageBackend::Sled {
+        let _ = open_sled_pf_member(path, &member)?;
+    }
+    let mut members = list_pf_members(path)?;
+    if !members
+        .iter()
+        .any(|entry| entry.eq_ignore_ascii_case(&member))
+    {
+        members.push(member);
+    }
+    write_string_attr(path, L400_PF_MEMBERS_ATTR, &members.join(","))?;
+    Ok(())
+}
+
 impl PhysicalFile {
     pub fn open(path: &Path) -> Result<Self, DbError> {
         let backend = read_storage_backend(path)?.unwrap_or(default_storage_backend());
         let storage = match backend {
             StorageBackend::Sled => open_sled_pf(path)?,
+            StorageBackend::BerkeleyDb => open_bdb_pf(path, false)?,
+        };
+
+        Ok(PhysicalFile {
+            name: path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+            path: path.to_path_buf(),
+            backend,
+            record_len: read_u32_attr(path, L400_RECORD_LEN_ATTR)?.unwrap_or_default(),
+            storage,
+        })
+    }
+
+    pub fn open_member(path: &Path, member: &str) -> Result<Self, DbError> {
+        let backend = read_storage_backend(path)?.unwrap_or(default_storage_backend());
+        let storage = match backend {
+            StorageBackend::Sled => open_sled_pf_member(path, member)?,
             StorageBackend::BerkeleyDb => open_bdb_pf(path, false)?,
         };
 
@@ -137,7 +291,20 @@ impl PhysicalFile {
                 db.put(key, buffer)?;
             }
         }
+        self.update_dependent_lfs(key, buffer)?;
         Ok(())
+    }
+
+    pub fn append_rcd(&self, buffer: &[u8]) -> Result<u64, DbError> {
+        let rrn = match &self.storage {
+            PhysicalFileStorage::Sled { db, .. } => db.generate_id()? + 1,
+            PhysicalFileStorage::BerkeleyDb { db } => match db.last_key()? {
+                Some(raw) => String::from_utf8_lossy(&raw).parse::<u64>().unwrap_or(0) + 1,
+                None => 1,
+            },
+        };
+        self.write_rcd(rrn.to_string().as_bytes(), buffer)?;
+        Ok(rrn)
     }
 
     pub fn chain_rcd(&self, key: &[u8]) -> Result<Vec<u8>, DbError> {
@@ -168,6 +335,7 @@ impl PhysicalFile {
     }
 
     pub fn delete_rcd(&self, key: &[u8]) -> Result<(), DbError> {
+        let old = self.chain_rcd(key).ok();
         match &self.storage {
             PhysicalFileStorage::Sled { db, tree } => {
                 tree.remove(key)?;
@@ -180,8 +348,60 @@ impl PhysicalFile {
                 })?;
             }
         }
+        if let Some(old) = old {
+            self.delete_dependent_lfs(key, &old)?;
+        }
         Ok(())
     }
+
+    pub fn clear(&self) -> Result<(), DbError> {
+        let keys = self
+            .read_all()?
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect::<Vec<_>>();
+        for key in keys {
+            self.delete_rcd(&key)?;
+        }
+        Ok(())
+    }
+
+    fn update_dependent_lfs(&self, key: &[u8], buffer: &[u8]) -> Result<(), DbError> {
+        for lf_path in dependent_lfs_for_pf(&self.path)? {
+            let lf = LogicalFile::open(&lf_path)?;
+            lf.insert_idx(buffer, key)?;
+        }
+        Ok(())
+    }
+
+    fn delete_dependent_lfs(&self, _key: &[u8], old_buffer: &[u8]) -> Result<(), DbError> {
+        for lf_path in dependent_lfs_for_pf(&self.path)? {
+            let lf = LogicalFile::open(&lf_path)?;
+            let _ = lf.delete_idx(old_buffer);
+        }
+        Ok(())
+    }
+}
+
+fn dependent_lfs_for_pf(pf_path: &Path) -> Result<Vec<std::path::PathBuf>, DbError> {
+    let Some(parent) = pf_path.parent() else {
+        return Ok(Vec::new());
+    };
+    let pf = pf_path.to_string_lossy().to_string();
+    let mut result = Vec::new();
+    for entry in std::fs::read_dir(parent)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path == pf_path {
+            continue;
+        }
+        if let Ok(Some(base)) = read_string_attr(&path, L400_BASE_PF_ATTR) {
+            if base == pf {
+                result.push(path);
+            }
+        }
+    }
+    Ok(result)
 }
 
 // ─── Logical File (*FILE LF) ──────────────────────────────────────────────────
@@ -274,12 +494,18 @@ pub fn create_lf(
     write_storage_backend(&lf_path, over_pf.backend)?;
     catalog_object(&lf_path, "*FILE", Some("LF"), Some("Logical file"))?;
 
-    Ok(LogicalFile {
+    let lf = LogicalFile {
         name: name.to_string(),
         backend: over_pf.backend,
         base_pf: over_pf.path.to_string_lossy().to_string(),
         storage,
-    })
+    };
+
+    for (primary_key, data) in over_pf.read_all()? {
+        lf.insert_idx(&data, &primary_key)?;
+    }
+
+    Ok(lf)
 }
 
 impl LogicalFile {
@@ -635,6 +861,48 @@ mod tests {
             .chain_rcd(&pk)
             .expect("chain_rcd sobre primary key falló");
         assert_eq!(registro, b"Ana,CABA");
+    }
+
+    #[test]
+    fn test_pf_schema_members_and_auto_lf_update() {
+        let lib = tmp_lib();
+        let lib_path = l400_library(&lib, "QGPL");
+        let pf = create_pf(&lib_path, "CUSTOMERS", 64).expect("create_pf falló");
+        let schema = PfSchema {
+            record_len: 64,
+            fields: vec![
+                PfField {
+                    name: "ID".to_string(),
+                    type_: "CHAR".to_string(),
+                    length: 10,
+                    text: Some("Customer id".to_string()),
+                },
+                PfField {
+                    name: "NAME".to_string(),
+                    type_: "CHAR".to_string(),
+                    length: 30,
+                    text: None,
+                },
+            ],
+            key_fields: vec!["ID".to_string()],
+        };
+        write_pf_schema(&pf.path, &schema).expect("write_pf_schema falló");
+        assert_eq!(
+            read_pf_schema(&pf.path).expect("read_pf_schema falló"),
+            schema
+        );
+
+        add_pf_member(&pf.path, "JAN2026").expect("add_pf_member falló");
+        assert!(list_pf_members(&pf.path)
+            .expect("list_pf_members falló")
+            .contains(&"JAN2026".to_string()));
+
+        let lf = create_lf(&lib_path, "CUSTBYNAME", &pf).expect("create_lf falló");
+        pf.write_rcd(b"C001", b"ALICE").expect("write_rcd falló");
+        assert_eq!(lf.setll(b"ALICE").expect("LF auto update falló"), b"C001");
+
+        let rrn = pf.append_rcd(b"BOB").expect("append_rcd falló");
+        assert!(rrn > 0);
     }
 
     #[test]

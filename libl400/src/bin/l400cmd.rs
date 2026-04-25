@@ -36,6 +36,16 @@ const COMMAND_BINARIES: &[&str] = &[
     "STRSEU",
     "STRSQL",
     "WRKMBRPDM",
+    "CRTPF",
+    "CRTLF",
+    "DSPPFM",
+    "CLRPFM",
+    "ADDPFM",
+    "WRTPFM",
+    "CRTDTAQ",
+    "SNDDTAQ",
+    "RCVDTAQ",
+    "DSPDTAQ",
 ];
 
 fn main() -> ExitCode {
@@ -192,6 +202,36 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             ffi_commands::l400_wrkmbrpdm,
         ),
         "SBMJOB" => dispatch_sbmjob(args),
+        "CRTPF" => dispatch_spec(
+            args,
+            &["FILE", "LIB", "RCDLEN", "FIELDS", "KEY", "TEXT"],
+            ffi_commands::l400_crtpf,
+        ),
+        "CRTLF" => dispatch_spec(
+            args,
+            &["FILE", "LIB", "SRCFILE", "SRCLIB", "KEY", "TEXT"],
+            ffi_commands::l400_crtlf,
+        ),
+        "DSPPFM" => dispatch_spec(args, &["FILE", "LIB", "MBR"], ffi_commands::l400_dsppfm),
+        "CLRPFM" => dispatch_spec(
+            args,
+            &["FILE", "LIB", "MBR", "CONFIRM"],
+            ffi_commands::l400_clrpfm,
+        ),
+        "ADDPFM" => dispatch_spec(args, &["FILE", "LIB", "MBR"], ffi_commands::l400_addpfm),
+        "WRTPFM" => dispatch_spec(
+            args,
+            &["FILE", "LIB", "MBR", "KEY", "DATA"],
+            ffi_commands::l400_wrtpfm,
+        ),
+        "CRTDTAQ" => dispatch_spec(args, &["DTAQ", "LIB"], ffi_commands::l400_crtdtaq),
+        "SNDDTAQ" => dispatch_spec(
+            args,
+            &["DTAQ", "LIB", "MSG"],
+            ffi_commands::l400_snddtaq_cmd,
+        ),
+        "RCVDTAQ" => dispatch_spec(args, &["DTAQ", "LIB", "WAIT"], ffi_commands::l400_rcvdtaq),
+        "DSPDTAQ" => dispatch_spec(args, &["DTAQ", "OBJ", "LIB"], ffi_commands::l400_dspdtaq),
         _ => {
             eprintln!("ERROR: comando Linux/400 no reconocido: {command}");
             print_usage(Some(command));

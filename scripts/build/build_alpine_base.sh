@@ -40,6 +40,16 @@ COMMAND_BINARIES=(
     STRSEU
     STRSQL
     WRKMBRPDM
+    CRTPF
+    CRTLF
+    DSPPFM
+    CLRPFM
+    ADDPFM
+    WRTPFM
+    CRTDTAQ
+    SNDDTAQ
+    RCVDTAQ
+    DSPDTAQ
 )
 
 copy_binary_with_runtime() {

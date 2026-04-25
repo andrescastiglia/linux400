@@ -24,7 +24,9 @@ pub use cgroup::{
     WorkloadType,
 };
 pub use db::{
-    create_lf, create_pf, run_select_query, DbError, LogicalFile, PhysicalFile, QueryResult,
+    add_pf_member, create_lf, create_pf, list_pf_members, read_pf_schema, run_select_query,
+    write_pf_schema, DbError, LogicalFile, PfField, PfSchema, PhysicalFile, QueryResult,
+    DEFAULT_PF_MEMBER,
 };
 pub use dtaq::{crtdtaq, DataQueue, DtaqError};
 pub use lam::{
@@ -44,7 +46,8 @@ pub use runtime::{
 pub use storage::{
     default_storage_backend, read_storage_backend, read_string_attr, read_u32_attr,
     write_storage_backend, write_string_attr, write_u32_attr, StorageBackend, StorageError,
-    L400_BASE_PF_ATTR, L400_RECORD_LEN_ATTR, L400_STORAGE_BACKEND_ATTR,
+    L400_BASE_PF_ATTR, L400_FIELD_SCHEMA_ATTR, L400_KEY_FIELDS_ATTR, L400_PF_MEMBERS_ATTR,
+    L400_RECORD_LEN_ATTR, L400_STORAGE_BACKEND_ATTR,
 };
 pub use util::AlignedBuffer;
 pub use zfs::{

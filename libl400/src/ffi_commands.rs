@@ -670,6 +670,322 @@ pub extern "C" fn l400_rvkobjaut(spec: *const c_char) {
     }
 }
 
+#[no_mangle]
+pub extern "C" fn l400_crtpf(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(file) = fields.get("FILE") else {
+        println!("[CRTPF] Uso: CRTPF FILE(QGPL/CUSTOMERS) RCDLEN(128)");
+        return;
+    };
+    let record_len = fields
+        .get("RCDLEN")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(256);
+    let root = crate::object::resolve_l400_root();
+    let (library, name, _path) =
+        resolve_object_spec(&root, file, fields.get("LIB").map(String::as_str));
+    let lib_path = root.join(&library);
+    match crate::db::create_pf(&lib_path, &name, record_len) {
+        Ok(pf) => {
+            let schema = crate::db::PfSchema {
+                record_len: record_len as u32,
+                fields: parse_pf_fields(fields.get("FIELDS").map(String::as_str).unwrap_or("")),
+                key_fields: fields
+                    .get("KEY")
+                    .map(|value| {
+                        value
+                            .split(',')
+                            .map(|field| field.trim().to_uppercase())
+                            .filter(|field| !field.is_empty())
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|keys| !keys.is_empty())
+                    .unwrap_or_else(|| vec!["KEY".to_string()]),
+            };
+            let _ = crate::db::write_pf_schema(&pf.path, &schema);
+            println!(
+                "[CRTPF] {}/{} creado RCDLEN({}).",
+                library, name, record_len
+            );
+        }
+        Err(error) => println!("[CRTPF] Error: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_crtlf(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let (Some(file), Some(srcfile)) = (fields.get("FILE"), fields.get("SRCFILE")) else {
+        println!("[CRTLF] Uso: CRTLF FILE(QGPL/CUSTBYNAME) SRCFILE(QGPL/CUSTOMERS)");
+        return;
+    };
+    let root = crate::object::resolve_l400_root();
+    let (library, name, _path) =
+        resolve_object_spec(&root, file, fields.get("LIB").map(String::as_str));
+    let (_src_library, _src_name, src_path) =
+        resolve_object_spec(&root, srcfile, fields.get("SRCLIB").map(String::as_str));
+    let lib_path = root.join(&library);
+    match crate::db::PhysicalFile::open(&src_path)
+        .and_then(|pf| crate::db::create_lf(&lib_path, &name, &pf))
+    {
+        Ok(_) => println!(
+            "[CRTLF] {}/{} creado sobre {}.",
+            library,
+            name,
+            src_path.display()
+        ),
+        Err(error) => println!("[CRTLF] Error: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_dsppfm(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(file) = fields.get("FILE") else {
+        println!("[DSPPFM] Uso: DSPPFM FILE(QGPL/CUSTOMERS)");
+        return;
+    };
+    let root = crate::object::resolve_l400_root();
+    let (_library, _name, path) =
+        resolve_object_spec(&root, file, fields.get("LIB").map(String::as_str));
+    let member = fields
+        .get("MBR")
+        .map(String::as_str)
+        .unwrap_or(crate::db::DEFAULT_PF_MEMBER);
+    println!("=== DSPPFM - {} MBR({}) ===", path.display(), member);
+    match crate::db::PhysicalFile::open_member(&path, member) {
+        Ok(pf) => {
+            if let Ok(schema) = crate::db::read_pf_schema(&path) {
+                println!(
+                    "  RCDLEN={} KEY({}) FIELDS({})",
+                    schema.record_len,
+                    schema.key_fields.join(","),
+                    schema
+                        .fields
+                        .iter()
+                        .map(|field| format!("{}:{}:{}", field.name, field.type_, field.length))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+            }
+            println!("  {:8} {:20} DATA", "RRN", "KEY");
+            println!("  {}", "-".repeat(72));
+            match pf.read_all() {
+                Ok(rows) if rows.is_empty() => println!("  No records."),
+                Ok(rows) => {
+                    for (index, (key, data)) in rows.into_iter().enumerate() {
+                        println!(
+                            "  {:8} {:20} {}",
+                            index + 1,
+                            String::from_utf8_lossy(&key),
+                            String::from_utf8_lossy(&data)
+                        );
+                    }
+                }
+                Err(error) => println!("  Error leyendo registros: {}", error),
+            }
+        }
+        Err(error) => println!("  Error abriendo PF: {}", error),
+    }
+    println!("======================================");
+}
+
+#[no_mangle]
+pub extern "C" fn l400_clrpfm(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(file) = fields.get("FILE") else {
+        println!("[CLRPFM] Uso: CLRPFM FILE(QGPL/CUSTOMERS) CONFIRM(*YES)");
+        return;
+    };
+    let confirmed = fields
+        .get("CONFIRM")
+        .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
+        .unwrap_or(false);
+    if !confirmed {
+        println!("[CLRPFM] Requiere CONFIRM(*YES).");
+        return;
+    }
+    let root = crate::object::resolve_l400_root();
+    let (_library, _name, path) =
+        resolve_object_spec(&root, file, fields.get("LIB").map(String::as_str));
+    let member = fields
+        .get("MBR")
+        .map(String::as_str)
+        .unwrap_or(crate::db::DEFAULT_PF_MEMBER);
+    match crate::db::PhysicalFile::open_member(&path, member).and_then(|pf| pf.clear()) {
+        Ok(_) => println!("[CLRPFM] {} MBR({}) limpiado.", path.display(), member),
+        Err(error) => println!("[CLRPFM] Error: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_addpfm(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(file) = fields.get("FILE") else {
+        println!("[ADDPFM] Uso: ADDPFM FILE(QGPL/CUSTOMERS) MBR(JAN2026)");
+        return;
+    };
+    let member = fields
+        .get("MBR")
+        .map(|value| value.trim().to_uppercase())
+        .unwrap_or_else(|| crate::db::DEFAULT_PF_MEMBER.to_string());
+    let root = crate::object::resolve_l400_root();
+    let (_library, _name, path) =
+        resolve_object_spec(&root, file, fields.get("LIB").map(String::as_str));
+    match crate::db::add_pf_member(&path, &member) {
+        Ok(_) => println!("[ADDPFM] {} agregado a {}.", member, path.display()),
+        Err(error) => println!("[ADDPFM] Error: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_wrtpfm(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(file) = fields.get("FILE") else {
+        println!("[WRTPFM] Uso: WRTPFM FILE(QGPL/CUSTOMERS) KEY(C001) DATA(value)");
+        return;
+    };
+    let data = fields.get("DATA").cloned().unwrap_or_default();
+    let root = crate::object::resolve_l400_root();
+    let (_library, _name, path) =
+        resolve_object_spec(&root, file, fields.get("LIB").map(String::as_str));
+    let member = fields
+        .get("MBR")
+        .map(String::as_str)
+        .unwrap_or(crate::db::DEFAULT_PF_MEMBER);
+    match crate::db::PhysicalFile::open_member(&path, member) {
+        Ok(pf) => {
+            if let Some(key) = fields.get("KEY") {
+                match pf.write_rcd(key.as_bytes(), data.as_bytes()) {
+                    Ok(_) => println!("[WRTPFM] Registro KEY({}) escrito.", key),
+                    Err(error) => println!("[WRTPFM] Error: {}", error),
+                }
+            } else {
+                match pf.append_rcd(data.as_bytes()) {
+                    Ok(rrn) => println!("[WRTPFM] Registro agregado RRN({}).", rrn),
+                    Err(error) => println!("[WRTPFM] Error: {}", error),
+                }
+            }
+        }
+        Err(error) => println!("[WRTPFM] Error abriendo PF: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_crtdtaq(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(dtaq) = fields.get("DTAQ") else {
+        println!("[CRTDTAQ] Uso: CRTDTAQ DTAQ(QUSRSYS/QEZJOBLOG)");
+        return;
+    };
+    let root = crate::object::resolve_l400_root();
+    let (library, name, _path) =
+        resolve_object_spec(&root, dtaq, fields.get("LIB").map(String::as_str));
+    match crate::dtaq::crtdtaq(&root.join(&library), &name) {
+        Ok(_) => println!("[CRTDTAQ] {}/{} creado.", library, name),
+        Err(error) => println!("[CRTDTAQ] Error: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_snddtaq_cmd(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(dtaq) = fields.get("DTAQ") else {
+        println!("[SNDDTAQ] Uso: SNDDTAQ DTAQ(QUSRSYS/QEZJOBLOG) MSG(text)");
+        return;
+    };
+    let msg = fields.get("MSG").cloned().unwrap_or_default();
+    let root = crate::object::resolve_l400_root();
+    let (_library, _name, path) =
+        resolve_object_spec(&root, dtaq, fields.get("LIB").map(String::as_str));
+    match crate::dtaq::DataQueue::open(&path).and_then(|queue| queue.snddtaq(msg.as_bytes())) {
+        Ok(_) => println!("[SNDDTAQ] Mensaje enviado a {}.", path.display()),
+        Err(error) => println!("[SNDDTAQ] Error: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_rcvdtaq(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(dtaq) = fields.get("DTAQ") else {
+        println!("[RCVDTAQ] Uso: RCVDTAQ DTAQ(QUSRSYS/QEZJOBLOG) WAIT(0)");
+        return;
+    };
+    let wait = fields
+        .get("WAIT")
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(0);
+    let root = crate::object::resolve_l400_root();
+    let (_library, _name, path) =
+        resolve_object_spec(&root, dtaq, fields.get("LIB").map(String::as_str));
+    match crate::dtaq::DataQueue::open(&path).and_then(|queue| queue.rcvdtaq(wait)) {
+        Ok(msg) => println!("[RCVDTAQ] {}", String::from_utf8_lossy(&msg)),
+        Err(error) => println!("[RCVDTAQ] Error: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_dspdtaq(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let dtaq = fields
+        .get("DTAQ")
+        .cloned()
+        .or_else(|| fields.get("OBJ").cloned())
+        .unwrap_or_else(|| "QUSRSYS/QEZJOBLOG".to_string());
+    let root = crate::object::resolve_l400_root();
+    let (_library, _name, path) =
+        resolve_object_spec(&root, &dtaq, fields.get("LIB").map(String::as_str));
+    println!("=== DSPDTAQ - {} ===", path.display());
+    match crate::dtaq::DataQueue::open(&path).and_then(|queue| queue.read_all()) {
+        Ok(messages) if messages.is_empty() => println!("  No messages."),
+        Ok(messages) => {
+            println!("  {:8} MESSAGE", "ID");
+            println!("  {}", "-".repeat(60));
+            for (id, msg) in messages {
+                println!("  {:8} {}", id, String::from_utf8_lossy(&msg));
+            }
+        }
+        Err(error) => println!("  Error: {}", error),
+    }
+    println!("======================================");
+}
+
+fn parse_pf_fields(spec: &str) -> Vec<crate::db::PfField> {
+    spec.split(',')
+        .filter(|part| !part.trim().is_empty())
+        .filter_map(|part| {
+            let mut pieces = part.split(':');
+            let name = pieces.next()?.trim().to_uppercase();
+            let type_ = pieces.next().unwrap_or("CHAR").trim().to_uppercase();
+            let length = pieces
+                .next()
+                .and_then(|value| value.trim().parse::<u32>().ok())
+                .unwrap_or_default();
+            let text = pieces
+                .next()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            Some(crate::db::PfField {
+                name,
+                type_,
+                length,
+                text,
+            })
+        })
+        .collect()
+}
+
 /// CRTLIB — Crea una biblioteca (*LIB)
 #[no_mangle]
 pub extern "C" fn l400_crtlib(lib: *const c_char) {

@@ -127,6 +127,7 @@ QBATCH  Trabajos batch
 | `DSPPFM` | Muestra miembros o registros de un PF. | `DSPPFM FILE(QGPL/CUSTOMERS)` |
 | `CLRPFM` | Limpia un miembro de PF. | `CLRPFM FILE(QGPL/CUSTOMERS)` |
 | `ADDPFM` | Agrega un miembro a un PF. | `ADDPFM FILE(QGPL/CUSTOMERS) MBR(JAN2026)` |
+| `WRTPFM` | Escribe un registro en un PF por clave o con RRN automatico. | `WRTPFM FILE(QGPL/CUSTOMERS) KEY(C001) DATA(ALICE)` |
 | `RMVM` | Elimina un miembro. | `RMVM FILE(QGPL/CUSTOMERS) MBR(OLD)` |
 | `CPYF` | Copia registros entre archivos. | `CPYF FROMFILE(QGPL/A) TOFILE(QGPL/B)` |
 | `RUNQRY` | Ejecuta una consulta simple sobre un archivo. | `RUNQRY QRYFILE(QGPL/CUSTOMERS)` |
@@ -156,7 +157,7 @@ c400c --input tests/hola_mundo.c --output /l400/QSYS/HELLOC
 | --- | --- | --- |
 | `CRTDTAQ` | Crea una data queue `*DTAQ`. | `CRTDTAQ DTAQ(QUSRSYS/QEZJOBLOG)` |
 | `DLTDTAQ` | Elimina una data queue. | `DLTDTAQ DTAQ(QUSRSYS/QEZJOBLOG)` |
-| `SNDDTAQ` | Envia un mensaje a una data queue. | `SNDDTAQ DTAQ(QUSRSYS/QEZJOBLOG) MSG('Job started')` |
+| `SNDDTAQ` | Envia un mensaje a una data queue. | `SNDDTAQ DTAQ(QUSRSYS/QEZJOBLOG) MSG(JobStarted)` |
 | `RCVDTAQ` | Recibe un mensaje de una data queue. | `RCVDTAQ DTAQ(QUSRSYS/QEZJOBLOG) WAIT(0)` |
 | `DSPDTAQ` | Muestra contenido de una data queue. | `DSPDTAQ DTAQ(QUSRSYS/QEZJOBLOG)` |
 

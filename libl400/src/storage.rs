@@ -8,6 +8,9 @@ use thiserror::Error;
 pub const L400_STORAGE_BACKEND_ATTR: &str = "user.l400.storage_backend";
 pub const L400_RECORD_LEN_ATTR: &str = "user.l400.record_len";
 pub const L400_BASE_PF_ATTR: &str = "user.l400.base_pf";
+pub const L400_FIELD_SCHEMA_ATTR: &str = "user.l400.field_schema";
+pub const L400_KEY_FIELDS_ATTR: &str = "user.l400.key_fields";
+pub const L400_PF_MEMBERS_ATTR: &str = "user.l400.pf_members";
 static SLED_DB_CACHE: OnceLock<Mutex<HashMap<PathBuf, sled::Db>>> = OnceLock::new();
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
