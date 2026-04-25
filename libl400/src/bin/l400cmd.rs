@@ -333,23 +333,72 @@ fn dispatch_strsql(args: &[String]) -> ExitCode {
     }
 
     let statement = args.join(" ");
-    match l400::run_select_query(&statement, None) {
-        Ok(result) => {
-            println!("{}", result.columns.join(" | "));
-            if result.rows.is_empty() {
-                println!("(sin filas)");
-            } else {
-                for row in result.rows {
-                    println!("{}", row.join(" | "));
-                }
-            }
+    match l400::run_sql_statement(&statement, None) {
+        Ok(l400::SqlStatementResult::Query(result)) => {
+            print_query_result(result);
+            ExitCode::SUCCESS
+        }
+        Ok(l400::SqlStatementResult::Message(message)) => {
+            println!("SQL0000 {}", message);
             ExitCode::SUCCESS
         }
         Err(error) => {
-            eprintln!("[STRSQL] Error: {error}");
+            eprintln!("SQL9001 [STRSQL] {error}");
             ExitCode::from(1)
         }
     }
+}
+
+fn print_query_result(result: l400::QueryResult) {
+    let page_size = env::var("L400_SQL_PAGE_SIZE")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(20);
+    let widths = result
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(index, column)| {
+            result
+                .rows
+                .iter()
+                .filter_map(|row| row.get(index))
+                .map(String::len)
+                .max()
+                .unwrap_or(0)
+                .max(column.len())
+                .min(32)
+        })
+        .collect::<Vec<_>>();
+    print_row(&result.columns, &widths);
+    if result.rows.is_empty() {
+        println!("(sin filas)");
+        return;
+    }
+    for (index, row) in result.rows.iter().enumerate() {
+        if index > 0 && index % page_size == 0 {
+            println!("-- mas -- fila {}", index + 1);
+            print_row(&result.columns, &widths);
+        }
+        print_row(row, &widths);
+    }
+}
+
+fn print_row(row: &[String], widths: &[usize]) {
+    let cells = row
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let width = widths.get(index).copied().unwrap_or(16);
+            let mut value = value.clone();
+            if value.len() > width {
+                value.truncate(width);
+            }
+            format!("{value:width$}")
+        })
+        .collect::<Vec<_>>();
+    println!("{}", cells.join(" | "));
 }
 
 fn dispatch_go(command: &str, args: &[String]) -> ExitCode {

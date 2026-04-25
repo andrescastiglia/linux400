@@ -282,6 +282,11 @@ impl PhysicalFile {
     }
 
     pub fn write_rcd(&self, key: &[u8], buffer: &[u8]) -> Result<(), DbError> {
+        let old = match self.chain_rcd(key) {
+            Ok(old) => Some(old),
+            Err(DbError::NotFound) => None,
+            Err(error) => return Err(error),
+        };
         match &self.storage {
             PhysicalFileStorage::Sled { db, tree } => {
                 tree.insert(key, buffer)?;
@@ -290,6 +295,9 @@ impl PhysicalFile {
             PhysicalFileStorage::BerkeleyDb { db } => {
                 db.put(key, buffer)?;
             }
+        }
+        if let Some(old) = old {
+            self.delete_dependent_lfs(key, &old)?;
         }
         self.update_dependent_lfs(key, buffer)?;
         Ok(())
@@ -425,6 +433,12 @@ pub struct QueryResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SqlStatementResult {
+    Query(QueryResult),
+    Message(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct QueryFilter {
     column: String,
     value: String,
@@ -436,6 +450,15 @@ struct SelectQuery {
     file: String,
     columns: Vec<String>,
     filter: Option<QueryFilter>,
+    order_by: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InsertStatement {
+    table: TableRef,
+    columns: Option<Vec<String>>,
+    values: Vec<String>,
 }
 
 fn open_sled_lf_from_db(name: &str, db: Db) -> Result<LogicalFileStorage, DbError> {
@@ -595,8 +618,147 @@ impl LogicalFile {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TableRef {
+    library: Option<String>,
+    file: String,
+}
+
+fn normalize_sql_statement(statement: &str) -> &str {
+    statement.trim().trim_end_matches(';').trim()
+}
+
+fn find_keyword(statement: &str, keyword: &str) -> Option<usize> {
+    let upper = statement.to_uppercase();
+    let keyword = keyword.to_uppercase();
+    let bytes = statement.as_bytes();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut depth = 0usize;
+    let max = upper.len().saturating_sub(keyword.len());
+    for index in 0..=max {
+        let byte = bytes[index];
+        match byte {
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b'(' if !in_single && !in_double => depth += 1,
+            b')' if !in_single && !in_double => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        if !in_single && !in_double && depth == 0 && upper[index..].starts_with(&keyword) {
+            return Some(index);
+        }
+    }
+    None
+}
+
+fn split_csv(part: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut current = String::new();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut depth = 0usize;
+    for ch in part.chars() {
+        match ch {
+            '\'' if !in_double => {
+                in_single = !in_single;
+                current.push(ch);
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                current.push(ch);
+            }
+            '(' if !in_single && !in_double => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' if !in_single && !in_double => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            ',' if !in_single && !in_double && depth == 0 => {
+                result.push(current.trim().to_string());
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.trim().is_empty() {
+        result.push(current.trim().to_string());
+    }
+    result
+}
+
+fn strip_sql_value(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('\'')
+        .trim_matches('"')
+        .to_string()
+}
+
+fn parse_table_ref(token: &str) -> Result<TableRef, DbError> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(DbError::InvalidQuery("table name is required".to_string()));
+    }
+    let (library, file) = if let Some((library, file)) = token.split_once('/') {
+        (
+            Some(library.trim().to_uppercase()),
+            file.trim().to_uppercase(),
+        )
+    } else if let Some((library, file)) = token.split_once('.') {
+        (
+            Some(library.trim().to_uppercase()),
+            file.trim().to_uppercase(),
+        )
+    } else {
+        (None, token.to_uppercase())
+    };
+    if file.is_empty() {
+        return Err(DbError::InvalidQuery("table name is required".to_string()));
+    }
+    Ok(TableRef { library, file })
+}
+
+fn resolve_library(library: Option<String>, default_library: Option<&str>) -> String {
+    library.unwrap_or_else(|| {
+        default_library
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().to_uppercase())
+            .or_else(|| {
+                std::env::var("L400_CURLIB")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| value.trim().to_uppercase())
+            })
+            .unwrap_or_else(|| "QGPL".to_string())
+    })
+}
+
+fn resolve_table_path(
+    table: &TableRef,
+    default_library: Option<&str>,
+) -> (String, std::path::PathBuf) {
+    let library = resolve_library(table.library.clone(), default_library);
+    let path = crate::object::resolve_l400_root()
+        .join(&library)
+        .join(&table.file);
+    (library, path)
+}
+
+fn parse_where_filter(where_part: &str) -> Result<QueryFilter, DbError> {
+    let (column, value) = where_part.split_once('=').ok_or_else(|| {
+        DbError::InvalidQuery("WHERE only supports <column> = <value>".to_string())
+    })?;
+    Ok(QueryFilter {
+        column: column.trim().to_uppercase(),
+        value: strip_sql_value(value),
+    })
+}
+
 fn parse_select_query(statement: &str) -> Result<SelectQuery, DbError> {
-    let statement = statement.trim().trim_end_matches(';').trim();
+    let statement = normalize_sql_statement(statement);
     if statement.is_empty() {
         return Err(DbError::InvalidQuery("statement is empty".to_string()));
     }
@@ -619,15 +781,61 @@ fn parse_select_query(statement: &str) -> Result<SelectQuery, DbError> {
     }
 
     let remainder = &statement[from_pos + 6..];
-    let remainder_upper = remainder.to_uppercase();
-    let (from_part, where_part) = if let Some(where_pos) = remainder_upper.find(" WHERE ") {
-        (
-            &remainder[..where_pos],
-            Some(remainder[where_pos + 7..].trim()),
-        )
-    } else {
-        (remainder, None)
-    };
+    let clause_positions = [
+        find_keyword(remainder, " WHERE ").map(|pos| (pos, "WHERE")),
+        find_keyword(remainder, " ORDER BY ").map(|pos| (pos, "ORDER BY")),
+        find_keyword(remainder, " LIMIT ").map(|pos| (pos, "LIMIT")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    let from_end = clause_positions
+        .iter()
+        .map(|(pos, _)| *pos)
+        .min()
+        .unwrap_or(remainder.len());
+    let from_part = &remainder[..from_end];
+    let where_part = clause_positions
+        .iter()
+        .find(|(_, keyword)| *keyword == "WHERE")
+        .map(|(pos, _)| {
+            let start = pos + " WHERE ".len();
+            let end = clause_positions
+                .iter()
+                .filter_map(|(other_pos, _)| (*other_pos > *pos).then_some(*other_pos))
+                .min()
+                .unwrap_or(remainder.len());
+            remainder[start..end].trim()
+        });
+    let order_by = clause_positions
+        .iter()
+        .find(|(_, keyword)| *keyword == "ORDER BY")
+        .map(|(pos, _)| {
+            let start = pos + " ORDER BY ".len();
+            let end = clause_positions
+                .iter()
+                .filter_map(|(other_pos, _)| (*other_pos > *pos).then_some(*other_pos))
+                .min()
+                .unwrap_or(remainder.len());
+            remainder[start..end].trim().to_uppercase()
+        })
+        .filter(|value| !value.is_empty());
+    let limit = clause_positions
+        .iter()
+        .find(|(_, keyword)| *keyword == "LIMIT")
+        .map(|(pos, _)| {
+            let start = pos + " LIMIT ".len();
+            let end = clause_positions
+                .iter()
+                .filter_map(|(other_pos, _)| (*other_pos > *pos).then_some(*other_pos))
+                .min()
+                .unwrap_or(remainder.len());
+            remainder[start..end]
+                .trim()
+                .parse::<usize>()
+                .map_err(|_| DbError::InvalidQuery("LIMIT must be a positive integer".to_string()))
+        })
+        .transpose()?;
 
     let table_token = from_part.trim();
     if table_token.is_empty() {
@@ -636,20 +844,7 @@ fn parse_select_query(statement: &str) -> Result<SelectQuery, DbError> {
         ));
     }
 
-    let (library, file) = if let Some((library, file)) = table_token.split_once('/') {
-        (
-            Some(library.trim().to_uppercase()),
-            file.trim().to_uppercase(),
-        )
-    } else {
-        (None, table_token.to_uppercase())
-    };
-
-    if file.is_empty() {
-        return Err(DbError::InvalidQuery(
-            "FROM clause must include a file name".to_string(),
-        ));
-    }
+    let table = parse_table_ref(table_token)?;
 
     let columns = select_part
         .split(',')
@@ -662,27 +857,15 @@ fn parse_select_query(statement: &str) -> Result<SelectQuery, DbError> {
         ));
     }
 
-    let filter = where_part
-        .map(|where_part| -> Result<QueryFilter, DbError> {
-            let (column, value) = where_part.split_once('=').ok_or_else(|| {
-                DbError::InvalidQuery("WHERE only supports <column> = <value>".to_string())
-            })?;
-            Ok(QueryFilter {
-                column: column.trim().to_uppercase(),
-                value: value
-                    .trim()
-                    .trim_matches('\'')
-                    .trim_matches('"')
-                    .to_string(),
-            })
-        })
-        .transpose()?;
+    let filter = where_part.map(parse_where_filter).transpose()?;
 
     Ok(SelectQuery {
-        library,
-        file,
+        library: table.library,
+        file: table.file,
         columns,
         filter,
+        order_by,
+        limit,
     })
 }
 
@@ -708,22 +891,11 @@ pub fn run_select_query(
     default_library: Option<&str>,
 ) -> Result<QueryResult, DbError> {
     let query = parse_select_query(statement)?;
-    let library = query.library.unwrap_or_else(|| {
-        default_library
-            .filter(|value| !value.trim().is_empty())
-            .map(|value| value.trim().to_uppercase())
-            .or_else(|| {
-                std::env::var("L400_CURLIB")
-                    .ok()
-                    .filter(|value| !value.trim().is_empty())
-                    .map(|value| value.trim().to_uppercase())
-            })
-            .unwrap_or_else(|| "QGPL".to_string())
-    });
-
-    let path = crate::object::resolve_l400_root()
-        .join(&library)
-        .join(&query.file);
+    let table = TableRef {
+        library: query.library.clone(),
+        file: query.file.clone(),
+    };
+    let (_library, path) = resolve_table_path(&table, default_library);
     let object = crate::object::describe_object(&path)?;
     let (all_columns, all_rows) = if object.attribute.as_deref() == Some("LF") {
         let file = LogicalFile::open(&path)?;
@@ -769,6 +941,33 @@ pub fn run_select_query(
         all_rows
     };
 
+    let mut filtered_rows = filtered_rows;
+    if let Some(order_by) = &query.order_by {
+        let order_column = order_by
+            .split_whitespace()
+            .next()
+            .ok_or_else(|| DbError::InvalidQuery("ORDER BY requires a column".to_string()))?;
+        let descending = order_by
+            .split_whitespace()
+            .nth(1)
+            .is_some_and(|direction| direction.eq_ignore_ascii_case("DESC"));
+        let order_index = all_columns
+            .iter()
+            .position(|column| column == order_column)
+            .ok_or_else(|| DbError::InvalidQuery(format!("unknown column {order_column}")))?;
+        filtered_rows.sort_by(|left, right| {
+            let ordering = left[order_index].cmp(&right[order_index]);
+            if descending {
+                ordering.reverse()
+            } else {
+                ordering
+            }
+        });
+    }
+    if let Some(limit) = query.limit {
+        filtered_rows.truncate(limit);
+    }
+
     let requested_columns = if query.columns.len() == 1 && query.columns[0] == "*" {
         all_columns.clone()
     } else {
@@ -788,6 +987,298 @@ pub fn run_select_query(
         columns: requested_columns,
         rows: projected_rows,
     })
+}
+
+fn parse_insert_statement(statement: &str) -> Result<InsertStatement, DbError> {
+    let rest = statement
+        .get("INSERT INTO ".len()..)
+        .ok_or_else(|| DbError::InvalidQuery("expected INSERT INTO".to_string()))?
+        .trim();
+    let values_pos = find_keyword(rest, " VALUES ")
+        .ok_or_else(|| DbError::InvalidQuery("INSERT requires VALUES".to_string()))?;
+    let target = rest[..values_pos].trim();
+    let values_part = rest[values_pos + " VALUES ".len()..].trim();
+    let (table_token, columns) = if let Some(open_pos) = target.find('(') {
+        let close_pos = target.rfind(')').ok_or_else(|| {
+            DbError::InvalidQuery("INSERT columns must close with ')'".to_string())
+        })?;
+        (
+            target[..open_pos].trim(),
+            Some(
+                split_csv(&target[open_pos + 1..close_pos])
+                    .into_iter()
+                    .map(|column| column.to_uppercase())
+                    .collect::<Vec<_>>(),
+            ),
+        )
+    } else {
+        (target, None)
+    };
+    let values = values_part
+        .strip_prefix('(')
+        .and_then(|part| part.strip_suffix(')'))
+        .ok_or_else(|| {
+            DbError::InvalidQuery("VALUES must be enclosed in parentheses".to_string())
+        })?;
+    Ok(InsertStatement {
+        table: parse_table_ref(table_token)?,
+        columns,
+        values: split_csv(values)
+            .into_iter()
+            .map(|value| strip_sql_value(&value))
+            .collect(),
+    })
+}
+
+fn parse_assignments(part: &str) -> Result<Vec<(String, String)>, DbError> {
+    split_csv(part)
+        .into_iter()
+        .map(|assignment| {
+            let (column, value) = assignment.split_once('=').ok_or_else(|| {
+                DbError::InvalidQuery("assignment must use <column> = <value>".to_string())
+            })?;
+            Ok((column.trim().to_uppercase(), strip_sql_value(value)))
+        })
+        .collect()
+}
+
+fn load_pf_for_sql(
+    table: &TableRef,
+    default_library: Option<&str>,
+) -> Result<PhysicalFile, DbError> {
+    let (_library, path) = resolve_table_path(table, default_library);
+    let object = crate::object::describe_object(&path)?;
+    if object.attribute.as_deref() == Some("LF") {
+        return Err(DbError::InvalidQuery(
+            "DML statements require a physical file".to_string(),
+        ));
+    }
+    PhysicalFile::open(&path)
+}
+
+fn run_insert_statement(
+    statement: &str,
+    default_library: Option<&str>,
+) -> Result<SqlStatementResult, DbError> {
+    let insert = parse_insert_statement(statement)?;
+    let pf = load_pf_for_sql(&insert.table, default_library)?;
+    let columns = insert.columns.unwrap_or_else(|| {
+        if insert.values.len() == 1 {
+            vec!["DATA".to_string()]
+        } else {
+            vec!["KEY".to_string(), "DATA".to_string()]
+        }
+    });
+    if columns.len() != insert.values.len() {
+        return Err(DbError::InvalidQuery(
+            "INSERT column count does not match VALUES count".to_string(),
+        ));
+    }
+    let mut key = None;
+    let mut data = None;
+    for (column, value) in columns.into_iter().zip(insert.values) {
+        match column.as_str() {
+            "KEY" | "RRN" => key = Some(value),
+            "DATA" => data = Some(value),
+            other => {
+                return Err(DbError::InvalidQuery(format!(
+                    "INSERT does not support column {other}"
+                )))
+            }
+        }
+    }
+    let data = data.unwrap_or_default();
+    if let Some(key) = key {
+        pf.write_rcd(key.as_bytes(), data.as_bytes())?;
+        Ok(SqlStatementResult::Message("1 row inserted".to_string()))
+    } else {
+        let rrn = pf.append_rcd(data.as_bytes())?;
+        Ok(SqlStatementResult::Message(format!(
+            "1 row inserted RRN({rrn})"
+        )))
+    }
+}
+
+fn matching_keys(pf: &PhysicalFile, filter: Option<&QueryFilter>) -> Result<RecordSet, DbError> {
+    let rows = pf.read_all()?;
+    let Some(filter) = filter else {
+        return Ok(rows);
+    };
+    match filter.column.as_str() {
+        "KEY" | "RRN" => Ok(rows
+            .into_iter()
+            .filter(|(key, _)| String::from_utf8_lossy(key) == filter.value)
+            .collect()),
+        "DATA" => Ok(rows
+            .into_iter()
+            .filter(|(_, data)| String::from_utf8_lossy(data) == filter.value)
+            .collect()),
+        other => Err(DbError::InvalidQuery(format!("unknown column {other}"))),
+    }
+}
+
+fn run_update_statement(
+    statement: &str,
+    default_library: Option<&str>,
+) -> Result<SqlStatementResult, DbError> {
+    let rest = statement
+        .get("UPDATE ".len()..)
+        .ok_or_else(|| DbError::InvalidQuery("expected UPDATE".to_string()))?
+        .trim();
+    let set_pos = find_keyword(rest, " SET ")
+        .ok_or_else(|| DbError::InvalidQuery("UPDATE requires SET".to_string()))?;
+    let where_pos = find_keyword(rest, " WHERE ")
+        .ok_or_else(|| DbError::InvalidQuery("UPDATE requires WHERE".to_string()))?;
+    if where_pos <= set_pos {
+        return Err(DbError::InvalidQuery(
+            "WHERE must appear after SET".to_string(),
+        ));
+    }
+    let table = parse_table_ref(&rest[..set_pos])?;
+    let assignments = parse_assignments(&rest[set_pos + " SET ".len()..where_pos])?;
+    let filter = parse_where_filter(&rest[where_pos + " WHERE ".len()..])?;
+    let pf = load_pf_for_sql(&table, default_library)?;
+    let rows = matching_keys(&pf, Some(&filter))?;
+    let mut count = 0usize;
+    for (old_key, old_data) in rows {
+        let mut new_key = old_key.clone();
+        let mut new_data = old_data.clone();
+        for (column, value) in &assignments {
+            match column.as_str() {
+                "KEY" | "RRN" => new_key = value.as_bytes().to_vec(),
+                "DATA" => new_data = value.as_bytes().to_vec(),
+                other => return Err(DbError::InvalidQuery(format!("unknown column {other}"))),
+            }
+        }
+        if new_key != old_key {
+            pf.delete_rcd(&old_key)?;
+        }
+        pf.write_rcd(&new_key, &new_data)?;
+        count += 1;
+    }
+    Ok(SqlStatementResult::Message(format!(
+        "{count} row(s) updated"
+    )))
+}
+
+fn run_delete_statement(
+    statement: &str,
+    default_library: Option<&str>,
+) -> Result<SqlStatementResult, DbError> {
+    let rest = statement
+        .get("DELETE FROM ".len()..)
+        .ok_or_else(|| DbError::InvalidQuery("expected DELETE FROM".to_string()))?
+        .trim();
+    let where_pos = find_keyword(rest, " WHERE ")
+        .ok_or_else(|| DbError::InvalidQuery("DELETE requires WHERE".to_string()))?;
+    let table = parse_table_ref(&rest[..where_pos])?;
+    let filter = parse_where_filter(&rest[where_pos + " WHERE ".len()..])?;
+    let pf = load_pf_for_sql(&table, default_library)?;
+    let rows = matching_keys(&pf, Some(&filter))?;
+    let count = rows.len();
+    for (key, _) in rows {
+        pf.delete_rcd(&key)?;
+    }
+    Ok(SqlStatementResult::Message(format!(
+        "{count} row(s) deleted"
+    )))
+}
+
+fn run_create_table_statement(
+    statement: &str,
+    default_library: Option<&str>,
+) -> Result<SqlStatementResult, DbError> {
+    let rest = statement
+        .get("CREATE TABLE ".len()..)
+        .ok_or_else(|| DbError::InvalidQuery("expected CREATE TABLE".to_string()))?
+        .trim();
+    let open_pos = rest
+        .find('(')
+        .ok_or_else(|| DbError::InvalidQuery("CREATE TABLE requires columns".to_string()))?;
+    let close_pos = rest.rfind(')').ok_or_else(|| {
+        DbError::InvalidQuery("CREATE TABLE columns must close with ')'".to_string())
+    })?;
+    let table = parse_table_ref(&rest[..open_pos])?;
+    let columns = split_csv(&rest[open_pos + 1..close_pos]);
+    let fields = columns
+        .into_iter()
+        .filter_map(|column| {
+            let mut parts = column.split_whitespace();
+            let name = parts.next()?.trim().to_uppercase();
+            let type_part = parts.next().unwrap_or("CHAR").trim().to_uppercase();
+            let (type_, length) = if let Some(open) = type_part.find('(') {
+                let close = type_part.find(')').unwrap_or(type_part.len());
+                (
+                    type_part[..open].to_string(),
+                    type_part[open + 1..close].parse::<u32>().unwrap_or(0),
+                )
+            } else {
+                let length = match type_part.as_str() {
+                    "INT" | "INTEGER" => 10,
+                    _ => 32,
+                };
+                (type_part, length)
+            };
+            Some(PfField {
+                name,
+                type_,
+                length,
+                text: None,
+            })
+        })
+        .collect::<Vec<_>>();
+    if fields.is_empty() {
+        return Err(DbError::InvalidQuery(
+            "CREATE TABLE requires at least one column".to_string(),
+        ));
+    }
+    let record_len = fields.iter().map(|field| field.length).sum::<u32>().max(1);
+    let library = resolve_library(table.library.clone(), default_library);
+    let lib_path = crate::object::resolve_l400_root().join(&library);
+    let pf = create_pf(&lib_path, &table.file, record_len as usize)?;
+    let key_fields = fields
+        .iter()
+        .find(|field| field.name == "KEY")
+        .map(|field| vec![field.name.clone()])
+        .unwrap_or_else(|| vec!["KEY".to_string()]);
+    write_pf_schema(
+        &pf.path,
+        &PfSchema {
+            record_len,
+            fields,
+            key_fields,
+        },
+    )?;
+    Ok(SqlStatementResult::Message(format!(
+        "table {}/{} created",
+        library, table.file
+    )))
+}
+
+pub fn run_sql_statement(
+    statement: &str,
+    default_library: Option<&str>,
+) -> Result<SqlStatementResult, DbError> {
+    let statement = normalize_sql_statement(statement);
+    let upper = statement.to_uppercase();
+    if upper.starts_with("SELECT ") {
+        return run_select_query(statement, default_library).map(SqlStatementResult::Query);
+    }
+    if upper.starts_with("INSERT INTO ") {
+        return run_insert_statement(statement, default_library);
+    }
+    if upper.starts_with("UPDATE ") {
+        return run_update_statement(statement, default_library);
+    }
+    if upper.starts_with("DELETE FROM ") {
+        return run_delete_statement(statement, default_library);
+    }
+    if upper.starts_with("CREATE TABLE ") {
+        return run_create_table_statement(statement, default_library);
+    }
+    Err(DbError::InvalidQuery(
+        "supported statements: SELECT, INSERT, UPDATE, DELETE, CREATE TABLE".to_string(),
+    ))
 }
 
 // ─── Unit Tests ───────────────────────────────────────────────────────────────
@@ -1082,5 +1573,87 @@ mod tests {
         }
 
         assert!(matches!(error, DbError::InvalidQuery(_)));
+    }
+
+    #[test]
+    fn test_run_sql_statement_crud_and_order_limit() {
+        let _guard = ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env test lock poisoned");
+        let lib = tmp_lib();
+        let lib_path = l400_library(&lib, "QGPL");
+
+        let original = std::env::var_os("L400_ROOT");
+        unsafe {
+            std::env::set_var("L400_ROOT", lib.path());
+        }
+
+        run_sql_statement(
+            "CREATE TABLE QGPL/CUSTOMERS (KEY CHAR(10), DATA CHAR(30))",
+            Some("QGPL"),
+        )
+        .expect("CREATE TABLE falló");
+        run_sql_statement(
+            "INSERT INTO CUSTOMERS (KEY, DATA) VALUES ('C002', 'Luis')",
+            Some("QGPL"),
+        )
+        .expect("INSERT C002 falló");
+        run_sql_statement(
+            "INSERT INTO CUSTOMERS (KEY, DATA) VALUES ('C001', 'Ana')",
+            Some("QGPL"),
+        )
+        .expect("INSERT C001 falló");
+
+        let pf = PhysicalFile::open(&lib_path.join("CUSTOMERS")).expect("open PF falló");
+        let lf = create_lf(&lib_path, "CUSTBYDATA", &pf).expect("create LF falló");
+        assert_eq!(
+            lf.setll(b"Ana").expect("LF backfill falló"),
+            b"C001".to_vec()
+        );
+
+        let result = match run_sql_statement(
+            "SELECT KEY, DATA FROM CUSTOMERS ORDER BY DATA DESC LIMIT 1",
+            Some("QGPL"),
+        )
+        .expect("SELECT ORDER BY LIMIT falló")
+        {
+            SqlStatementResult::Query(result) => result,
+            other => panic!("resultado inesperado: {other:?}"),
+        };
+        assert_eq!(
+            result.rows,
+            vec![vec!["C002".to_string(), "Luis".to_string()]]
+        );
+
+        run_sql_statement(
+            "UPDATE CUSTOMERS SET DATA='Carla' WHERE KEY='C001'",
+            Some("QGPL"),
+        )
+        .expect("UPDATE falló");
+        assert!(matches!(lf.setll(b"Ana"), Err(DbError::NotFound)));
+        assert_eq!(
+            lf.setll(b"Carla").expect("LF update falló"),
+            b"C001".to_vec()
+        );
+
+        run_sql_statement("DELETE FROM CUSTOMERS WHERE KEY='C002'", Some("QGPL"))
+            .expect("DELETE falló");
+        let result =
+            run_select_query("SELECT * FROM CUSTOMERS", Some("QGPL")).expect("SELECT final falló");
+
+        match original {
+            Some(value) => unsafe {
+                std::env::set_var("L400_ROOT", value);
+            },
+            None => unsafe {
+                std::env::remove_var("L400_ROOT");
+            },
+        }
+
+        assert_eq!(
+            result.rows,
+            vec![vec!["C001".to_string(), "Carla".to_string()]]
+        );
     }
 }

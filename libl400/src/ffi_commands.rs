@@ -1147,7 +1147,27 @@ pub extern "C" fn l400_strseu(file: *const c_char, mbr: *const c_char) {
     println!("======================================");
 }
 
-/// STRSQL — Ejecuta una consulta SELECT leída desde stdin.
+fn print_sql_result(result: crate::db::SqlStatementResult) {
+    match result {
+        crate::db::SqlStatementResult::Query(result) => {
+            println!("{}", result.columns.join(" | "));
+            if result.rows.is_empty() {
+                println!("(sin filas)");
+            } else {
+                for (index, row) in result.rows.into_iter().enumerate() {
+                    if index > 0 && index % 20 == 0 {
+                        println!("-- mas -- fila {}", index + 1);
+                        println!("{}", result.columns.join(" | "));
+                    }
+                    println!("{}", row.join(" | "));
+                }
+            }
+        }
+        crate::db::SqlStatementResult::Message(message) => println!("SQL0000 {}", message),
+    }
+}
+
+/// STRSQL — Ejecuta una sentencia SQL leída desde stdin.
 #[no_mangle]
 pub extern "C" fn l400_strsql() {
     let mut statement = String::new();
@@ -1156,17 +1176,8 @@ pub extern "C" fn l400_strsql() {
         return;
     }
 
-    match crate::db::run_select_query(&statement, None) {
-        Ok(result) => {
-            println!("{}", result.columns.join(" | "));
-            if result.rows.is_empty() {
-                println!("(sin filas)");
-            } else {
-                for row in result.rows {
-                    println!("{}", row.join(" | "));
-                }
-            }
-        }
-        Err(error) => println!("[STRSQL] Error: {}", error),
+    match crate::db::run_sql_statement(&statement, None) {
+        Ok(result) => print_sql_result(result),
+        Err(error) => println!("SQL9001 [STRSQL] {}", error),
     }
 }

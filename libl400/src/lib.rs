@@ -25,8 +25,8 @@ pub use cgroup::{
 };
 pub use db::{
     add_pf_member, create_lf, create_pf, list_pf_members, read_pf_schema, run_select_query,
-    write_pf_schema, DbError, LogicalFile, PfField, PfSchema, PhysicalFile, QueryResult,
-    DEFAULT_PF_MEMBER,
+    run_sql_statement, write_pf_schema, DbError, LogicalFile, PfField, PfSchema, PhysicalFile,
+    QueryResult, SqlStatementResult, DEFAULT_PF_MEMBER,
 };
 pub use dtaq::{crtdtaq, DataQueue, DtaqError};
 pub use lam::{

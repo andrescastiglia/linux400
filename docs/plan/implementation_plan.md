@@ -169,22 +169,25 @@ Criterio de aceptacion:
 
 **Problema:** `STRSQL` soporta `SELECT` minimo, suficiente para demo pero no para administracion.
 
+**Estado:** implementada en base. El motor SQL cubre batch/stdin con parser propio pequeno, DML sobre PF y actualizacion consistente de LF. Queda pendiente una pantalla interactiva TUI con scroll real y un parser SQL completo.
+
 Trabajo:
 
-- Reemplazar parseo manual por parser SQL pequeño o crate dedicado.
-- Soportar:
+- [x] Reemplazar parseo manual por parser SQL pequeno o crate dedicado.
+- [x] Soportar:
   - `SELECT` con columnas, `WHERE`, `ORDER BY`, `LIMIT`;
   - `INSERT`;
   - `UPDATE`;
   - `DELETE`;
   - `CREATE TABLE` como alias a `CRTPF` cuando sea razonable.
-- Mostrar errores con codigo/mensaje estilo pantalla verde.
-- Agregar paginacion horizontal/vertical de resultados.
+- [x] Mostrar errores con codigo/mensaje estilo pantalla verde.
+- [x] Agregar paginacion horizontal/vertical de resultados en salida batch basica.
 
 Criterio de aceptacion:
 
-- `STRSQL "SELECT * FROM QGPL/CUSTOMERS WHERE KEY='C001'"` funciona igual en TUI y batch;
-- INSERT/UPDATE/DELETE actualizan PF y LF de forma consistente.
+- [x] `STRSQL "SELECT * FROM QGPL/CUSTOMERS WHERE KEY='C001'"` funciona por batch y por stdin;
+- [x] INSERT/UPDATE/DELETE actualizan PF y LF de forma consistente;
+- [ ] integrar scroll/prompt SQL interactivo dentro de TUI.
 
 ## Fase 7: Compilador CL y toolchain
 

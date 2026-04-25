@@ -139,7 +139,7 @@ QBATCH  Trabajos batch
 | `STRPDM` | Abre el Programming Development Manager. | `STRPDM` |
 | `WRKMBRPDM` | Lista miembros de un source file. | `WRKMBRPDM FILE(QGPL/QCLSRC)` |
 | `STRSEU` | Edita o muestra un miembro fuente. | `STRSEU FILE(QGPL/QCLSRC) MBR(HELLO.CLP)` |
-| `STRSQL` | Abre SQL interactivo o ejecuta una sentencia. | `STRSQL "SELECT * FROM QGPL/CUSTOMERS"` |
+| `STRSQL` | Abre SQL por stdin o ejecuta una sentencia `SELECT/INSERT/UPDATE/DELETE/CREATE TABLE`. | `STRSQL "SELECT * FROM QGPL/CUSTOMERS WHERE KEY='C001'"` |
 | `CRTCLPGM` | Compila un miembro CL como `*PGM`. | `CRTCLPGM PGM(QGPL/HELLO) SRCFILE(QGPL/QCLSRC) SRCMBR(HELLO)` |
 | `CRTPGM` | Cataloga o crea un objeto programa `*PGM`. | `CRTPGM PGM(QGPL/HELLO)` |
 | `DLTPGM` | Elimina un programa. | `DLTPGM PGM(QGPL/HELLO)` |
