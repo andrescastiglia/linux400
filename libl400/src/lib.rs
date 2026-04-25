@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod auth;
 mod bdb_native;
 pub mod bootstrap;
@@ -15,6 +16,7 @@ pub mod usrprf;
 pub mod util;
 pub mod zfs;
 
+pub use audit::{audit_event, current_l400_user, qhst_path, read_audit_records, AuditRecord};
 pub use bootstrap::{bootstrap_l400_root, BootstrapError, BootstrapReport};
 pub use cgroup::{
     assign_to_workload, cleanup_l400_slices, create_l400_slices, end_job, get_current_workload,

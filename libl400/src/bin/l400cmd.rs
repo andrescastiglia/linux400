@@ -25,6 +25,9 @@ const COMMAND_BINARIES: &[&str] = &[
     "DSPOBJAUT",
     "GRTOBJAUT",
     "RVKOBJAUT",
+    "CHKOBJAUT",
+    "DSPPOLICY",
+    "DSPAUD",
     "CRTLIB",
     "DLTLIB",
     "ADDLIBLE",
@@ -157,6 +160,19 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             &["OBJ", "LIB", "OBJTYPE", "USER"],
             ffi_commands::l400_rvkobjaut,
         ),
+        "CHKOBJAUT" => dispatch_spec(
+            args,
+            &["OBJ", "LIB", "OBJTYPE", "USER", "AUT"],
+            ffi_commands::l400_chkobjaut,
+        ),
+        "DSPPOLICY" => {
+            ffi_commands::l400_dsppolicy();
+            ExitCode::SUCCESS
+        }
+        "DSPAUD" => {
+            ffi_commands::l400_dspaudit();
+            ExitCode::SUCCESS
+        }
         "CRTLIB" => dispatch_unary_required(
             command,
             args,

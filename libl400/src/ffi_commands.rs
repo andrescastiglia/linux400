@@ -81,6 +81,15 @@ fn matches_pattern(value: &str, pattern: &str) -> bool {
     value == pattern
 }
 
+fn audit_runtime(event: &str, object: &Path, message: &str) {
+    let user = crate::audit::current_l400_user();
+    let _ = crate::audit::audit_event(event, &user, object, message);
+}
+
+fn runtime_user() -> String {
+    crate::audit::current_l400_user()
+}
+
 // l400_sndpgmmsg está definida en ffi.rs — no se duplica aquí.
 
 // Gestión de sistema
@@ -376,7 +385,14 @@ pub extern "C" fn l400_wrkusrprf(usrprf: *const c_char) {
             Some("USRPRF"),
             Some("Linux/400 user profile"),
         ) {
-            Ok(_) => println!("  Perfil {} creado.", filter),
+            Ok(_) => {
+                audit_runtime(
+                    "USRPRF_CHANGE",
+                    &qsys.join(&filter),
+                    &format!("CREATE {}", filter),
+                );
+                println!("  Perfil {} creado.", filter)
+            }
             Err(error) => println!("  Error creando perfil {}: {}", filter, error),
         }
         println!("========================================");
@@ -386,7 +402,10 @@ pub extern "C" fn l400_wrkusrprf(usrprf: *const c_char) {
     if matches!(action.as_str(), "*DISABLE" | "DISABLE") {
         let path = qsys.join(&filter);
         match xattr::set(&path, "user.l400.disabled", b"yes") {
-            Ok(_) => println!("  Perfil {} desactivado.", filter),
+            Ok(_) => {
+                audit_runtime("USRPRF_CHANGE", &path, &format!("DISABLE {}", filter));
+                println!("  Perfil {} desactivado.", filter)
+            }
             Err(error) => println!("  Error desactivando perfil {}: {}", filter, error),
         }
         println!("========================================");
@@ -612,6 +631,16 @@ pub extern "C" fn l400_dspobjd(spec: *const c_char) {
                 "  Public authority . . . . : {}",
                 object.public_auth.unwrap_or_default()
             );
+            if let Ok(Some(toolchain)) =
+                crate::storage::read_string_attr(&path, "user.l400.toolchain")
+            {
+                println!("  Toolchain . . . . . . . : {}", toolchain);
+            }
+            if let Ok(Some(signature)) =
+                crate::storage::read_string_attr(&path, "user.l400.signature")
+            {
+                println!("  Signature . . . . . . . : {}", signature);
+            }
             println!("=======================================");
         }
         Err(error) => println!("[DSPOBJD] Error: {}", error),
@@ -688,7 +717,14 @@ pub extern "C" fn l400_grtobjaut(spec: *const c_char) {
     let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
     match aut.parse() {
         Ok(authority) => match crate::auth::grant_object_authority(&path, user, authority) {
-            Ok(_) => println!("[GRTOBJAUT] Autoridad {} otorgada a {}.", aut, user),
+            Ok(_) => {
+                audit_runtime(
+                    "AUTH_CHANGE",
+                    &path,
+                    &format!("GRTOBJAUT user={} aut={}", user, aut),
+                );
+                println!("[GRTOBJAUT] Autoridad {} otorgada a {}.", aut, user)
+            }
             Err(error) => println!("[GRTOBJAUT] Error: {}", error),
         },
         Err(error) => println!("[GRTOBJAUT] Error: {}", error),
@@ -706,9 +742,96 @@ pub extern "C" fn l400_rvkobjaut(spec: *const c_char) {
     let root = crate::object::resolve_l400_root();
     let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
     match crate::auth::revoke_object_authority(&path, user) {
-        Ok(_) => println!("[RVKOBJAUT] Autoridad revocada para {}.", user),
+        Ok(_) => {
+            audit_runtime("AUTH_CHANGE", &path, &format!("RVKOBJAUT user={}", user));
+            println!("[RVKOBJAUT] Autoridad revocada para {}.", user)
+        }
         Err(error) => println!("[RVKOBJAUT] Error: {}", error),
     }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_chkobjaut(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(obj) = fields.get("OBJ") else {
+        println!("[CHKOBJAUT] Uso: CHKOBJAUT OBJ(QGPL/MYOBJ) USER(QPGMR) AUT(*USE)");
+        return;
+    };
+    let user = fields
+        .get("USER")
+        .cloned()
+        .unwrap_or_else(runtime_user)
+        .to_uppercase();
+    let aut = fields
+        .get("AUT")
+        .cloned()
+        .unwrap_or_else(|| "*USE".to_string());
+    let root = crate::object::resolve_l400_root();
+    let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    match aut.parse::<crate::auth::L400Authority>() {
+        Ok(authority) => match crate::auth::check_authority(&path, &user, authority) {
+            Ok(true) => println!(
+                "[CHKOBJAUT] ALLOW user={} aut={} obj={}",
+                user,
+                aut,
+                path.display()
+            ),
+            Ok(false) => {
+                audit_runtime(
+                    "ACCESS_DENIED",
+                    &path,
+                    &format!("CHKOBJAUT user={} aut={}", user, aut),
+                );
+                println!(
+                    "[CHKOBJAUT] DENY user={} aut={} obj={}",
+                    user,
+                    aut,
+                    path.display()
+                );
+            }
+            Err(error) => println!("[CHKOBJAUT] Error: {}", error),
+        },
+        Err(error) => println!("[CHKOBJAUT] Error: {}", error),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn l400_dsppolicy() {
+    println!("=== DSPPOLICY - Matriz de autorizaciones Linux/400 ===");
+    println!("  {:24} {:10} REQUIRED", "COMMAND", "OPERATION");
+    println!("  {}", "-".repeat(52));
+    for (command, operation, authority) in crate::auth::authority_matrix_rows() {
+        println!("  {:24} {:10} {}", command, operation, authority);
+    }
+    println!();
+    println!("  Identidad runtime: L400_USER -> USER fallback.");
+    println!("  eBPF phase3-v1 recibe identidad parcialmente via xattrs y aplica tipo + *PUBLIC:*EXCLUDE.");
+    println!("  Userspace aplica matriz completa antes de comandos sensibles.");
+    println!("================================================");
+}
+
+#[no_mangle]
+pub extern "C" fn l400_dspaudit() {
+    println!("=== DSPAUD - Auditoria QHST/Linux400 ===");
+    match crate::audit::read_audit_records(50) {
+        Ok(records) if records.is_empty() => println!("  Sin registros de auditoria."),
+        Ok(records) => {
+            println!(
+                "  {:12} {:16} {:10} {:24} MESSAGE",
+                "TS", "EVENT", "USER", "OBJECT"
+            );
+            println!("  {}", "-".repeat(86));
+            for record in records {
+                println!(
+                    "  {:12} {:16} {:10} {:24} {}",
+                    record.timestamp, record.event, record.user, record.object, record.message
+                );
+            }
+        }
+        Err(error) => println!("[DSPAUD] Error: {}", error),
+    }
+    println!("========================================");
 }
 
 #[no_mangle]
@@ -1158,6 +1281,59 @@ pub extern "C" fn l400_call(pgm: *const c_char) {
     let pgm = c_str_to_string(pgm);
     let root = crate::object::resolve_l400_root();
     let path = resolve_program_for_call(&root, &pgm);
+    let user = runtime_user();
+    match crate::object::describe_object(&path) {
+        Ok(object) if object.objtype != "*PGM" => {
+            audit_runtime(
+                "ACCESS_DENIED",
+                &path,
+                &format!("CALL user={} wrong_type={}", user, object.objtype),
+            );
+            println!("[CALL] Denegado: {} no es *PGM.", path.display());
+            return;
+        }
+        Ok(_) => {}
+        Err(error) => {
+            audit_runtime(
+                "ACCESS_DENIED",
+                &path,
+                &format!("CALL user={} describe_error={}", user, error),
+            );
+            println!(
+                "[CALL] Denegado: no se pudo describir {}: {}",
+                path.display(),
+                error
+            );
+            return;
+        }
+    }
+
+    match crate::auth::check_command_authority(&path, &user, "CALL") {
+        Ok(true) => {}
+        Ok(false) => {
+            audit_runtime(
+                "ACCESS_DENIED",
+                &path,
+                &format!("CALL user={} required=*USE", user),
+            );
+            println!(
+                "[CALL] Denegado por autoridad: usuario {} no tiene *USE sobre {}.",
+                user,
+                path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            audit_runtime(
+                "ACCESS_DENIED",
+                &path,
+                &format!("CALL user={} auth_error={}", user, error),
+            );
+            println!("[CALL] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
+    audit_runtime("PGM_EXEC", &path, &format!("CALL user={}", user));
     match std::process::Command::new(&path).status() {
         Ok(status) if status.success() => {
             println!("[CALL] {} finalizo correctamente.", path.display())

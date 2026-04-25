@@ -73,8 +73,11 @@ Enter=Select/Run
 | Comando | Descripcion | Ejemplo |
 | --- | --- | --- |
 | `DSPOBJAUT` | Muestra autorizaciones de un objeto. | `DSPOBJAUT OBJ(QGPL/MYPGM) OBJTYPE(*PGM)` |
+| `CHKOBJAUT` | Verifica una autorizacion efectiva para usuario/comando. | `CHKOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR) AUT(*USE)` |
 | `GRTOBJAUT` | Otorga autorizacion sobre un objeto. | `GRTOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR) AUT(*USE)` |
 | `RVKOBJAUT` | Revoca autorizacion sobre un objeto. | `RVKOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR)` |
+| `DSPPOLICY` | Muestra la matriz runtime/eBPF de politica de seguridad. | `DSPPOLICY` |
+| `DSPAUD` | Muestra los ultimos eventos auditados en QHST/DTAQ. | `DSPAUD` |
 | `CHGOWN` | Cambia propietario logico de un objeto. | `CHGOWN OBJ(QGPL/MYFILE) OWNER(QPGMR)` |
 
 Autoridades comunes:

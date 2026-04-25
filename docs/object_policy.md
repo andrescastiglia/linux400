@@ -182,8 +182,36 @@ Pendiente:
 - `DLTOBJ`
 - `CPYOBJ`
 - `DSPOBJAUT`
+- `CHKOBJAUT`
 - `GRTOBJAUT`
 - `RVKOBJAUT`
+- `DSPPOLICY`
+- `DSPAUD`
+
+La fase 9 agrega una matriz runtime minima:
+
+| Comando | Operacion | Autoridad requerida |
+| --- | --- | --- |
+| `CALL` | `EXECUTE` | `*USE` |
+| `DSPOBJD`, `DSPOBJAUT`, `WRKOBJ`, `WRKLIB` | `READ` | `*USE` |
+| `DSPPFM`, `DSPDTAQ` | `READ` | `*USE` |
+| `WRTPFM`, `SNDDTAQ`, `RCVDTAQ`, `CPYOBJ` | `CHANGE` | `*CHANGE` |
+| `GRTOBJAUT`, `RVKOBJAUT`, `CHGOBJD`, `DLTOBJ`, `CLRPFM` | `ADMIN` | `*ALL` |
+
+`CALL` verifica esta matriz antes de ejecutar un `*PGM`; por lo tanto `*PUBLIC:*EXCLUDE` bloquea tanto el runtime como la politica eBPF basica.
+
+## Auditoria
+
+Los eventos sensibles se escriben en `QSYS/QHST` y, si existe, tambien en `QUSRSYS/QEZJOBLOG *DTAQ`.
+
+Eventos actuales:
+
+- `ACCESS_DENIED`: denegados de `CALL` y `CHKOBJAUT`;
+- `PGM_EXEC`: ejecucion de `*PGM`;
+- `AUTH_CHANGE`: `GRTOBJAUT` y `RVKOBJAUT`;
+- `USRPRF_CHANGE`: creacion/desactivacion de perfiles.
+
+`DSPAUD` muestra los ultimos eventos y `DSPPOLICY` documenta la matriz efectiva.
 
 ## Diagnostico rapido
 

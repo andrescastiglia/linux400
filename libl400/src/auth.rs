@@ -20,6 +20,25 @@ pub enum L400Authority {
     Exclude,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum L400Operation {
+    Read,
+    Change,
+    Execute,
+    Admin,
+}
+
+impl std::fmt::Display for L400Operation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            L400Operation::Read => write!(f, "READ"),
+            L400Operation::Change => write!(f, "CHANGE"),
+            L400Operation::Execute => write!(f, "EXECUTE"),
+            L400Operation::Admin => write!(f, "ADMIN"),
+        }
+    }
+}
+
 impl std::fmt::Display for L400Authority {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -136,11 +155,89 @@ pub fn check_authority(
     Ok(false)
 }
 
+pub fn required_authority_for_operation(operation: L400Operation) -> L400Authority {
+    match operation {
+        L400Operation::Read | L400Operation::Execute => L400Authority::Use,
+        L400Operation::Change => L400Authority::Change,
+        L400Operation::Admin => L400Authority::All,
+    }
+}
+
+pub fn required_operation_for_command(command: &str) -> L400Operation {
+    match command.trim().to_uppercase().as_str() {
+        "CALL" => L400Operation::Execute,
+        "DSPOBJD" | "DSPOBJAUT" | "DSPPFM" | "DSPDTAQ" | "WRKOBJ" | "WRKLIB" => L400Operation::Read,
+        "GRTOBJAUT" | "RVKOBJAUT" | "CHGOBJD" | "DLTOBJ" | "CLRPFM" => L400Operation::Admin,
+        "WRTPFM" | "SNDDTAQ" | "RCVDTAQ" | "CPYOBJ" => L400Operation::Change,
+        _ => L400Operation::Read,
+    }
+}
+
+pub fn check_command_authority(path: &Path, user: &str, command: &str) -> Result<bool, AuthError> {
+    let operation = required_operation_for_command(command);
+    check_authority(path, user, required_authority_for_operation(operation))
+}
+
+pub fn authority_matrix_rows() -> Vec<(&'static str, L400Operation, L400Authority)> {
+    vec![
+        ("CALL", L400Operation::Execute, L400Authority::Use),
+        ("DSPOBJD/DSPOBJAUT", L400Operation::Read, L400Authority::Use),
+        ("WRKOBJ/WRKLIB", L400Operation::Read, L400Authority::Use),
+        ("DSPPFM/DSPDTAQ", L400Operation::Read, L400Authority::Use),
+        (
+            "WRTPFM/SNDDTAQ/RCVDTAQ",
+            L400Operation::Change,
+            L400Authority::Change,
+        ),
+        ("CPYOBJ", L400Operation::Change, L400Authority::Change),
+        (
+            "GRTOBJAUT/RVKOBJAUT",
+            L400Operation::Admin,
+            L400Authority::All,
+        ),
+        (
+            "CHGOBJD/DLTOBJ/CLRPFM",
+            L400Operation::Admin,
+            L400Authority::All,
+        ),
+    ]
+}
+
 fn auth_level(auth: L400Authority) -> u8 {
     match auth {
         L400Authority::Exclude => 0,
         L400Authority::Use => 1,
         L400Authority::Change => 2,
         L400Authority::All => 3,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::{catalog_object, create_library};
+
+    #[test]
+    fn public_exclude_denies_call_authority() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let lib = create_library(root.path(), "QGPL").expect("create library");
+        let pgm = lib.join("HELLO");
+        std::fs::write(&pgm, "#!/bin/sh\nexit 0\n").expect("write pgm");
+        catalog_object(&pgm, "*PGM", Some("CL"), Some("test")).expect("catalog pgm");
+        grant_object_authority(&pgm, "*PUBLIC", L400Authority::Exclude).expect("grant exclude");
+
+        assert!(!check_command_authority(&pgm, "QPGMR", "CALL").expect("check authority"));
+    }
+
+    #[test]
+    fn explicit_user_use_allows_call_when_public_missing() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let lib = create_library(root.path(), "QGPL").expect("create library");
+        let pgm = lib.join("HELLO");
+        std::fs::write(&pgm, "#!/bin/sh\nexit 0\n").expect("write pgm");
+        catalog_object(&pgm, "*PGM", Some("CL"), Some("test")).expect("catalog pgm");
+        grant_object_authority(&pgm, "QPGMR", L400Authority::Use).expect("grant use");
+
+        assert!(check_command_authority(&pgm, "QPGMR", "CALL").expect("check authority"));
     }
 }

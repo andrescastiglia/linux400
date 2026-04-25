@@ -246,22 +246,25 @@ Criterio de aceptacion:
 
 **Problema:** la politica eBPF valida tipos y ejecucion, pero la autorizacion de objetos todavia vive principalmente en runtime.
 
+**Estado:** implementada en base. Runtime y comandos sensibles usan una matriz minima de autorizacion; `CALL` verifica `*USE` antes de ejecutar `*PGM`; los denegados, ejecuciones y cambios sensibles se auditan en `QSYS/QHST` y `QUSRSYS/QEZJOBLOG` si existe. Queda pendiente pasar identidad completa al eBPF y capturar todos los comandos con estado formal.
+
 Trabajo:
 
-- Definir una matriz de autorizaciones por objeto/comando.
-- Agregar auditoria en `QHST`/DTAQ para:
+- [x] Definir una matriz de autorizaciones por objeto/comando.
+- [x] Agregar auditoria en `QHST`/DTAQ para:
   - acceso denegado;
   - ejecucion de `*PGM`;
   - cambios de autorizacion;
   - cambios de perfil.
-- Evaluar como pasar identidad/autoridad al eBPF sin complejidad excesiva.
-- Firmar o marcar toolchain output mas robustamente que `objattr=C|CL`.
-- Agregar comandos de verificacion de politica.
+- [x] Evaluar como pasar identidad/autoridad al eBPF sin complejidad excesiva.
+- [x] Firmar o marcar toolchain output mas robustamente que `objattr=C|CL`.
+- [x] Agregar comandos de verificacion de politica.
 
 Criterio de aceptacion:
 
-- `*PUBLIC:*EXCLUDE` se respeta de forma consistente en runtime y ejecucion;
-- los denegados quedan visibles en logs/TUI.
+- [x] `*PUBLIC:*EXCLUDE` se respeta de forma consistente en runtime y ejecucion;
+- [x] los denegados quedan visibles en logs/TUI;
+- [ ] identidad/autorizacion completa en eBPF para usuarios/grupos/owner mas alla de `*PUBLIC:*EXCLUDE`.
 
 ## Fase 10: Release, CI y matriz de plataformas
 
