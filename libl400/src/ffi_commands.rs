@@ -180,6 +180,85 @@ fn emit_status(code: &str, object: Option<&Path>, detail: &str) {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PowerDownAction {
+    ControlledPowerOff,
+    ImmediatePowerOff,
+    Restart,
+}
+
+impl PowerDownAction {
+    fn from_option(option: &str) -> Option<Self> {
+        match option.trim().to_uppercase().as_str() {
+            "" | "*CNTRLD" | "CNTRLD" | "*CONTROLLED" | "CONTROLLED" => {
+                Some(Self::ControlledPowerOff)
+            }
+            "*IMMED" | "IMMED" | "*IMMEDIATE" | "IMMEDIATE" => Some(Self::ImmediatePowerOff),
+            "*RESTART" | "RESTART" | "*REBOOT" | "REBOOT" => Some(Self::Restart),
+            _ => None,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::ControlledPowerOff => "*CNTRLD",
+            Self::ImmediatePowerOff => "*IMMED",
+            Self::Restart => "*RESTART",
+        }
+    }
+
+    fn command_plan(self) -> &'static [(&'static str, &'static [&'static str])] {
+        match self {
+            Self::ControlledPowerOff => &[
+                ("shutdown", &["-h", "now"]),
+                ("poweroff", &[]),
+                ("halt", &[]),
+            ],
+            Self::ImmediatePowerOff => &[
+                ("poweroff", &["-f"]),
+                ("halt", &["-f"]),
+                ("shutdown", &["-h", "now"]),
+            ],
+            Self::Restart => &[("reboot", &["-f"]), ("shutdown", &["-r", "now"])],
+        }
+    }
+}
+
+fn confirmed_yes(value: Option<&String>) -> bool {
+    value
+        .map(|value| matches!(value.trim().to_uppercase().as_str(), "*YES" | "YES"))
+        .unwrap_or(false)
+}
+
+fn power_down_dry_run_enabled() -> bool {
+    std::env::var("L400_PWRDWNSYS_DRY_RUN")
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
+fn run_power_down_action(action: PowerDownAction) -> std::io::Result<()> {
+    if power_down_dry_run_enabled() {
+        println!("[PWRDWNSYS] Dry-run activo; no se ejecuta apagado real.");
+        return Ok(());
+    }
+
+    let _ = Command::new("sync").status();
+    let mut last_error = None;
+    for (program, args) in action.command_plan() {
+        match Command::new(program).args(*args).status() {
+            Ok(status) if status.success() => return Ok(()),
+            Ok(status) => {
+                last_error = Some(std::io::Error::other(format!(
+                    "{program} exited with status {status}"
+                )));
+            }
+            Err(error) => last_error = Some(error),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| std::io::Error::other("no power command available")))
+}
+
 // l400_sndpgmmsg está definida en ffi.rs — no se duplica aquí.
 
 // Gestión de sistema
@@ -962,6 +1041,7 @@ pub extern "C" fn l400_wrkusrprf(usrprf: *const c_char) {
 /// PWRDWNSYS — Apaga o reinicia el sistema
 #[no_mangle]
 pub extern "C" fn l400_pwrdwnsys(option: *const c_char) {
+    clear_status();
     let spec = c_str_to_string(option);
     let fields = parse_command_fields(&spec);
     let opt = fields
@@ -969,31 +1049,42 @@ pub extern "C" fn l400_pwrdwnsys(option: *const c_char) {
         .cloned()
         .unwrap_or_else(|| spec.trim().to_string())
         .to_uppercase();
-    let confirmed = fields
-        .get("CONFIRM")
-        .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
-        .unwrap_or(false);
-    println!(
-        "[PWRDWNSYS] Solicitando parada del sistema (OPTION={})",
-        opt
-    );
+    let Some(action) = PowerDownAction::from_option(&opt) else {
+        emit_status(
+            "CPF0006",
+            None,
+            "PWRDWNSYS OPTION debe ser *CNTRLD, *IMMED o *RESTART",
+        );
+        return;
+    };
+
+    println!("[PWRDWNSYS] Solicitud aceptada (OPTION={})", action.label());
+    let confirmed = confirmed_yes(fields.get("CONFIRM"));
     if !confirmed {
-        println!("[PWRDWNSYS] Requiere CONFIRM(*YES) para ejecutar una accion real.");
+        emit_status("CPF0006", None, "PWRDWNSYS requiere CONFIRM(*YES)");
         return;
     }
-    if unsafe { libc::geteuid() } != 0 {
-        println!("[PWRDWNSYS] Accion real requiere root.");
+    if unsafe { libc::geteuid() } != 0 && !power_down_dry_run_enabled() {
+        emit_status("CPF2204", None, "PWRDWNSYS requiere root");
         return;
     }
-    match opt.as_str() {
-        "*IMMED" => {
-            let _ = Command::new("shutdown").arg("-h").arg("now").status();
+
+    audit_runtime(
+        "PWRDWNSYS",
+        Path::new("/"),
+        &format!("option={} confirmed=*YES", action.label()),
+    );
+    match run_power_down_action(action) {
+        Ok(()) => {
+            clear_status();
+            println!("[PWRDWNSYS] Accion de energia enviada.");
         }
-        "*RESTART" => {
-            let _ = Command::new("shutdown").arg("-r").arg("now").status();
-        }
-        _ => {
-            println!("[PWRDWNSYS] OPTION debe ser *IMMED o *RESTART.");
+        Err(error) => {
+            emit_status(
+                "CPF9898",
+                None,
+                &format!("No se pudo ejecutar accion de energia: {error}"),
+            );
         }
     }
 }
@@ -2212,7 +2303,7 @@ pub extern "C" fn l400_strsql() {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_command_fields;
+    use super::{confirmed_yes, parse_command_fields, PowerDownAction};
 
     #[test]
     fn parse_command_fields_keeps_values_with_spaces() {
@@ -2221,5 +2312,32 @@ mod tests {
         assert_eq!(fields.get("OBJ").map(String::as_str), Some("QGPL/DEMO"));
         assert_eq!(fields.get("TEXT").map(String::as_str), Some("Demo object"));
         assert_eq!(fields.get("OBJATTR").map(String::as_str), Some("PF"));
+    }
+
+    #[test]
+    fn pwrdwnsys_accepts_supported_options() {
+        assert_eq!(
+            PowerDownAction::from_option("*CNTRLD"),
+            Some(PowerDownAction::ControlledPowerOff)
+        );
+        assert_eq!(
+            PowerDownAction::from_option("*IMMED"),
+            Some(PowerDownAction::ImmediatePowerOff)
+        );
+        assert_eq!(
+            PowerDownAction::from_option("*RESTART"),
+            Some(PowerDownAction::Restart)
+        );
+        assert_eq!(PowerDownAction::from_option("*BAD"), None);
+    }
+
+    #[test]
+    fn pwrdwnsys_confirm_requires_yes() {
+        let yes = "*YES".to_string();
+        let no = "*NO".to_string();
+
+        assert!(confirmed_yes(Some(&yes)));
+        assert!(!confirmed_yes(Some(&no)));
+        assert!(!confirmed_yes(None));
     }
 }

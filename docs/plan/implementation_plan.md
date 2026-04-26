@@ -90,7 +90,7 @@ Criterio de cierre:
 
 ## Milestone 3: Objeto `*CMD` y prompt de comandos real
 
-Estado: **finalizado base**. Queda ampliar el catalogo de metadata para todos los comandos, pero el flujo `*CMD` existe y es operable.
+Estado: **finalizado**. El catalogo de metadata cubre los comandos despachados por `l400cmd` y el flujo `*CMD` existe y es operable.
 
 **Objetivo:** que los comandos sean objetos describibles/promptables, no solo strings en el dispatcher.
 
