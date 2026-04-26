@@ -488,6 +488,71 @@ fn job_pid_from_fields(fields: &std::collections::HashMap<String, String>) -> Op
 }
 
 #[no_mangle]
+pub extern "C" fn l400_wrkjob(spec: *const c_char) {
+    let fields = parse_command_fields(&c_str_to_string(spec));
+    let Some(pid) = job_pid_from_fields(&fields) else {
+        emit_status("CPF0006", None, "WRKJOB requiere JOB o PID");
+        println!("[WRKJOB] Uso: WRKJOB JOB(MYJOB) o WRKJOB PID(123)");
+        return;
+    };
+    match crate::cgroup::list_jobs() {
+        Ok(jobs) => match jobs.into_iter().find(|job| job.pid == pid) {
+            Some(job) => {
+                println!("=== WRKJOB - Job Detail ===");
+                println!("  Job . . . . . . . . . : {}", job.name);
+                println!("  User  . . . . . . . . : {}", job.user);
+                println!("  PID . . . . . . . . . : {}", job.pid);
+                println!("  Status  . . . . . . . : {}", job.status);
+                println!("  Subsystem . . . . . . : {}", job.subsystem);
+                println!("  Command . . . . . . . : {}", job.command);
+                println!(
+                    "  Submitted . . . . . . : {}",
+                    job.submitted_at.as_deref().unwrap_or("-")
+                );
+                println!(
+                    "  Started . . . . . . . : {}",
+                    job.started_at.as_deref().unwrap_or("-")
+                );
+                println!(
+                    "  Ended . . . . . . . . : {}",
+                    job.ended_at.as_deref().unwrap_or("-")
+                );
+                let log_path = job
+                    .log_path
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "-".to_string());
+                println!("  Log . . . . . . . . . : {}", log_path);
+                if let Some(path) = job.log_path.as_ref().filter(|path| path.exists()) {
+                    println!("  Log tail:");
+                    if let Ok(content) = std::fs::read_to_string(path) {
+                        for line in content
+                            .lines()
+                            .rev()
+                            .take(10)
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .rev()
+                        {
+                            println!("    {}", line);
+                        }
+                    }
+                }
+                println!("===========================");
+            }
+            None => {
+                emit_status("CPF9801", None, "WRKJOB no encontro el PID solicitado");
+                println!("[WRKJOB] PID({pid}) no encontrado.");
+            }
+        },
+        Err(error) => {
+            emit_status("CPF0001", None, &error.to_string());
+            println!("[WRKJOB] Error: {}", error);
+        }
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn l400_hldjob(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
     match job_pid_from_fields(&fields) {
@@ -815,10 +880,41 @@ pub extern "C" fn l400_dltsplf(spec: *const c_char) {
 /// WRKCMD — Lista comandos catalogados como *CMD.
 #[no_mangle]
 pub extern "C" fn l400_wrkcmd() {
+    l400_wrkcmd_spec(std::ptr::null());
+}
+
+#[no_mangle]
+pub extern "C" fn l400_wrkcmd_spec(spec: *const c_char) {
+    let fields = parse_command_fields(&c_str_to_string(spec));
+    let cmd_filter = fields
+        .get("CMD")
+        .map(String::as_str)
+        .unwrap_or("*ALL")
+        .trim()
+        .to_uppercase();
+    let auth_filter = fields
+        .get("AUTH")
+        .map(String::as_str)
+        .unwrap_or("*ALL")
+        .trim()
+        .to_uppercase();
+    let status_filter = fields
+        .get("STATUS")
+        .map(String::as_str)
+        .unwrap_or("*ALL")
+        .trim()
+        .to_lowercase();
     println!("=== WRKCMD - Command Objects ===");
+    println!(
+        "  Filters: CMD={} AUTH={} STATUS={}",
+        cmd_filter, auth_filter, status_filter
+    );
     let root = crate::object::resolve_l400_root();
-    println!("  {:10} {:20} {:10} TEXT", "LIB", "CMD", "AUT");
-    println!("  {}", "-".repeat(64));
+    println!(
+        "  {:10} {:20} {:10} {:14} TEXT",
+        "LIB", "CMD", "AUT", "STATUS"
+    );
+    println!("  {}", "-".repeat(82));
     let mut count = 0usize;
     if let Ok(libraries) = crate::object::list_libraries(&root) {
         for library in libraries {
@@ -830,17 +926,30 @@ pub extern "C" fn l400_wrkcmd() {
                 .into_iter()
                 .filter(|object| object.objtype == "*CMD")
             {
-                count += 1;
                 let path = lib_path.join(&object.name);
                 let authority = crate::storage::read_string_attr(&path, "user.l400.cmd.authority")
                     .ok()
                     .flatten()
                     .unwrap_or_else(|| "*USE".to_string());
+                let status = crate::command_metadata(&object.name)
+                    .map(|metadata| metadata.status())
+                    .unwrap_or("user");
+                if !matches_pattern(&object.name, &cmd_filter) {
+                    continue;
+                }
+                if auth_filter != "*ALL" && authority.to_uppercase() != auth_filter {
+                    continue;
+                }
+                if status_filter != "*all" && status != status_filter {
+                    continue;
+                }
+                count += 1;
                 println!(
-                    "  {:10} {:20} {:10} {}",
+                    "  {:10} {:20} {:10} {:14} {}",
                     library,
                     object.name,
                     authority,
+                    status,
                     object.text.unwrap_or_default()
                 );
             }
@@ -873,8 +982,13 @@ pub extern "C" fn l400_dspcmd(spec: *const c_char) {
     println!("=== DSPCMD - {} ===", command);
     match crate::object::describe_object(&path) {
         Ok(object) => {
+            let metadata = crate::command_metadata(&command);
             println!("  Command . . . . . . . . : {}", object.name);
             println!("  Type  . . . . . . . . . : {}", object.objtype);
+            println!(
+                "  Metadata schema . . . . : v{}",
+                crate::COMMAND_METADATA_SCHEMA_VERSION
+            );
             println!(
                 "  Text  . . . . . . . . . : {}",
                 object.text.unwrap_or_default()
@@ -884,6 +998,10 @@ pub extern "C" fn l400_dspcmd(spec: *const c_char) {
                 .flatten()
                 .unwrap_or_else(|| "*USE".to_string());
             println!("  Authority required . . : {}", authority);
+            println!(
+                "  Status  . . . . . . . . : {}",
+                metadata.map(|metadata| metadata.status()).unwrap_or("user")
+            );
             let params = crate::storage::read_string_attr(&path, "user.l400.cmd.params")
                 .ok()
                 .flatten()
@@ -907,6 +1025,15 @@ pub extern "C" fn l400_dspcmd(spec: *const c_char) {
                         "    {:12} {:8} {:10} {:24} {}",
                         name, type_, use_, values, default
                     );
+                }
+            }
+            if let Some(metadata) = metadata {
+                let examples = metadata.examples();
+                if !examples.is_empty() {
+                    println!("  Examples:");
+                    for example in examples {
+                        println!("    {}", example);
+                    }
                 }
             }
         }
@@ -1441,6 +1568,76 @@ pub extern "C" fn l400_chkobjaut(spec: *const c_char) {
 }
 
 #[no_mangle]
+pub extern "C" fn l400_chkobjint(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let Some(obj) = fields.get("OBJ") else {
+        emit_status("CPF0006", None, "CHKOBJINT requiere OBJ");
+        println!("[CHKOBJINT] Uso: CHKOBJINT OBJ(QGPL/MYOBJ)");
+        return;
+    };
+    let root = crate::object::resolve_l400_root();
+    let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    println!("=== CHKOBJINT - Object Integrity ===");
+    println!("  Object path . . . . . : {}", path.display());
+    let mut issues = Vec::new();
+    match crate::object::describe_object(&path) {
+        Ok(object) => {
+            println!("  Object . . . . . . . : {}", object.name);
+            println!("  Type . . . . . . . . : {}", object.objtype);
+            println!(
+                "  Attribute  . . . . . : {}",
+                object.attribute.as_deref().unwrap_or("-")
+            );
+            if object.owner.as_deref().unwrap_or("").is_empty() {
+                issues.push("missing owner metadata".to_string());
+            }
+            if object.objtype == "*FILE" {
+                match object.attribute.as_deref() {
+                    Some("PF") => {
+                        if crate::storage::read_string_attr(&path, "user.l400.record_len")
+                            .ok()
+                            .flatten()
+                            .is_none()
+                        {
+                            issues.push("PF missing user.l400.record_len".to_string());
+                        }
+                    }
+                    Some("LF") => {
+                        let base_pf = crate::storage::read_string_attr(&path, "user.l400.base_pf")
+                            .ok()
+                            .flatten();
+                        if base_pf.as_deref().unwrap_or("").is_empty() {
+                            issues.push("LF missing user.l400.base_pf".to_string());
+                        }
+                    }
+                    Some("SRC") => {}
+                    Some(other) => issues.push(format!("unknown *FILE attribute {other}")),
+                    None => issues.push("*FILE missing attribute".to_string()),
+                }
+            }
+        }
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[CHKOBJINT] Error: {}", error);
+            return;
+        }
+    }
+
+    if issues.is_empty() {
+        clear_status();
+        println!("  Result . . . . . . . : OK");
+    } else {
+        emit_status("CPF9898", Some(&path), "object integrity issues found");
+        println!("  Result . . . . . . . : CHECK");
+        for issue in issues {
+            println!("  - {}", issue);
+        }
+    }
+    println!("===================================");
+}
+
+#[no_mangle]
 pub extern "C" fn l400_dsppolicy() {
     println!("=== DSPPOLICY - Matriz de autorizaciones Linux/400 ===");
     println!("  {:24} {:10} REQUIRED", "COMMAND", "OPERATION");
@@ -1449,8 +1646,15 @@ pub extern "C" fn l400_dsppolicy() {
         println!("  {:24} {:10} {}", command, operation, authority);
     }
     println!();
+    println!(
+        "  Runtime auth manifest version: v{}",
+        crate::L400_AUTH_MANIFEST_VERSION
+    );
+    println!(
+        "  Runtime auth format: USER:*AUTH plus UID:<uid>:*AUTH mirror when *USRPRF is resolvable."
+    );
     println!("  Identidad runtime: L400_USER -> USER fallback.");
-    println!("  eBPF phase3-v1 recibe identidad parcialmente via xattrs y aplica tipo + *PUBLIC:*EXCLUDE.");
+    println!("  eBPF phase3-v1 recibe identidad via owner_uid y entradas UID:<uid> para exec.");
     println!("  Userspace aplica matriz completa antes de comandos sensibles.");
     println!("================================================");
 }

@@ -3,7 +3,9 @@ use crate::object::{
     catalog_object, create_object_with_metadata, create_source_member, describe_object,
     ensure_library, member_path, ObjectError,
 };
-use crate::{format_command_params, write_string_attr, COMMAND_METADATA};
+use crate::{
+    format_command_params, write_string_attr, COMMAND_METADATA, COMMAND_METADATA_SCHEMA_VERSION,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -240,6 +242,12 @@ pub fn bootstrap_l400_root(root: &Path) -> Result<BootstrapReport, BootstrapErro
         let path = qsys.join(metadata.name);
         let _ = write_string_attr(&path, "user.l400.cmd.text", metadata.text);
         let _ = write_string_attr(&path, "user.l400.cmd.authority", metadata.authority);
+        let _ = write_string_attr(
+            &path,
+            "user.l400.cmd.schema",
+            &COMMAND_METADATA_SCHEMA_VERSION.to_string(),
+        );
+        let _ = write_string_attr(&path, "user.l400.cmd.status", metadata.status());
         let _ = write_string_attr(
             &path,
             "user.l400.cmd.params",

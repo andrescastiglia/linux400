@@ -15,6 +15,41 @@ pub struct CommandMetadata {
     pub parameters: &'static [CommandParameter],
 }
 
+pub const COMMAND_METADATA_SCHEMA_VERSION: u32 = 2;
+
+impl CommandMetadata {
+    pub fn status(&self) -> &'static str {
+        match self.name {
+            "CRTCMD" | "STRSQL" => "experimental",
+            "PWRDWNSYS" | "DLTLIB" | "DLTOBJ" | "DLTMBR" | "DLTOUTQ" | "DLTSPLF" => "admin-only",
+            _ => "stable",
+        }
+    }
+
+    pub fn examples(&self) -> &'static [&'static str] {
+        match self.name {
+            "WRKOBJ" => &["WRKOBJ OBJ(QSYS/WRK*) OBJTYPE(*CMD)"],
+            "DSPCMD" => &["DSPCMD CMD(WRKOBJ)"],
+            "WRKCMD" => &["WRKCMD CMD(WRK*)", "WRKCMD AUTH(*ALL)"],
+            "CALL" => &["CALL PGM(QGPL/HELLO)"],
+            "SBMJOB" => &["SBMJOB CMD(WRKSYSSTS) JOB(MYSTS) JOBQ(QBATCH)"],
+            "PWRDWNSYS" => &["PWRDWNSYS OPTION(*RESTART) CONFIRM(*YES)"],
+            "CRTPF" => &["CRTPF FILE(QGPL/CUST) RCDLEN(80)"],
+            "STRSQL" => &["STRSQL SELECT * FROM QGPL/CUST"],
+            "GRTOBJAUT" => &["GRTOBJAUT OBJ(QGPL/HELLO) USER(QPGMR) AUT(*USE)"],
+            "ENDJOB" => &["ENDJOB PID(1234) CONFIRM(*YES)"],
+            _ => &[],
+        }
+    }
+
+    pub fn parameter_names(&self) -> Vec<&'static str> {
+        self.parameters
+            .iter()
+            .map(|parameter| parameter.name)
+            .collect()
+    }
+}
+
 const NO_PARAMS: &[CommandParameter] = &[];
 const JOB_FILTER_PARAMS: &[CommandParameter] = &[
     CommandParameter {
@@ -768,6 +803,29 @@ const CMD_PARAMS: &[CommandParameter] = &[CommandParameter {
     values: "command name",
     default: "",
 }];
+const WRKCMD_PARAMS: &[CommandParameter] = &[
+    CommandParameter {
+        name: "CMD",
+        type_: "NAME",
+        required: false,
+        values: "command pattern",
+        default: "*ALL",
+    },
+    CommandParameter {
+        name: "AUTH",
+        type_: "CHAR",
+        required: false,
+        values: "*USE,*CHANGE,*ALL",
+        default: "*ALL",
+    },
+    CommandParameter {
+        name: "STATUS",
+        type_: "CHAR",
+        required: false,
+        values: "stable,experimental,admin-only",
+        default: "*ALL",
+    },
+];
 const USER_PROFILE_PARAMS: &[CommandParameter] = &[
     CommandParameter {
         name: "USRPRF",
@@ -923,6 +981,12 @@ pub const COMMAND_METADATA: &[CommandMetadata] = &[
         parameters: JOB_FILTER_PARAMS,
     },
     CommandMetadata {
+        name: "WRKJOB",
+        text: "Work with job detail",
+        authority: "*USE",
+        parameters: JOB_ACTION_PARAMS,
+    },
+    CommandMetadata {
         name: "WRKJOBQ",
         text: "Work with job queues",
         authority: "*USE",
@@ -968,7 +1032,7 @@ pub const COMMAND_METADATA: &[CommandMetadata] = &[
         name: "WRKCMD",
         text: "Work with command objects",
         authority: "*USE",
-        parameters: NO_PARAMS,
+        parameters: WRKCMD_PARAMS,
     },
     CommandMetadata {
         name: "CRTCMD",
@@ -1087,6 +1151,12 @@ pub const COMMAND_METADATA: &[CommandMetadata] = &[
         text: "Check object authority",
         authority: "*USE",
         parameters: CHECK_AUTH_PARAMS,
+    },
+    CommandMetadata {
+        name: "CHKOBJINT",
+        text: "Check object integrity",
+        authority: "*USE",
+        parameters: OBJ_AUTH_PARAMS,
     },
     CommandMetadata {
         name: "DSPPOLICY",
@@ -1297,6 +1367,7 @@ mod tests {
     const DISPATCHED_COMMANDS: &[&str] = &[
         "WRKSYSSTS",
         "WRKACTJOB",
+        "WRKJOB",
         "WRKJOBQ",
         "HLDJOB",
         "RLSJOB",
@@ -1324,6 +1395,7 @@ mod tests {
         "GRTOBJAUT",
         "RVKOBJAUT",
         "CHKOBJAUT",
+        "CHKOBJINT",
         "DSPPOLICY",
         "DSPAUD",
         "CRTLIB",

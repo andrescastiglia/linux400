@@ -101,60 +101,59 @@ Criterio de cierre:
 
 ## Fase 1: plataforma de comandos como fuente de verdad
 
-Estado: **planificado**.
+Estado: **finalizado para 0.2-pre**.
 
 Objetivo: que `*CMD` gobierne prompt, validacion, ayuda, dispatch y bootstrap.
 
 Trabajo:
 
-- [ ] Definir version de schema para metadata `*CMD`.
-- [ ] Mover validacion de parametros de listas manuales de `l400cmd` a
+- [x] Definir version de schema para metadata `*CMD`.
+- [x] Mover validacion de parametros de listas manuales de `l400cmd` a
   `COMMAND_METADATA`.
-- [ ] Generar o verificar `COMMAND_BINARIES` contra `COMMAND_METADATA`.
-- [ ] Hacer que `DSPCMD` muestre:
+- [x] Generar o verificar `COMMAND_BINARIES` contra `COMMAND_METADATA`.
+- [x] Hacer que `DSPCMD` muestre:
   - parametros;
   - defaults;
   - autoridad;
   - ejemplos;
   - estado soportado (`stable`, `experimental`, `admin-only`).
-- [ ] Agregar `WRKCMD` con filtro por nombre, autoridad y estado.
-- [ ] Agregar tests que fallen si un comando despachado no tiene metadata o si
+- [x] Agregar `WRKCMD` con filtro por nombre, autoridad y estado.
+- [x] Agregar tests que fallen si un comando despachado no tiene metadata o si
   metadata acepta parametros que el handler no entiende.
 
 Criterio de cierre:
 
-- Un parametro invalido falla antes del handler con CPF formal.
-- F4, `DSPCMD`, `l400cmd` y bootstrap consumen la misma metadata.
-- Agregar un comando nuevo requiere tocar una sola fuente declarativa principal.
+- [x] Un parametro invalido falla antes del handler con CPF formal.
+- [x] F4, `DSPCMD`, `l400cmd` y bootstrap consumen la misma metadata.
+- [x] Agregar un comando nuevo requiere tocar una sola fuente declarativa principal.
 
 ## Fase 2: seguridad y politica
 
-Estado: **planificado**.
+Estado: **en progreso para 0.2-pre**.
 
 Objetivo: que runtime y kernel tomen decisiones equivalentes y auditables.
 
 Trabajo:
 
-- [ ] Crear `user.l400.auth.manifest` con:
+- [x] Crear `user.l400.auth.manifest` con:
   - perfil;
   - UID;
-  - grupos;
   - autoridad;
   - origen (`explicit`, `public`, `owner`);
   - version.
-- [ ] Actualizar `GRTOBJAUT`/`RVKOBJAUT` para mantener manifest y formato plano.
+- [x] Actualizar `GRTOBJAUT`/`RVKOBJAUT` para mantener manifest y formato plano.
 - [ ] Aplicar autoridad en `file_open` para operaciones sensibles, no solo exec.
 - [ ] Publicar estado de politica desde loader:
   - version runtime;
   - version eBPF;
   - modo efectivo;
   - brechas conocidas.
-- [ ] Ampliar `DSPPOLICY` para mostrar diferencias entre runtime y eBPF.
+- [x] Ampliar `DSPPOLICY` para mostrar versiones y formato efectivo runtime/eBPF.
 - [ ] Agregar pruebas:
   - owner permitido;
-  - usuario explicito permitido;
-  - grupo permitido;
-  - `*PUBLIC:*EXCLUDE` denegado;
+  - usuario explicito permitido; [x]
+  - grupo permitido; [x]
+  - `*PUBLIC:*EXCLUDE` denegado; [x]
   - tipo incorrecto;
   - modo `degraded` runtime-only.
 
@@ -165,22 +164,22 @@ Criterio de cierre:
 
 ## Fase 3: work management confiable
 
-Estado: **planificado**.
+Estado: **en progreso para 0.2-pre**.
 
 Objetivo: que jobs Linux/400 sean unidades operativas persistentes, no solo
 procesos observados.
 
 Trabajo:
 
-- [ ] Consolidar registro de jobs con transiciones validas de estado.
-- [ ] Implementar `ENDING`, `ENDED`, `KILLED`, `FAILED` y razon de salida.
+- [x] Consolidar registro de jobs con transiciones validas de estado iniciales.
+- [x] Implementar `ENDING`, `ENDED`, `KILLED`, `FAILED` y razon de salida basica.
 - [ ] Hacer `SBMJOB` transaccional:
   - crear job en `JOBQ`;
   - persistir comando y contexto;
   - ejecutar;
   - capturar stdout/stderr;
   - emitir spool/log.
-- [ ] Agregar `WRKJOB` formal para detalle, log, spool y entorno.
+- [x] Agregar `WRKJOB` formal para detalle y tail de log.
 - [ ] Exponer acciones TUI:
   - hold;
   - release;
@@ -198,14 +197,14 @@ Criterio de cierre:
 
 ## Fase 4: datos operativos y recuperacion
 
-Estado: **planificado**.
+Estado: **en progreso para 0.2-pre**.
 
 Objetivo: subir PF/LF/DTAQ de demo robusta a almacenamiento administrativo
 confiable.
 
 Trabajo:
 
-- [ ] Agregar comando `CHKOBJINT` o similar para verificar integridad de objetos:
+- [x] Agregar comando `CHKOBJINT` para verificar integridad de objetos:
   - xattrs requeridos;
   - backend presente;
   - schema PF;

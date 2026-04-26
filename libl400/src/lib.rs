@@ -19,7 +19,7 @@ pub mod util;
 pub mod zfs;
 
 pub use audit::{audit_event, current_l400_user, qhst_path, read_audit_records, AuditRecord};
-pub use auth::{L400Authority, L400Identity, L400Operation};
+pub use auth::{L400Authority, L400Identity, L400Operation, L400_AUTH_MANIFEST_VERSION};
 pub use bootstrap::{bootstrap_l400_root, BootstrapError, BootstrapReport};
 pub use cgroup::{
     assign_to_workload, cleanup_l400_slices, create_l400_slices, end_job, get_current_workload,
@@ -30,6 +30,7 @@ pub use cgroup::{
 };
 pub use cmd::{
     command_metadata, format_command_params, CommandMetadata, CommandParameter, COMMAND_METADATA,
+    COMMAND_METADATA_SCHEMA_VERSION,
 };
 pub use db::{
     add_pf_member, create_lf, create_lf_filtered, create_pf, list_pf_members, read_pf_schema,

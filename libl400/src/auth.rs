@@ -93,6 +93,7 @@ impl std::str::FromStr for L400Authority {
 pub const L400_AUTH_ATTR: &str = "user.l400.auth";
 pub const L400_AUTH_VERSION_ATTR: &str = "user.l400.auth.version";
 pub const L400_AUTH_MANIFEST_ATTR: &str = "user.l400.auth.manifest";
+pub const L400_AUTH_MANIFEST_VERSION: u32 = 2;
 
 /// Lee las autorizaciones de un objeto (formato "USER:PERM,PUBLIC:PERM")
 pub fn get_object_authorities(path: &Path) -> Result<HashMap<String, L400Authority>, AuthError> {
@@ -119,30 +120,60 @@ pub fn set_object_authorities(
     let mut parts = Vec::new();
     for (user, perm) in auths {
         parts.push(format!("{}:{}", user, perm));
-        if let Some(uid) = uid_for_profile(user)? {
+        if let Some(uid) = uid_for_profile(path, user)? {
             parts.push(format!("UID:{}:{}", uid, perm));
         }
     }
     let serialized = parts.join(",");
     xattr::set(path, L400_AUTH_ATTR, serialized.as_bytes())?;
-    xattr::set(path, L400_AUTH_VERSION_ATTR, b"1")?;
+    xattr::set(
+        path,
+        L400_AUTH_VERSION_ATTR,
+        L400_AUTH_MANIFEST_VERSION.to_string().as_bytes(),
+    )?;
     xattr::set(
         path,
         L400_AUTH_MANIFEST_ATTR,
-        format!("version=1;entries={serialized}").as_bytes(),
+        build_auth_manifest(path, auths, &serialized)?.as_bytes(),
     )?;
     Ok(())
 }
 
-fn uid_for_profile(profile: &str) -> Result<Option<String>, AuthError> {
+fn build_auth_manifest(
+    path: &Path,
+    auths: &HashMap<String, L400Authority>,
+    serialized: &str,
+) -> Result<String, AuthError> {
+    let mut entries = Vec::new();
+    for (profile, authority) in auths {
+        let origin = if profile == "*PUBLIC" {
+            "public"
+        } else {
+            "explicit"
+        };
+        let uid = uid_for_profile(path, profile)?.unwrap_or_else(|| "-".to_string());
+        entries.push(format!("{profile}:{uid}:{authority}:{origin}"));
+    }
+    entries.sort();
+    Ok(format!(
+        "version={};entries={};flat={serialized}",
+        L400_AUTH_MANIFEST_VERSION,
+        entries.join(",")
+    ))
+}
+
+fn uid_for_profile(object_path: &Path, profile: &str) -> Result<Option<String>, AuthError> {
     let profile = profile.trim().to_uppercase();
     if profile.is_empty() || profile.starts_with('*') || profile.starts_with("UID:") {
         return Ok(None);
     }
 
-    let profile_path = crate::object::resolve_l400_root()
-        .join("QSYS")
-        .join(&profile);
+    let root = object_path
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(crate::object::resolve_l400_root);
+    let profile_path = root.join("QSYS").join(&profile);
     if !profile_path.exists() {
         return Ok(None);
     }
@@ -355,7 +386,6 @@ mod tests {
     #[test]
     fn grant_profile_authority_writes_uid_entry_for_ebpf() {
         let root = tempfile::tempdir().expect("tempdir");
-        std::env::set_var("L400_ROOT", root.path());
         let qsys = root.path().join("QSYS");
         std::fs::create_dir_all(&qsys).expect("create qsys dir");
         catalog_object(&qsys, "*LIB", Some("LIB"), Some("System library")).expect("catalog qsys");
@@ -378,7 +408,6 @@ mod tests {
         let uid = unsafe { libc::geteuid() };
         assert!(auth.contains("QPGMR:*USE"));
         assert!(auth.contains(&format!("UID:{uid}:*USE")));
-        std::env::remove_var("L400_ROOT");
     }
 
     #[test]
@@ -396,8 +425,14 @@ mod tests {
         let manifest = xattr::get(&file, L400_AUTH_MANIFEST_ATTR)
             .expect("manifest attr")
             .expect("manifest present");
-        assert_eq!(String::from_utf8(version).unwrap(), "1");
-        assert!(String::from_utf8(manifest).unwrap().contains("DEVGRP:*USE"));
+        assert_eq!(
+            String::from_utf8(version).unwrap(),
+            L400_AUTH_MANIFEST_VERSION.to_string()
+        );
+        let manifest = String::from_utf8(manifest).unwrap();
+        assert!(manifest.contains("version=2"));
+        assert!(manifest.contains("DEVGRP:-:*USE:explicit"));
+        assert!(manifest.contains("flat=DEVGRP:*USE"));
 
         let identity = L400Identity {
             profile: "QUSER".to_string(),
