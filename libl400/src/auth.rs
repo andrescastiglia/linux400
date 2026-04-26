@@ -119,6 +119,9 @@ pub fn set_object_authorities(
     let mut parts = Vec::new();
     for (user, perm) in auths {
         parts.push(format!("{}:{}", user, perm));
+        if let Some(uid) = uid_for_profile(user)? {
+            parts.push(format!("UID:{}:{}", uid, perm));
+        }
     }
     let serialized = parts.join(",");
     xattr::set(path, L400_AUTH_ATTR, serialized.as_bytes())?;
@@ -129,6 +132,32 @@ pub fn set_object_authorities(
         format!("version=1;entries={serialized}").as_bytes(),
     )?;
     Ok(())
+}
+
+fn uid_for_profile(profile: &str) -> Result<Option<String>, AuthError> {
+    let profile = profile.trim().to_uppercase();
+    if profile.is_empty() || profile.starts_with('*') || profile.starts_with("UID:") {
+        return Ok(None);
+    }
+
+    let profile_path = crate::object::resolve_l400_root()
+        .join("QSYS")
+        .join(&profile);
+    if !profile_path.exists() {
+        return Ok(None);
+    }
+    let Some(raw) = xattr::get(&profile_path, crate::object::L400_OWNER_UID_ATTR)? else {
+        return Ok(None);
+    };
+    let Ok(uid) = String::from_utf8(raw) else {
+        return Ok(None);
+    };
+    let uid = uid.trim();
+    if uid.chars().all(|ch| ch.is_ascii_digit()) && !uid.is_empty() {
+        Ok(Some(uid.to_string()))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Otorga un permiso específico a un usuario sobre un objeto
@@ -297,7 +326,7 @@ fn auth_level(auth: L400Authority) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::{catalog_object, create_library};
+    use crate::object::{catalog_object, create_library, create_object_with_metadata};
 
     #[test]
     fn public_exclude_denies_call_authority() {
@@ -321,6 +350,35 @@ mod tests {
         grant_object_authority(&pgm, "QPGMR", L400Authority::Use).expect("grant use");
 
         assert!(check_command_authority(&pgm, "QPGMR", "CALL").expect("check authority"));
+    }
+
+    #[test]
+    fn grant_profile_authority_writes_uid_entry_for_ebpf() {
+        let root = tempfile::tempdir().expect("tempdir");
+        std::env::set_var("L400_ROOT", root.path());
+        let qsys = root.path().join("QSYS");
+        std::fs::create_dir_all(&qsys).expect("create qsys dir");
+        catalog_object(&qsys, "*LIB", Some("LIB"), Some("System library")).expect("catalog qsys");
+        create_object_with_metadata(&qsys, "QPGMR", "*USRPRF", Some("USRPRF"), Some("profile"))
+            .expect("create profile");
+        let lib = root.path().join("QGPL");
+        std::fs::create_dir_all(&lib).expect("create qgpl dir");
+        catalog_object(&lib, "*LIB", Some("LIB"), Some("General library")).expect("catalog qgpl");
+        let pgm = lib.join("HELLO");
+        std::fs::write(&pgm, "#!/bin/sh\nexit 0\n").expect("write pgm");
+        catalog_object(&pgm, "*PGM", Some("CL"), Some("test")).expect("catalog pgm");
+
+        grant_object_authority(&pgm, "*PUBLIC", L400Authority::Exclude).expect("grant exclude");
+        grant_object_authority(&pgm, "QPGMR", L400Authority::Use).expect("grant use");
+
+        let auth = xattr::get(&pgm, L400_AUTH_ATTR)
+            .expect("auth attr")
+            .expect("auth present");
+        let auth = String::from_utf8(auth).expect("auth utf8");
+        let uid = unsafe { libc::geteuid() };
+        assert!(auth.contains("QPGMR:*USE"));
+        assert!(auth.contains(&format!("UID:{uid}:*USE")));
+        std::env::remove_var("L400_ROOT");
     }
 
     #[test]

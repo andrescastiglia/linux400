@@ -169,10 +169,9 @@ impl CommandLine {
 
     fn start_prompt(&mut self) {
         let action = self
-            .command
-            .split_whitespace()
-            .next()
-            .map(str::to_uppercase)
+            .command_tokens()
+            .first()
+            .map(|value| value.to_uppercase())
             .unwrap_or_else(|| "WRKOBJ".to_string());
         let fields = if let Some(metadata) = l400::command_metadata(&action) {
             metadata
@@ -509,6 +508,10 @@ impl CommandLine {
             _ => false,
         }
     }
+
+    fn command_tokens(&self) -> Vec<String> {
+        tokenize_cl_command(&self.command)
+    }
 }
 
 impl Screen for CommandLine {
@@ -629,7 +632,7 @@ fn extract_command_arg(tokens: &[String], key: &str) -> Option<String> {
     })
 }
 
-fn tokenize_cl_command(command: &str) -> Vec<String> {
+pub(crate) fn tokenize_cl_command(command: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut depth = 0usize;

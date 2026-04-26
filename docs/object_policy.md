@@ -21,9 +21,9 @@ Los tipos validos se definen en `l400-ebpf-common/src/lib.rs` y son compartidos 
 | `*USRPRF` | `*USR` | Perfil de usuario Linux/400. No ejecutable. |
 | `*LIB` | `*LIB` | Biblioteca/directorio catalogado. No ejecutable. |
 | `*DTAQ` | `*DTA` | Data queue. No ejecutable. |
-| `*CMD` | `*CMD` | Objeto comando futuro. No ejecutable en esta fase. |
+| `*CMD` | `*CMD` | Comando promptable y documentable. No ejecutable. |
 | `*SRVPGM` | `*SRV` | Service program futuro. No ejecutable en esta fase. |
-| `*OUTQ` | `*OUT` | Output queue futuro. No ejecutable. |
+| `*OUTQ` | `*OUT` | Output queue y spool. No ejecutable. |
 
 Agregar un tipo nuevo exige actualizar `l400-ebpf-common`, `libl400` y la matriz de politica eBPF.
 
@@ -110,6 +110,11 @@ Formato de `user.l400.auth`:
 ```text
 USER:*USE,*PUBLIC:*EXCLUDE
 ```
+
+Cuando `GRTOBJAUT` puede resolver el perfil Linux/400 a un objeto `*USRPRF`, el
+runtime agrega una entrada espejo `UID:<uid>:*AUTH` en el mismo xattr. Esto
+mantiene el formato operable por perfil para comandos y pantallas, y a la vez
+da a eBPF una clave estable para enforcement de ejecucion.
 
 Reglas runtime:
 
