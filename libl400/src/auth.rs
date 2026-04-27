@@ -169,8 +169,8 @@ fn uid_for_profile(object_path: &Path, profile: &str) -> Result<Option<String>, 
     }
 
     let root = object_path
-        .parent()
-        .and_then(Path::parent)
+        .ancestors()
+        .find(|candidate| candidate.join("QSYS").exists())
         .map(Path::to_path_buf)
         .unwrap_or_else(crate::object::resolve_l400_root);
     let profile_path = root.join("QSYS").join(&profile);
