@@ -1359,6 +1359,28 @@ pub fn command_metadata(name: &str) -> Option<&'static CommandMetadata> {
         .find(|metadata| metadata.name == name.as_str())
 }
 
+pub fn format_command_params(metadata: &CommandMetadata) -> String {
+    metadata
+        .parameters
+        .iter()
+        .map(|param| {
+            format!(
+                "{}:{}:{}:{}:{}",
+                param.name,
+                param.type_,
+                if param.required {
+                    "required"
+                } else {
+                    "optional"
+                },
+                param.values,
+                param.default
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{COMMAND_METADATA, command_metadata};
@@ -1448,26 +1470,4 @@ mod tests {
             );
         }
     }
-}
-
-pub fn format_command_params(metadata: &CommandMetadata) -> String {
-    metadata
-        .parameters
-        .iter()
-        .map(|param| {
-            format!(
-                "{}:{}:{}:{}:{}",
-                param.name,
-                param.type_,
-                if param.required {
-                    "required"
-                } else {
-                    "optional"
-                },
-                param.values,
-                param.default
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("|")
 }
