@@ -74,12 +74,12 @@ impl LoaderStatus {
             Some(value) => {
                 return Err(RuntimeStatusError::InvalidEntry(format!(
                     "invalid protection_active={value}"
-                )))
+                )));
             }
             None => {
                 return Err(RuntimeStatusError::InvalidEntry(
                     "missing protection_active".to_string(),
-                ))
+                ));
             }
         };
         let phase = map
@@ -135,7 +135,9 @@ mod tests {
     #[test]
     fn loader_status_round_trip() {
         let root = tempdir().unwrap();
-        env::set_var("L400_RUN_DIR", root.path());
+        unsafe {
+            env::set_var("L400_RUN_DIR", root.path());
+        }
 
         let mut status = LoaderStatus::new("degraded", false, "fallback");
         status.bpf_path = Some("/opt/l400/hooks/l400-ebpf".to_string());
@@ -147,6 +149,8 @@ mod tests {
         let parsed = read_loader_status().unwrap();
         assert_eq!(parsed, status);
 
-        env::remove_var("L400_RUN_DIR");
+        unsafe {
+            env::remove_var("L400_RUN_DIR");
+        }
     }
 }

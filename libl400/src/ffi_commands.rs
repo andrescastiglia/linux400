@@ -265,7 +265,7 @@ fn run_power_down_action(action: PowerDownAction) -> std::io::Result<()> {
 // ---------------------------------------------------------------------------
 
 /// WRKSYSSTS — Muestra estado del sistema (CPU, jobs, memoria)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrksyssts() {
     println!("=== WRKSYSSTS - Estado del Sistema Linux/400 ===");
 
@@ -328,12 +328,12 @@ pub extern "C" fn l400_wrksyssts() {
 }
 
 /// WRKACTJOB — Lista jobs activos del job registry
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkactjob() {
     l400_wrkactjob_spec(std::ptr::null());
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkactjob_spec(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -445,7 +445,7 @@ pub extern "C" fn l400_wrkactjob_spec(spec: *const c_char) {
     println!("====================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkjobq() {
     println!("=== WRKJOBQ - Job Queues ===");
     println!("  {:10} {:10} {:8} COMMAND", "JOBQ", "STATUS", "PID");
@@ -487,7 +487,7 @@ fn job_pid_from_fields(fields: &std::collections::HashMap<String, String>) -> Op
         })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkjob(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
     let Some(pid) = job_pid_from_fields(&fields) else {
@@ -552,7 +552,7 @@ pub extern "C" fn l400_wrkjob(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_hldjob(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
     match job_pid_from_fields(&fields) {
@@ -567,7 +567,7 @@ pub extern "C" fn l400_hldjob(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_rlsjob(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
     match job_pid_from_fields(&fields) {
@@ -582,7 +582,7 @@ pub extern "C" fn l400_rlsjob(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_endjob(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
     let confirmed = fields
@@ -607,7 +607,7 @@ pub extern "C" fn l400_endjob(spec: *const c_char) {
 }
 
 /// WRKSYSVAL — Muestra valores de configuración del sistema
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrksysval() {
     println!("=== WRKSYSVAL - Valores del Sistema ===");
     let root = crate::object::resolve_l400_root();
@@ -621,7 +621,7 @@ pub extern "C" fn l400_wrksysval() {
 }
 
 /// DSPLOG — Muestra entradas del log del sistema
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dsplog() {
     println!("=== DSPLOG - Historial del Sistema (QHST) ===");
     // Intentar leer /var/log/syslog o /var/log/messages
@@ -641,7 +641,7 @@ pub extern "C" fn l400_dsplog() {
 }
 
 /// WRKSPLF — Lista spool files si existe un directorio de spool configurado.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrksplf() {
     println!("=== WRKSPLF - Spool Files ===");
     let root = crate::object::resolve_l400_root();
@@ -682,7 +682,7 @@ pub extern "C" fn l400_wrksplf() {
 }
 
 /// WRKOUTQ — Lista output queues catalogadas como *OUTQ y el spool base.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkoutq() {
     println!("=== WRKOUTQ - Output Queues ===");
     let root = crate::object::resolve_l400_root();
@@ -744,7 +744,7 @@ fn spool_dir() -> PathBuf {
         })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtoutq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -778,7 +778,7 @@ pub extern "C" fn l400_crtoutq(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dltoutq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -836,7 +836,7 @@ fn first_spool_file() -> Option<PathBuf> {
         .max_by_key(|path| path.metadata().and_then(|m| m.modified()).ok())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dspsplf(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
     let path = resolve_spool_file(&fields);
@@ -855,7 +855,7 @@ pub extern "C" fn l400_dspsplf(spec: *const c_char) {
     println!("==============================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dltsplf(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
     let confirmed = fields
@@ -878,12 +878,12 @@ pub extern "C" fn l400_dltsplf(spec: *const c_char) {
 }
 
 /// WRKCMD — Lista comandos catalogados como *CMD.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkcmd() {
     l400_wrkcmd_spec(std::ptr::null());
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkcmd_spec(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
     let cmd_filter = fields
@@ -962,7 +962,7 @@ pub extern "C" fn l400_wrkcmd_spec(spec: *const c_char) {
 }
 
 /// DSPCMD — Muestra metadata promptable de un objeto *CMD.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dspcmd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1043,7 +1043,7 @@ pub extern "C" fn l400_dspcmd(spec: *const c_char) {
 }
 
 /// CRTCMD — Registra un comando interno minimo como objeto *CMD.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtcmd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1076,7 +1076,7 @@ pub extern "C" fn l400_crtcmd(spec: *const c_char) {
 }
 
 /// WRKUSRPRF — Gestiona perfiles de usuario
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkusrprf(usrprf: *const c_char) {
     let spec = c_str_to_string(usrprf);
     let fields = parse_command_fields(&spec);
@@ -1166,7 +1166,7 @@ pub extern "C" fn l400_wrkusrprf(usrprf: *const c_char) {
 }
 
 /// PWRDWNSYS — Apaga o reinicia el sistema
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_pwrdwnsys(option: *const c_char) {
     clear_status();
     let spec = c_str_to_string(option);
@@ -1221,7 +1221,7 @@ pub extern "C" fn l400_pwrdwnsys(option: *const c_char) {
 // ---------------------------------------------------------------------------
 
 /// WRKOBJ — Busca y lista objetos del catálogo
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkobj(obj_filter: *const c_char) {
     let spec = c_str_to_string(obj_filter);
     let fields = parse_command_fields(&spec);
@@ -1289,7 +1289,7 @@ pub extern "C" fn l400_wrkobj(obj_filter: *const c_char) {
     println!("=====================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dltobj(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1319,7 +1319,7 @@ pub extern "C" fn l400_dltobj(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_cpyobj(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1341,7 +1341,7 @@ pub extern "C" fn l400_cpyobj(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dspobjd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1396,7 +1396,7 @@ pub extern "C" fn l400_dspobjd(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_chgobjd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1432,7 +1432,7 @@ pub extern "C" fn l400_chgobjd(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dspobjaut(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1463,7 +1463,7 @@ pub extern "C" fn l400_dspobjaut(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_grtobjaut(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1498,7 +1498,7 @@ pub extern "C" fn l400_grtobjaut(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_rvkobjaut(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1521,7 +1521,7 @@ pub extern "C" fn l400_rvkobjaut(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_chkobjaut(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1567,7 +1567,7 @@ pub extern "C" fn l400_chkobjaut(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_chkobjint(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1637,7 +1637,7 @@ pub extern "C" fn l400_chkobjint(spec: *const c_char) {
     println!("===================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dsppolicy() {
     println!("=== DSPPOLICY - Matriz de autorizaciones Linux/400 ===");
     println!("  {:24} {:10} REQUIRED", "COMMAND", "OPERATION");
@@ -1659,7 +1659,7 @@ pub extern "C" fn l400_dsppolicy() {
     println!("================================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dspaudit() {
     println!("=== DSPAUD - Auditoria QHST/Linux400 ===");
     match crate::audit::read_audit_records(50) {
@@ -1682,7 +1682,7 @@ pub extern "C" fn l400_dspaudit() {
     println!("========================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtpf(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1730,7 +1730,7 @@ pub extern "C" fn l400_crtpf(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtlf(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1768,7 +1768,7 @@ pub extern "C" fn l400_crtlf(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dsppfm(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1825,7 +1825,7 @@ pub extern "C" fn l400_dsppfm(spec: *const c_char) {
     println!("======================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_clrpfm(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1854,7 +1854,7 @@ pub extern "C" fn l400_clrpfm(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_addpfm(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1875,7 +1875,7 @@ pub extern "C" fn l400_addpfm(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrtpfm(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1919,7 +1919,7 @@ pub extern "C" fn l400_wrtpfm(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtdtaq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1941,7 +1941,7 @@ pub extern "C" fn l400_crtdtaq(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_snddtaq_cmd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1963,7 +1963,7 @@ pub extern "C" fn l400_snddtaq_cmd(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_rcvdtaq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1988,7 +1988,7 @@ pub extern "C" fn l400_rcvdtaq(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dspdtaq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -2042,7 +2042,7 @@ fn parse_pf_fields(spec: &str) -> Vec<crate::db::PfField> {
 }
 
 /// CRTLIB — Crea una biblioteca (*LIB)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtlib(lib: *const c_char) {
     let name = c_str_to_string(lib);
     let root = crate::object::resolve_l400_root();
@@ -2053,7 +2053,7 @@ pub extern "C" fn l400_crtlib(lib: *const c_char) {
 }
 
 /// DLTLIB — Elimina una biblioteca
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dltlib(lib: *const c_char) {
     let name = c_str_to_string(lib);
     let root = crate::object::resolve_l400_root();
@@ -2065,7 +2065,7 @@ pub extern "C" fn l400_dltlib(lib: *const c_char) {
 }
 
 /// ADDLIBLE — Añade biblioteca a la library list del proceso (env var)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_addlible(lib: *const c_char) {
     let name = c_str_to_string(lib);
     let current = std::env::var("L400_LIBLIST").unwrap_or_default();
@@ -2082,7 +2082,7 @@ pub extern "C" fn l400_addlible(lib: *const c_char) {
 }
 
 /// CHGCURLIB — Cambia la biblioteca actual de trabajo
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_chgcurlib(lib: *const c_char) {
     let name = c_str_to_string(lib);
     unsafe {
@@ -2092,7 +2092,7 @@ pub extern "C" fn l400_chgcurlib(lib: *const c_char) {
 }
 
 /// RNMOBJ — Renombra un objeto (conservando xattrs)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_rnmobj(obj: *const c_char, newname: *const c_char) {
     let src_name = c_str_to_string(obj);
     let dst_name = c_str_to_string(newname);
@@ -2107,7 +2107,7 @@ pub extern "C" fn l400_rnmobj(obj: *const c_char, newname: *const c_char) {
 }
 
 /// CRTPGM — Registra/cataloga un objeto *PGM
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtpgm(pgm: *const c_char) {
     let name = c_str_to_string(pgm);
     let root = crate::object::resolve_l400_root();
@@ -2167,7 +2167,7 @@ fn resolve_clc_binary() -> PathBuf {
 }
 
 /// CALL — Ejecuta un programa *PGM resolviendo CURLIB/LIBLIST.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_call(pgm: *const c_char) {
     let pgm = c_str_to_string(pgm);
     let root = crate::object::resolve_l400_root();
@@ -2246,7 +2246,7 @@ pub extern "C" fn l400_call(pgm: *const c_char) {
 }
 
 /// CRTCLPGM — Compila un miembro CL y cataloga el resultado como *PGM.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcmbr: *const c_char) {
     let pgm = c_str_to_string(pgm);
     let srcfile = c_str_to_string(srcfile);
@@ -2293,7 +2293,7 @@ pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcm
 // ---------------------------------------------------------------------------
 
 /// GO — Navega a un menú (modo batch: imprime mensaje)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_go(target: *const c_char) {
     let menu = c_str_to_string(target);
     println!(
@@ -2303,14 +2303,14 @@ pub extern "C" fn l400_go(target: *const c_char) {
 }
 
 /// SIGNOFF — Cierra la sesión activa
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_signoff() {
     println!("[SIGNOFF] Cerrando sesión Linux/400.");
     std::process::exit(0);
 }
 
 /// STRPDM — Lista las bibliotecas catalogadas.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_strpdm() {
     println!("=== STRPDM - Programming Development Manager ===");
     let root = crate::object::resolve_l400_root();
@@ -2327,7 +2327,7 @@ pub extern "C" fn l400_strpdm() {
 }
 
 /// WRKMBRPDM — Lista miembros dentro de un archivo fuente.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkmbrpdm(file: *const c_char) {
     let file_spec = c_str_to_string(file);
     let (library, file_name) = resolve_file_spec(&file_spec);
@@ -2348,7 +2348,7 @@ pub extern "C" fn l400_wrkmbrpdm(file: *const c_char) {
     println!("======================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dltmbr(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -2384,7 +2384,7 @@ pub extern "C" fn l400_dltmbr(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_cpymbr(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -2415,7 +2415,7 @@ pub extern "C" fn l400_cpymbr(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_chgmbrd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -2448,7 +2448,7 @@ pub extern "C" fn l400_chgmbrd(spec: *const c_char) {
 }
 
 /// STRSEU — Muestra el contenido de un miembro fuente en modo batch.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_strseu(file: *const c_char, mbr: *const c_char) {
     let file_spec = c_str_to_string(file);
     let member = c_str_to_string(mbr).trim().to_uppercase();
@@ -2491,7 +2491,7 @@ fn print_sql_result(result: crate::db::SqlStatementResult) {
 }
 
 /// STRSQL — Ejecuta una sentencia SQL leída desde stdin.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_strsql() {
     let mut statement = String::new();
     if std::io::stdin().read_to_string(&mut statement).is_err() || statement.trim().is_empty() {
@@ -2507,7 +2507,7 @@ pub extern "C" fn l400_strsql() {
 
 #[cfg(test)]
 mod tests {
-    use super::{confirmed_yes, parse_command_fields, PowerDownAction};
+    use super::{PowerDownAction, confirmed_yes, parse_command_fields};
 
     #[test]
     fn parse_command_fields_keeps_values_with_spaces() {

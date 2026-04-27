@@ -1,6 +1,6 @@
 use crate::zfs::{
-    create_dataset, get_objtype, set_objtype, validate_objtype, zfs_command_available,
-    zfs_dataset_for_path, ZfsError,
+    ZfsError, create_dataset, get_objtype, set_objtype, validate_objtype, zfs_command_available,
+    zfs_dataset_for_path,
 };
 use std::env;
 use std::fs;

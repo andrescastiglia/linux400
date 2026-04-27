@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use aya::{programs::Lsm, Ebpf};
+use aya::{Ebpf, programs::Lsm};
 use clap::{Parser, ValueEnum};
-use l400::{write_loader_status, LoaderStatus};
+use l400::{LoaderStatus, write_loader_status};
 use log::{info, warn};
 use std::fs;
 use std::path::PathBuf;
@@ -175,7 +175,7 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
                 mode,
                 "No se pudo leer el bytecode eBPF",
                 anyhow::Error::new(err),
-            )
+            );
         }
     };
 
@@ -200,7 +200,7 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
                 mode,
                 "No existe el programa file_open",
                 anyhow::anyhow!("missing file_open"),
-            )
+            );
         }
     };
     if let Err(err) = file_open
@@ -219,7 +219,7 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
                 mode,
                 "No existe el programa bprm_creds_from_file",
                 anyhow::anyhow!("missing bprm_creds_from_file"),
-            )
+            );
         }
     };
     if let Err(err) = bprm_creds_from_file
@@ -238,7 +238,7 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
                 mode,
                 "No existe el programa bprm_check_security",
                 anyhow::anyhow!("missing bprm_check_security"),
-            )
+            );
         }
     };
     if let Err(err) = bprm_check_security

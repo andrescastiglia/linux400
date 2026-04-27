@@ -1,14 +1,14 @@
 use anyhow::Result;
 use crossterm::{
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use l400::{
-    assign_to_workload, cgroup::JobStatus, create_l400_slices, register_current_job, remove_job,
-    update_job_status, WorkloadType,
+    WorkloadType, assign_to_workload, cgroup::JobStatus, create_l400_slices, register_current_job,
+    remove_job, update_job_status,
 };
-use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
 
 fn main() -> Result<()> {
     // La TUI es un workload interactivo, pero la falla en cgroups no debe impedir el login.

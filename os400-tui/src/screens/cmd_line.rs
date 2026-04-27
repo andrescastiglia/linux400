@@ -1,10 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
     text::Text,
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 use std::process::Command;
 

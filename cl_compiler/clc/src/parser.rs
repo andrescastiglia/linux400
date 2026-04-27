@@ -435,13 +435,17 @@ mod tests {
         .expect("parse_file falló");
 
         assert_eq!(program.parameters, vec!["LIB".to_string()]);
-        assert!(program
-            .statements
-            .iter()
-            .any(|statement| matches!(statement, Statement::If { .. })));
-        assert!(program
-            .statements
-            .iter()
-            .any(|statement| matches!(statement, Statement::MonMsg { .. })));
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, Statement::If { .. }))
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, Statement::MonMsg { .. }))
+        );
     }
 }

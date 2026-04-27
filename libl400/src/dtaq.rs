@@ -1,10 +1,10 @@
 use crate::bdb_native::{BdbError, BdbHandle};
-use crate::object::{catalog_object, ObjectError};
+use crate::object::{ObjectError, catalog_object};
 use crate::storage::{
-    default_storage_backend, open_sled_db, read_storage_backend, write_storage_backend,
-    StorageBackend, StorageError,
+    StorageBackend, StorageError, default_storage_backend, open_sled_db, read_storage_backend,
+    write_storage_backend,
 };
-use crate::zfs::{get_objtype, validate_objtype, ZfsError};
+use crate::zfs::{ZfsError, get_objtype, validate_objtype};
 use sled::{Db, Tree};
 use std::path::Path;
 use thiserror::Error;

@@ -1,10 +1,10 @@
-use crate::dtaq::{crtdtaq, DataQueue, DtaqError};
+use crate::dtaq::{DataQueue, DtaqError, crtdtaq};
 use crate::object::{
-    catalog_object, create_object_with_metadata, create_source_member, describe_object,
-    ensure_library, member_path, ObjectError,
+    ObjectError, catalog_object, create_object_with_metadata, create_source_member,
+    describe_object, ensure_library, member_path,
 };
 use crate::{
-    format_command_params, write_string_attr, COMMAND_METADATA, COMMAND_METADATA_SCHEMA_VERSION,
+    COMMAND_METADATA, COMMAND_METADATA_SCHEMA_VERSION, format_command_params, write_string_attr,
 };
 use std::fs;
 use std::path::{Path, PathBuf};

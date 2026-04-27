@@ -1,10 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use l400::{create_source_member, list_members, resolve_l400_root, SourceMemberInfo};
+use l400::{SourceMemberInfo, create_source_member, list_members, resolve_l400_root};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
     widgets::{Block, Borders, Paragraph, Row, Table, TableState},
-    Frame,
 };
 
 use crate::screens::{Screen, ScreenId, ScreenResult};

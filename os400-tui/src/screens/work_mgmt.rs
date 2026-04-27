@@ -1,13 +1,13 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use l400::{
-    end_job, get_workload_params, is_cgroup_v2_available, list_jobs, subsystem_descriptions,
-    WorkloadJob, WorkloadType,
+    WorkloadJob, WorkloadType, end_job, get_workload_params, is_cgroup_v2_available, list_jobs,
+    subsystem_descriptions,
 };
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
     widgets::{Block, Borders, Paragraph, Row, Table, TableState},
-    Frame,
 };
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
@@ -286,17 +286,16 @@ impl WorkManagement {
         };
         let filter = self.subsystem_filter.as_deref().unwrap_or("*ALL");
         let lines: Vec<Line> = vec![
-            Line::from(vec![format!(
-                "Source: {}. Filter SBS({}). Type options, press Enter.",
-                source, filter
-            )
-            .into()]),
-            Line::from(vec![format!(
-                "{}   {}",
-                subsystem_summary(),
-                cgroup_summary()
-            )
-            .into()]),
+            Line::from(vec![
+                format!(
+                    "Source: {}. Filter SBS({}). Type options, press Enter.",
+                    source, filter
+                )
+                .into(),
+            ]),
+            Line::from(vec![
+                format!("{}   {}", subsystem_summary(), cgroup_summary()).into(),
+            ]),
         ];
         let text = ratatui::text::Text::from(lines);
 

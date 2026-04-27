@@ -37,7 +37,7 @@ pub struct bpf_dynptr {
     val: [u64; 2],
 }
 
-extern "C" {
+unsafe extern "C" {
     pub fn bpf_dynptr_from_mem(
         data: *mut c_void,
         size: u32,
@@ -474,6 +474,7 @@ pub fn bprm_check_security(ctx: LsmContext) -> i32 {
     }
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unsafe { core::hint::unreachable_unchecked() }

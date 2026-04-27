@@ -1,6 +1,6 @@
 use std::env;
 use std::ffi::CString;
-use std::io::{stdin, stdout, IsTerminal};
+use std::io::{IsTerminal, stdin, stdout};
 use std::os::raw::c_char;
 use std::path::Path;
 use std::process::Command;
@@ -854,7 +854,7 @@ fn print_usage(bad_command: Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        command_spec, parse_named_arg, positional_args, validate_named_args, COMMAND_BINARIES,
+        COMMAND_BINARIES, command_spec, parse_named_arg, positional_args, validate_named_args,
     };
 
     #[test]

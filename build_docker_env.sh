@@ -8,7 +8,7 @@ echo "=== Configurando Entorno QEMU Multiarch ==="
 docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
 echo "=== Prueba de plataforma ARM64 vía QEMU ==="
-docker run --rm -it --platform linux/arm64 ubuntu:22.04 uname -m
+docker run --rm -it --platform linux/arm64 ubuntu:26.04 uname -m
 
 echo "=== Iniciando Entorno Buildx ==="
 # Creamos el builder si no existe e instruimos usarlo directamente

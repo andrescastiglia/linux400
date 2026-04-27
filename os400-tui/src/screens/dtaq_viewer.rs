@@ -1,11 +1,11 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use l400::{resolve_l400_root, DataQueue};
+use l400::{DataQueue, resolve_l400_root};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
     text::Text,
     widgets::{Block, Borders, Paragraph, Row, Table, TableState},
-    Frame,
 };
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
@@ -152,11 +152,13 @@ impl Screen for DataQueueViewer {
 
 impl DataQueueViewer {
     fn render_header(&self, frame: &mut Frame, area: Rect) {
-        let title = Line::from(vec![format!(
-            " Data Queue Viewer  DTAQ: {}/{} ",
-            self.current_library, self.current_dtaq
-        )
-        .into()]);
+        let title = Line::from(vec![
+            format!(
+                " Data Queue Viewer  DTAQ: {}/{} ",
+                self.current_library, self.current_dtaq
+            )
+            .into(),
+        ]);
 
         let block = Block::default()
             .title(title)
@@ -172,11 +174,9 @@ impl DataQueueViewer {
             "Sin catalogo"
         };
         let lines: Vec<Line> = vec![
-            Line::from(vec![format!(
-                "Source: {}. Options: 5=Display message.",
-                source_label
-            )
-            .into()]),
+            Line::from(vec![
+                format!("Source: {}. Options: 5=Display message.", source_label).into(),
+            ]),
             Line::from(vec!["Opt  Key      Data".into()]),
         ];
         let text = Text::from(lines);

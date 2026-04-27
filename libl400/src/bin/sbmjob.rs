@@ -1,6 +1,6 @@
 use clap::Parser;
 use l400::cgroup::{
-    assign_to_workload, job_log_path, register_job, update_job_status, JobStatus, WorkloadType,
+    JobStatus, WorkloadType, assign_to_workload, job_log_path, register_job, update_job_status,
 };
 use std::env;
 use std::fs::OpenOptions;

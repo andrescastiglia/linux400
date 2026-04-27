@@ -1361,7 +1361,7 @@ pub fn command_metadata(name: &str) -> Option<&'static CommandMetadata> {
 
 #[cfg(test)]
 mod tests {
-    use super::{command_metadata, COMMAND_METADATA};
+    use super::{COMMAND_METADATA, command_metadata};
     use std::collections::HashSet;
 
     const DISPATCHED_COMMANDS: &[&str] = &[

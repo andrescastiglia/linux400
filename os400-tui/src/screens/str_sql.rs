@@ -1,10 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use l400::run_select_query;
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
     widgets::{Block, Borders, Paragraph, Row, Table, TableState},
-    Frame,
 };
 
 use crate::screens::{Screen, ScreenId, ScreenResult};

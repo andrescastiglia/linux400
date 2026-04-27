@@ -1,14 +1,14 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
-    Frame,
 };
 
 use crate::{
-    auth::{authenticate_linux_user, DEFAULT_SIGNON_PASSWORD, DEFAULT_SIGNON_USER},
+    auth::{DEFAULT_SIGNON_PASSWORD, DEFAULT_SIGNON_USER, authenticate_linux_user},
     screens::{Screen, ScreenId, ScreenResult},
     style::*,
 };

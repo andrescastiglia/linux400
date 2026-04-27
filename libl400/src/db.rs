@@ -1,12 +1,12 @@
 use crate::bdb_native::{BdbError, BdbHandle};
-use crate::object::{catalog_object, ObjectError};
+use crate::object::{ObjectError, catalog_object};
 use crate::storage::{
-    default_storage_backend, open_sled_db, read_storage_backend, read_string_attr, read_u32_attr,
-    write_storage_backend, write_string_attr, write_u32_attr, StorageBackend, StorageError,
     L400_BASE_PF_ATTR, L400_FIELD_SCHEMA_ATTR, L400_KEY_FIELDS_ATTR, L400_PF_MEMBERS_ATTR,
-    L400_RECORD_LEN_ATTR,
+    L400_RECORD_LEN_ATTR, StorageBackend, StorageError, default_storage_backend, open_sled_db,
+    read_storage_backend, read_string_attr, read_u32_attr, write_storage_backend,
+    write_string_attr, write_u32_attr,
 };
-use crate::zfs::{get_objtype, validate_objtype, ZfsError};
+use crate::zfs::{ZfsError, get_objtype, validate_objtype};
 use sled::{Db, Tree};
 use std::path::Path;
 use thiserror::Error;
@@ -550,7 +550,7 @@ pub fn create_lf_filtered(
         _ => {
             return Err(DbError::Storage(StorageError::InvalidBackend(
                 "physical file storage/backend mismatch".to_string(),
-            )))
+            )));
         }
     };
 
@@ -1153,7 +1153,7 @@ fn run_insert_statement(
             other => {
                 return Err(DbError::InvalidQuery(format!(
                     "INSERT does not support column {other}"
-                )))
+                )));
             }
         }
     }
@@ -1507,9 +1507,11 @@ mod tests {
         );
 
         add_pf_member(&pf.path, "JAN2026").expect("add_pf_member falló");
-        assert!(list_pf_members(&pf.path)
-            .expect("list_pf_members falló")
-            .contains(&"JAN2026".to_string()));
+        assert!(
+            list_pf_members(&pf.path)
+                .expect("list_pf_members falló")
+                .contains(&"JAN2026".to_string())
+        );
 
         let lf = create_lf(&lib_path, "CUSTBYNAME", &pf).expect("create_lf falló");
         pf.write_rcd(b"C001", b"ALICE").expect("write_rcd falló");

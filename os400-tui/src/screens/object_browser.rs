@@ -1,11 +1,11 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use l400::{delete_object, list_objects, resolve_l400_root};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
     text::Text,
     widgets::{Block, Borders, Paragraph, Row, Table, TableState},
-    Frame,
 };
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
@@ -248,11 +248,9 @@ impl Screen for ObjectBrowser {
 
 impl ObjectBrowser {
     fn render_header(&self, frame: &mut Frame, area: Rect) {
-        let title = Line::from(vec![format!(
-            " Work with Objects  Library: {} ",
-            self.current_library
-        )
-        .into()]);
+        let title = Line::from(vec![
+            format!(" Work with Objects  Library: {} ", self.current_library).into(),
+        ]);
 
         let block = Block::default()
             .title(title)
@@ -268,11 +266,13 @@ impl ObjectBrowser {
             "Sin catalogo"
         };
         let lines: Vec<Line> = vec![
-            Line::from(vec![format!(
-                "Source: {}. Options: 2=Members 3=Records 4=Delete 5=Display 8=DTAQ.",
-                source_label
-            )
-            .into()]),
+            Line::from(vec![
+                format!(
+                    "Source: {}. Options: 2=Members 3=Records 4=Delete 5=Display 8=DTAQ.",
+                    source_label
+                )
+                .into(),
+            ]),
             Line::from(vec![
                 "Opt  Object      Type      Attribute   Owner       *PUBLIC   Text".into(),
             ]),

@@ -136,7 +136,7 @@ jobs:
             -w /work \
             -e OUTPUT_DIR=/work/output \
             -e L400_SRC_DIR=/work \
-            alpine:3.20 \
+            alpine:3.23 \
             sh -lc '
               set -eu
               apk add --no-cache bash curl

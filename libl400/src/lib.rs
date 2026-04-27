@@ -18,57 +18,57 @@ pub mod usrprf;
 pub mod util;
 pub mod zfs;
 
-pub use audit::{audit_event, current_l400_user, qhst_path, read_audit_records, AuditRecord};
-pub use auth::{L400Authority, L400Identity, L400Operation, L400_AUTH_MANIFEST_VERSION};
-pub use bootstrap::{bootstrap_l400_root, BootstrapError, BootstrapReport};
+pub use audit::{AuditRecord, audit_event, current_l400_user, qhst_path, read_audit_records};
+pub use auth::{L400_AUTH_MANIFEST_VERSION, L400Authority, L400Identity, L400Operation};
+pub use bootstrap::{BootstrapError, BootstrapReport, bootstrap_l400_root};
 pub use cgroup::{
-    assign_to_workload, cleanup_l400_slices, create_l400_slices, end_job, get_current_workload,
-    get_workload_params, hold_job, is_cgroup_v2_available, job_log_path, list_jobs,
-    register_current_job, register_job, release_job, remove_job, set_cpu_priority,
-    set_memory_limit, subsystem_description, subsystem_descriptions, update_job_status,
-    CgroupError, CgroupParams, WorkloadJob, WorkloadType,
+    CgroupError, CgroupParams, WorkloadJob, WorkloadType, assign_to_workload, cleanup_l400_slices,
+    create_l400_slices, end_job, get_current_workload, get_workload_params, hold_job,
+    is_cgroup_v2_available, job_log_path, list_jobs, register_current_job, register_job,
+    release_job, remove_job, set_cpu_priority, set_memory_limit, subsystem_description,
+    subsystem_descriptions, update_job_status,
 };
 pub use cmd::{
-    command_metadata, format_command_params, CommandMetadata, CommandParameter, COMMAND_METADATA,
-    COMMAND_METADATA_SCHEMA_VERSION,
+    COMMAND_METADATA, COMMAND_METADATA_SCHEMA_VERSION, CommandMetadata, CommandParameter,
+    command_metadata, format_command_params,
 };
 pub use db::{
-    add_pf_member, create_lf, create_lf_filtered, create_pf, list_pf_members, read_pf_schema,
-    run_select_query, run_sql_statement, write_pf_schema, DbError, LogicalFile, PfField, PfSchema,
-    PhysicalFile, QueryResult, SqlStatementResult, DEFAULT_PF_MEMBER,
+    DEFAULT_PF_MEMBER, DbError, LogicalFile, PfField, PfSchema, PhysicalFile, QueryResult,
+    SqlStatementResult, add_pf_member, create_lf, create_lf_filtered, create_pf, list_pf_members,
+    read_pf_schema, run_select_query, run_sql_statement, write_pf_schema,
 };
-pub use dtaq::{crtdtaq, DataQueue, DtaqError};
+pub use dtaq::{DataQueue, DtaqError, crtdtaq};
 pub use lam::{
-    detect_hardware_mode, enable_for_platform, get_space_bits, is_lam_enabled, is_tagged_pointer,
-    tag_pointer, untag_pointer, untag_pointer_mut, MemoryTaggingMode,
+    MemoryTaggingMode, detect_hardware_mode, enable_for_platform, get_space_bits, is_lam_enabled,
+    is_tagged_pointer, tag_pointer, untag_pointer, untag_pointer_mut,
 };
 pub use object::{
-    catalog_object, copy_object, create_library, create_object, create_object_with_metadata,
-    create_source_member, delete_object, describe_object, ensure_library, list_libraries,
-    list_members, list_objects, lookup_object, member_path, open_object_direct, resolve_l400_root,
-    L400Object, ObjectError, SourceMemberInfo,
+    L400Object, ObjectError, SourceMemberInfo, catalog_object, copy_object, create_library,
+    create_object, create_object_with_metadata, create_source_member, delete_object,
+    describe_object, ensure_library, list_libraries, list_members, list_objects, lookup_object,
+    member_path, open_object_direct, resolve_l400_root,
 };
 pub use runtime::{
-    l400_run_dir, loader_status_path, read_loader_status, write_loader_status, LoaderStatus,
-    RuntimeStatusError,
+    LoaderStatus, RuntimeStatusError, l400_run_dir, loader_status_path, read_loader_status,
+    write_loader_status,
 };
 pub use status::{
-    command_status, command_status_occurrence, normalize_cpf, CommandStatus,
-    CommandStatusOccurrence, CPF_CATALOG,
+    CPF_CATALOG, CommandStatus, CommandStatusOccurrence, command_status, command_status_occurrence,
+    normalize_cpf,
 };
 pub use storage::{
-    default_storage_backend, read_storage_backend, read_string_attr, read_u32_attr,
-    write_storage_backend, write_string_attr, write_u32_attr, StorageBackend, StorageError,
     L400_BASE_PF_ATTR, L400_FIELD_SCHEMA_ATTR, L400_KEY_FIELDS_ATTR, L400_PF_MEMBERS_ATTR,
-    L400_RECORD_LEN_ATTR, L400_STORAGE_BACKEND_ATTR,
+    L400_RECORD_LEN_ATTR, L400_STORAGE_BACKEND_ATTR, StorageBackend, StorageError,
+    default_storage_backend, read_storage_backend, read_string_attr, read_u32_attr,
+    write_storage_backend, write_string_attr, write_u32_attr,
 };
 pub use util::AlignedBuffer;
 pub use zfs::{
-    get_objtype, path_is_on_zfs, set_objtype, validate_objtype, zfs_dataset_for_path,
-    zfs_xattr_mode, ZfsError,
+    ZfsError, get_objtype, path_is_on_zfs, set_objtype, validate_objtype, zfs_dataset_for_path,
+    zfs_xattr_mode,
 };
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn init() {
     let _ = enable_for_platform();
 }

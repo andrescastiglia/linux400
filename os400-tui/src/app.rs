@@ -57,7 +57,7 @@ impl App {
     }
 
     fn handle_events(&mut self) -> Result<()> {
-        use crossterm::event::{poll, read, Event};
+        use crossterm::event::{Event, poll, read};
 
         if poll(std::time::Duration::from_millis(100))? {
             match read()? {

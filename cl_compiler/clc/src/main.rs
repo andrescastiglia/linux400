@@ -85,7 +85,10 @@ fn main() {
 
             let output_path = Path::new(&args.output);
             if !args.output.starts_with("/l400/") {
-                println!("  [WARN] La ruta destino '{}' no está bajo /l400/. ZFS/LSM ignorará este binario.", args.output);
+                println!(
+                    "  [WARN] La ruta destino '{}' no está bajo /l400/. ZFS/LSM ignorará este binario.",
+                    args.output
+                );
             }
 
             match catalog_object(output_path, "*PGM", Some("CL"), Some("CL compiled program")) {
