@@ -89,10 +89,10 @@ impl App {
         if next == ScreenId::SignOn {
             self.session.sign_off();
         }
-        if next == ScreenId::MainMenu {
-            if let Some(user) = data.clone() {
-                self.session.sign_on(&user);
-            }
+        if next == ScreenId::MainMenu
+            && let Some(user) = data.clone()
+        {
+            self.session.sign_on(&user);
         }
         self.current_screen_id = next;
 

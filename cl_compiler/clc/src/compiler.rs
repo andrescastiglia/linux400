@@ -38,10 +38,10 @@ fn value_to_c_expr(value: &crate::ast::Value) -> String {
 
 fn named_param<'a>(command: &'a crate::ast::Command, key: &str) -> Option<&'a crate::ast::Value> {
     for p in &command.parameters {
-        if let crate::ast::Parameter::Named(k, v) = p {
-            if k.eq_ignore_ascii_case(key) {
-                return Some(v);
-            }
+        if let crate::ast::Parameter::Named(k, v) = p
+            && k.eq_ignore_ascii_case(key)
+        {
+            return Some(v);
         }
     }
     None
@@ -308,10 +308,10 @@ fn collect_declared_variables(ast: &crate::ast::Program) -> BTreeSet<String> {
         .map(|value| sanitize_c_identifier(value))
         .collect::<BTreeSet<_>>();
     for command in &ast.commands {
-        if command.name == "DCL" {
-            if let Some(crate::ast::Value::Variable(var)) = named_param(command, "VAR") {
-                vars.insert(sanitize_c_identifier(var));
-            }
+        if command.name == "DCL"
+            && let Some(crate::ast::Value::Variable(var)) = named_param(command, "VAR")
+        {
+            vars.insert(sanitize_c_identifier(var));
         }
     }
     vars

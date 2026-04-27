@@ -98,14 +98,14 @@ pub const L400_AUTH_MANIFEST_VERSION: u32 = 2;
 /// Lee las autorizaciones de un objeto (formato "USER:PERM,PUBLIC:PERM")
 pub fn get_object_authorities(path: &Path) -> Result<HashMap<String, L400Authority>, AuthError> {
     let mut auths = HashMap::new();
-    if let Some(raw) = xattr::get(path, L400_AUTH_ATTR)? {
-        if let Ok(s) = String::from_utf8(raw) {
-            for part in s.split(',') {
-                if let Some((user, perm)) = part.split_once(':') {
-                    if let Ok(authority) = perm.parse() {
-                        auths.insert(user.to_string(), authority);
-                    }
-                }
+    if let Some(raw) = xattr::get(path, L400_AUTH_ATTR)?
+        && let Ok(s) = String::from_utf8(raw)
+    {
+        for part in s.split(',') {
+            if let Some((user, perm)) = part.split_once(':')
+                && let Ok(authority) = perm.parse()
+            {
+                auths.insert(user.to_string(), authority);
             }
         }
     }
@@ -264,12 +264,11 @@ fn check_authority_with_groups(
 
     // Por defecto, sin permiso explícito ni público, se deniega (OS/400 strict)
     // Opcionalmente se puede comprobar si el usuario es el dueño leyendo "user.l400.owner"
-    if let Some(raw) = xattr::get(path, crate::object::L400_OWNER_ATTR)? {
-        if let Ok(owner) = String::from_utf8(raw) {
-            if owner == user {
-                return Ok(true); // El dueño siempre tiene *ALL implícito
-            }
-        }
+    if let Some(raw) = xattr::get(path, crate::object::L400_OWNER_ATTR)?
+        && let Ok(owner) = String::from_utf8(raw)
+        && owner == user
+    {
+        return Ok(true); // El dueño siempre tiene *ALL implícito
     }
 
     Ok(false)

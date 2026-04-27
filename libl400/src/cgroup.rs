@@ -533,9 +533,9 @@ fn end_job_at(base: &Path, pid: u64, timeout: std::time::Duration) -> Result<(),
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        return Err(CgroupError::InvalidJob(format!(
+        Err(CgroupError::InvalidJob(format!(
             "job {pid} is still running after SIGTERM; status=ENDING"
-        )));
+        )))
     }
     #[cfg(not(unix))]
     {

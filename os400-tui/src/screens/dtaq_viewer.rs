@@ -62,18 +62,18 @@ impl DataQueueViewer {
 
     fn load_messages(library: &str, dtaq: &str) -> (Vec<DtaqMessage>, bool) {
         let path = resolve_l400_root().join(library).join(dtaq);
-        if let Ok(queue) = DataQueue::open(&path) {
-            if let Ok(messages) = queue.read_all() {
-                let mapped = messages
-                    .into_iter()
-                    .map(|(id, data)| DtaqMessage {
-                        key: format!("{id:05}"),
-                        data: String::from_utf8_lossy(&data).to_string(),
-                        timestamp: "runtime".to_string(),
-                    })
-                    .collect::<Vec<_>>();
-                return (mapped, true);
-            }
+        if let Ok(queue) = DataQueue::open(&path)
+            && let Ok(messages) = queue.read_all()
+        {
+            let mapped = messages
+                .into_iter()
+                .map(|(id, data)| DtaqMessage {
+                    key: format!("{id:05}"),
+                    data: String::from_utf8_lossy(&data).to_string(),
+                    timestamp: "runtime".to_string(),
+                })
+                .collect::<Vec<_>>();
+            return (mapped, true);
         }
 
         (Self::fallback_messages(), false)

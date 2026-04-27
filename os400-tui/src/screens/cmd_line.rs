@@ -340,18 +340,18 @@ impl CommandLine {
                 return self.execute_command();
             }
             KeyCode::Backspace => {
-                if let Some(field) = self.prompt_fields.get_mut(self.prompt_index) {
-                    if self.prompt_cursor > 0 {
-                        self.prompt_cursor -= 1;
-                        field.value.remove(self.prompt_cursor);
-                    }
+                if let Some(field) = self.prompt_fields.get_mut(self.prompt_index)
+                    && self.prompt_cursor > 0
+                {
+                    self.prompt_cursor -= 1;
+                    field.value.remove(self.prompt_cursor);
                 }
             }
             KeyCode::Delete => {
-                if let Some(field) = self.prompt_fields.get_mut(self.prompt_index) {
-                    if self.prompt_cursor < field.value.len() {
-                        field.value.remove(self.prompt_cursor);
-                    }
+                if let Some(field) = self.prompt_fields.get_mut(self.prompt_index)
+                    && self.prompt_cursor < field.value.len()
+                {
+                    field.value.remove(self.prompt_cursor);
                 }
             }
             KeyCode::Left => {

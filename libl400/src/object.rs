@@ -356,10 +356,10 @@ pub fn list_libraries(root_path: &Path) -> Result<Vec<String>, ObjectError> {
     for entry in fs::read_dir(root_path)? {
         let entry = entry?;
         let path = entry.path();
-        if let Ok(object) = describe_object(&path) {
-            if object.objtype == "*LIB" {
-                libraries.push(object.name);
-            }
+        if let Ok(object) = describe_object(&path)
+            && object.objtype == "*LIB"
+        {
+            libraries.push(object.name);
         }
     }
 

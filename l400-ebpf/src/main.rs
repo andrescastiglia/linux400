@@ -210,7 +210,7 @@ fn lookup_file_owner_uid_matches(file: *mut c_void, uid: u32) -> bool {
     let mut i = 0usize;
     while i < err as usize {
         let ch = attr_value[i];
-        if ch < b'0' || ch > b'9' {
+        if !ch.is_ascii_digit() {
             return false;
         }
         parsed = parsed.saturating_mul(10).saturating_add((ch - b'0') as u32);
@@ -269,7 +269,7 @@ fn lookup_file_uid_auth_allows(file: *mut c_void, uid: u32) -> bool {
         if i + 4 + digits + 5 <= len && &attr_value[i..i + 4] == b"UID:" {
             let uid_start = i + 4;
             let auth_start = uid_start + digits;
-            if &attr_value[uid_start..auth_start] == &uid_buf[..digits]
+            if attr_value[uid_start..auth_start] == uid_buf[..digits]
                 && attr_value[auth_start] == b':'
             {
                 let remaining = len - auth_start - 1;

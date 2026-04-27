@@ -1143,19 +1143,20 @@ pub extern "C" fn l400_wrkusrprf(usrprf: *const c_char) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_uppercase();
                 let path = entry.path();
-                if let Ok(object) = crate::object::describe_object(&path) {
-                    if object.objtype == "*USRPRF" && matches_pattern(&name, &filter) {
-                        let disabled = xattr::get(&path, "user.l400.disabled")
-                            .ok()
-                            .flatten()
-                            .is_some();
-                        println!(
-                            "  {:16} {:8} {}",
-                            name,
-                            if disabled { "*DISABLED" } else { "*ENABLED" },
-                            object.text.as_deref().unwrap_or("")
-                        );
-                    }
+                if let Ok(object) = crate::object::describe_object(&path)
+                    && object.objtype == "*USRPRF"
+                    && matches_pattern(&name, &filter)
+                {
+                    let disabled = xattr::get(&path, "user.l400.disabled")
+                        .ok()
+                        .flatten()
+                        .is_some();
+                    println!(
+                        "  {:16} {:8} {}",
+                        name,
+                        if disabled { "*DISABLED" } else { "*ENABLED" },
+                        object.text.as_deref().unwrap_or("")
+                    );
                 }
             }
         }
@@ -2149,12 +2150,12 @@ fn resolve_clc_binary() -> PathBuf {
     if let Ok(path) = std::env::var("L400_CLC_PATH") {
         return PathBuf::from(path);
     }
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(dir) = current_exe.parent() {
-            let sibling = dir.join("clc");
-            if sibling.exists() {
-                return sibling;
-            }
+    if let Ok(current_exe) = std::env::current_exe()
+        && let Some(dir) = current_exe.parent()
+    {
+        let sibling = dir.join("clc");
+        if sibling.exists() {
+            return sibling;
         }
     }
     for candidate in ["target/debug/clc", "target/release/clc", "clc"] {

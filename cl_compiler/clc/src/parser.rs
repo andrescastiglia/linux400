@@ -239,21 +239,21 @@ fn take_parameter(input: &str) -> Result<(String, &str), ParseError> {
 }
 
 fn parse_parameter(token: &str) -> Result<Parameter, ParseError> {
-    if let Some(open) = token.find('(') {
-        if token.ends_with(')') {
-            let key = token[..open].trim().to_uppercase();
-            let raw_values = &token[open + 1..token.len() - 1];
-            let values = split_values(raw_values)
-                .into_iter()
-                .map(|value| parse_value_token(&value))
-                .collect::<Vec<_>>();
-            let value = if values.len() == 1 {
-                values.into_iter().next().unwrap()
-            } else {
-                Value::List(values)
-            };
-            return Ok(Parameter::Named(key, value));
-        }
+    if let Some(open) = token.find('(')
+        && token.ends_with(')')
+    {
+        let key = token[..open].trim().to_uppercase();
+        let raw_values = &token[open + 1..token.len() - 1];
+        let values = split_values(raw_values)
+            .into_iter()
+            .map(|value| parse_value_token(&value))
+            .collect::<Vec<_>>();
+        let value = if values.len() == 1 {
+            values.into_iter().next().unwrap()
+        } else {
+            Value::List(values)
+        };
+        return Ok(Parameter::Named(key, value));
     }
     Ok(Parameter::Positional(parse_value_token(token)))
 }

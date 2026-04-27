@@ -434,10 +434,10 @@ fn dependent_lfs_for_pf(pf_path: &Path) -> Result<Vec<std::path::PathBuf>, DbErr
         if path == pf_path {
             continue;
         }
-        if let Ok(Some(base)) = read_string_attr(&path, L400_BASE_PF_ATTR) {
-            if base == pf {
-                result.push(path);
-            }
+        if let Ok(Some(base)) = read_string_attr(&path, L400_BASE_PF_ATTR)
+            && base == pf
+        {
+            result.push(path);
         }
     }
     Ok(result)
