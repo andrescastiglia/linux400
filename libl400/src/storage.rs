@@ -11,6 +11,11 @@ pub const L400_BASE_PF_ATTR: &str = "user.l400.base_pf";
 pub const L400_FIELD_SCHEMA_ATTR: &str = "user.l400.field_schema";
 pub const L400_KEY_FIELDS_ATTR: &str = "user.l400.key_fields";
 pub const L400_PF_MEMBERS_ATTR: &str = "user.l400.pf_members";
+pub const L400_DATA_FORMAT_VERSION_ATTR: &str = "user.l400.data.version";
+pub const L400_DATA_FORMAT_VERSION: u32 = 1;
+pub const L400_OUTQ_RETENTION_DAYS_ATTR: &str = "user.l400.outq.retention_days";
+pub const L400_OUTQ_ROUTING_ATTR: &str = "user.l400.outq.routing";
+pub const L400_OUTQ_DEFAULT_STATUS_ATTR: &str = "user.l400.outq.default_status";
 static SLED_DB_CACHE: OnceLock<Mutex<HashMap<PathBuf, sled::Db>>> = OnceLock::new();
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

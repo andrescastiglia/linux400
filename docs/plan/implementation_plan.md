@@ -129,7 +129,7 @@ Criterio de cierre:
 
 ## Fase 2: seguridad y politica
 
-Estado: **en progreso para 0.2-pre**.
+Estado: **finalizado para 0.2-pre**.
 
 Objetivo: que runtime y kernel tomen decisiones equivalentes y auditables.
 
@@ -142,20 +142,20 @@ Trabajo:
   - origen (`explicit`, `public`, `owner`);
   - version.
 - [x] Actualizar `GRTOBJAUT`/`RVKOBJAUT` para mantener manifest y formato plano.
-- [ ] Aplicar autoridad en `file_open` para operaciones sensibles, no solo exec.
-- [ ] Publicar estado de politica desde loader:
+- [x] Aplicar autoridad en `file_open` para operaciones sensibles, no solo exec.
+- [x] Publicar estado de politica desde loader:
   - version runtime;
   - version eBPF;
   - modo efectivo;
   - brechas conocidas.
 - [x] Ampliar `DSPPOLICY` para mostrar versiones y formato efectivo runtime/eBPF.
-- [ ] Agregar pruebas:
-  - owner permitido;
+- [x] Agregar pruebas:
+  - owner permitido; [x]
   - usuario explicito permitido; [x]
   - grupo permitido; [x]
   - `*PUBLIC:*EXCLUDE` denegado; [x]
-  - tipo incorrecto;
-  - modo `degraded` runtime-only.
+  - tipo incorrecto; [x]
+  - modo `degraded` runtime-only. [x]
 
 Criterio de cierre:
 
@@ -173,20 +173,20 @@ Trabajo:
 
 - [x] Consolidar registro de jobs con transiciones validas de estado iniciales.
 - [x] Implementar `ENDING`, `ENDED`, `KILLED`, `FAILED` y razon de salida basica.
-- [ ] Hacer `SBMJOB` transaccional:
+- [x] Hacer `SBMJOB` transaccional:
   - crear job en `JOBQ`;
   - persistir comando y contexto;
   - ejecutar;
   - capturar stdout/stderr;
   - emitir spool/log.
 - [x] Agregar `WRKJOB` formal para detalle y tail de log.
-- [ ] Exponer acciones TUI:
+- [x] Exponer acciones TUI:
   - hold;
   - release;
   - end controlled;
   - end immediate;
   - display log.
-- [ ] Hacer cgroups visibles como capacidad: activo, degradado o no disponible.
+- [x] Hacer cgroups visibles como capacidad: activo, degradado o no disponible.
 
 Criterio de cierre:
 
@@ -197,7 +197,7 @@ Criterio de cierre:
 
 ## Fase 4: datos operativos y recuperacion
 
-Estado: **en progreso para 0.2-pre**.
+Estado: **finalizado para 0.2-pre**.
 
 Objetivo: subir PF/LF/DTAQ de demo robusta a almacenamiento administrativo
 confiable.
@@ -210,11 +210,11 @@ Trabajo:
   - schema PF;
   - LF apuntando a PF valido;
   - miembros source.
-- [ ] Agregar repair best-effort para metadata recuperable.
-- [ ] Versionar metadata de PF/LF/DTAQ.
-- [ ] Mejorar backup/restore con validacion posterior automatica.
-- [ ] Hacer `STRSQL` emitir CPF para errores parseables por `MONMSG`.
-- [ ] Agregar demo administrativa completa:
+- [x] Agregar repair best-effort para metadata recuperable.
+- [x] Versionar metadata de PF/LF/DTAQ.
+- [x] Mejorar backup/restore con validacion posterior automatica.
+- [x] Hacer `STRSQL` emitir CPF para errores parseables por `MONMSG`.
+- [x] Agregar demo administrativa completa:
   - PF de clientes;
   - LF por clave;
   - SQL query/update;
@@ -228,14 +228,15 @@ Criterio de cierre:
 
 ## Fase 5: spool y `*OUTQ` de producto
 
-Estado: **planificado**.
+Estado: **finalizado para 0.2-pre**.
 
 Objetivo: que salida batch y reportes tengan un ciclo de vida OS/400-style.
 
 Trabajo:
 
-- [ ] Definir metadata completa de `*OUTQ`.
-- [ ] Normalizar spool file:
+- [x] Definir metadata base de `*OUTQ`.
+- [x] Completar metadata de retencion/routing avanzado de `*OUTQ`.
+- [x] Normalizar spool file base:
   - id;
   - job;
   - usuario;
@@ -245,9 +246,9 @@ Trabajo:
   - timestamps;
   - contenido;
   - retencion.
-- [ ] Conectar stdout/stderr de `SBMJOB` a spool por defecto.
-- [ ] Permitir mover/cambiar estado de spool (`READY`, `HELD`, `SAVED`).
-- [ ] Completar TUI de `WRKSPLF`/`WRKOUTQ` con filtros y acciones.
+- [x] Conectar stdout/stderr de `SBMJOB` a spool por defecto.
+- [x] Permitir mover/cambiar estado de spool (`READY`, `HELD`, `SAVED`).
+- [x] Completar TUI de `WRKSPLF`/`WRKOUTQ` con filtros y acciones base.
 
 Criterio de cierre:
 
@@ -327,14 +328,14 @@ Objetivo: que cada RC produzca evidencia reproducible.
 
 Trabajo:
 
-- [ ] Dividir gates:
+- [x] Dividir gates:
   - `dev-fast`;
   - `userspace`;
   - `kernel-optional`;
   - `install-qemu`;
   - `upgrade-restore`.
 - [ ] Publicar artefactos y logs por RC.
-- [ ] Hacer que `l400-support-report --write` genere un perfil adjuntable a
+- [x] Hacer que `l400-support-report --write` genere un perfil adjuntable a
   issues.
 - [ ] Agregar test de upgrade desde metadata version anterior.
 - [ ] Documentar procedimientos:

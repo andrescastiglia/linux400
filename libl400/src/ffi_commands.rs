@@ -3,16 +3,25 @@
 /// Cada función implementa la semántica del comando OS/400 correspondiente
 /// delegando a los módulos internos de `libl400`.
 use std::ffi::CStr;
-use std::io::Read;
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn c_str_to_string(s: *const c_char) -> String {
     if s.is_null() {
         return String::new();
     }
     unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned()
+}
+
+fn now_epoch_string() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs().to_string())
+        .unwrap_or_else(|_| "0".to_string())
 }
 
 fn resolve_file_spec(file_spec: &str) -> (String, String) {
@@ -585,6 +594,10 @@ pub extern "C" fn l400_rlsjob(spec: *const c_char) {
 #[unsafe(no_mangle)]
 pub extern "C" fn l400_endjob(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
+    let immediate = fields
+        .get("OPTION")
+        .map(|value| matches!(value.to_uppercase().as_str(), "*IMMED" | "IMMED"))
+        .unwrap_or(false);
     let confirmed = fields
         .get("CONFIRM")
         .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
@@ -595,8 +608,19 @@ pub extern "C" fn l400_endjob(spec: *const c_char) {
         return;
     }
     match job_pid_from_fields(&fields) {
-        Some(pid) => match crate::cgroup::end_job(pid) {
-            Ok(_) => println!("[ENDJOB] PID({pid}) terminado."),
+        Some(pid) => match if immediate {
+            crate::cgroup::kill_job(pid)
+        } else {
+            crate::cgroup::end_job(pid)
+        } {
+            Ok(_) => println!(
+                "[ENDJOB] PID({pid}) {}.",
+                if immediate {
+                    "terminado inmediato"
+                } else {
+                    "terminado"
+                }
+            ),
             Err(error) => println!("[ENDJOB] Error: {}", error),
         },
         None => {
@@ -655,17 +679,20 @@ pub extern "C" fn l400_wrksplf() {
             continue;
         }
         println!("  Directory: {}", dir.display());
-        println!("  {:20} {:>10} MODIFIED", "FILE", "SIZE");
+        println!("  {:20} {:>10} {:8} MODIFIED", "FILE", "SIZE", "STATUS");
         println!("  {}", "-".repeat(56));
         let mut count = 0usize;
         if let Ok(entries) = std::fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 if let Ok(metadata) = entry.metadata() {
                     count += 1;
+                    let status =
+                        spool_file_status(&entry.path()).unwrap_or_else(|| "READY".to_string());
                     println!(
-                        "  {:20} {:>10} {:?}",
+                        "  {:20} {:>10} {:8} {:?}",
                         entry.file_name().to_string_lossy(),
                         metadata.len(),
+                        status,
                         metadata.modified().ok()
                     );
                 }
@@ -686,8 +713,11 @@ pub extern "C" fn l400_wrksplf() {
 pub extern "C" fn l400_wrkoutq() {
     println!("=== WRKOUTQ - Output Queues ===");
     let root = crate::object::resolve_l400_root();
-    println!("  {:10} {:20} {:10} TEXT", "LIB", "OUTQ", "ATRIB");
-    println!("  {}", "-".repeat(58));
+    println!(
+        "  {:10} {:20} {:8} {:8} {:10} TEXT",
+        "LIB", "OUTQ", "STATUS", "RETAIN", "ROUTING"
+    );
+    println!("  {}", "-".repeat(78));
 
     let mut count = 0usize;
     if let Ok(libraries) = crate::object::list_libraries(&root) {
@@ -700,12 +730,30 @@ pub extern "C" fn l400_wrkoutq() {
                 .into_iter()
                 .filter(|object| object.objtype == "*OUTQ")
             {
+                let path = lib_path.join(&object.name);
+                let status =
+                    crate::storage::read_string_attr(&path, crate::L400_OUTQ_DEFAULT_STATUS_ATTR)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| "READY".to_string());
+                let retain =
+                    crate::storage::read_string_attr(&path, crate::L400_OUTQ_RETENTION_DAYS_ATTR)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| "7".to_string());
+                let routing =
+                    crate::storage::read_string_attr(&path, crate::L400_OUTQ_ROUTING_ATTR)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| "QBATCH".to_string());
                 count += 1;
                 println!(
-                    "  {:10} {:20} {:10} {}",
+                    "  {:10} {:20} {:8} {:8} {:10} {}",
                     library,
                     object.name,
-                    object.attribute.unwrap_or_else(|| "OUTQ".to_string()),
+                    status,
+                    retain,
+                    routing,
                     object.text.unwrap_or_default()
                 );
             }
@@ -719,9 +767,11 @@ pub extern "C" fn l400_wrkoutq() {
     if spool_dir.exists() {
         count += 1;
         println!(
-            "  {:10} {:20} {:10} {}",
+            "  {:10} {:20} {:8} {:8} {:10} {}",
             "QUSRSYS",
             "QSPL",
+            "READY",
+            "-",
             "DIR",
             spool_dir.display()
         );
@@ -760,6 +810,20 @@ pub extern "C" fn l400_crtoutq(spec: *const c_char) {
         .get("TEXT")
         .map(String::as_str)
         .unwrap_or("Output queue");
+    let retention_days = fields
+        .get("RETAIN")
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(7);
+    let routing = fields
+        .get("ROUTING")
+        .map(|value| value.trim().to_uppercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "QBATCH".to_string());
+    let default_status = fields
+        .get("STATUS")
+        .map(|value| value.trim().trim_start_matches('*').to_uppercase())
+        .filter(|value| matches!(value.as_str(), "READY" | "HELD" | "SAVED"))
+        .unwrap_or_else(|| "READY".to_string());
     match crate::object::create_object_with_metadata(
         &lib_path,
         &name,
@@ -768,8 +832,29 @@ pub extern "C" fn l400_crtoutq(spec: *const c_char) {
         Some(text),
     ) {
         Ok(_) => {
+            let path = lib_path.join(&name);
+            let _ = crate::storage::write_u32_attr(
+                &path,
+                crate::L400_DATA_FORMAT_VERSION_ATTR,
+                crate::L400_DATA_FORMAT_VERSION,
+            );
+            let _ = crate::storage::write_u32_attr(
+                &path,
+                crate::L400_OUTQ_RETENTION_DAYS_ATTR,
+                retention_days,
+            );
+            let _ =
+                crate::storage::write_string_attr(&path, crate::L400_OUTQ_ROUTING_ATTR, &routing);
+            let _ = crate::storage::write_string_attr(
+                &path,
+                crate::L400_OUTQ_DEFAULT_STATUS_ATTR,
+                &default_status,
+            );
             let _ = std::fs::create_dir_all(spool_dir());
-            println!("[CRTOUTQ] {}/{} creado.", library, name);
+            println!(
+                "[CRTOUTQ] {}/{} creado RETAIN({}) ROUTING({}) STATUS(*{}).",
+                library, name, retention_days, routing, default_status
+            );
         }
         Err(error) => {
             emit_status("CPF0001", Some(&lib_path.join(&name)), &error.to_string());
@@ -836,6 +921,18 @@ fn first_spool_file() -> Option<PathBuf> {
         .max_by_key(|path| path.metadata().and_then(|m| m.modified()).ok())
 }
 
+fn spool_file_status(path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    content
+        .lines()
+        .filter_map(|line| {
+            line.split_whitespace()
+                .find_map(|field| field.strip_prefix("status="))
+        })
+        .last()
+        .map(|status| status.trim_start_matches('*').to_uppercase())
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn l400_dspsplf(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
@@ -873,6 +970,37 @@ pub extern "C" fn l400_dltsplf(spec: *const c_char) {
         Err(error) => {
             emit_status("CPF9801", Some(&path), &error.to_string());
             println!("[DLTSPLF] Error: {}", error);
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_chgsplfa(spec: *const c_char) {
+    let fields = parse_command_fields(&c_str_to_string(spec));
+    let status = fields
+        .get("STATUS")
+        .or_else(|| fields.get("STATE"))
+        .map(|value| value.trim().trim_start_matches('*').to_uppercase())
+        .unwrap_or_else(|| "READY".to_string());
+    if !matches!(status.as_str(), "READY" | "HELD" | "SAVED") {
+        emit_status(
+            "CPF0006",
+            None,
+            "CHGSPLFA STATUS requiere *READY, *HELD o *SAVED",
+        );
+        println!("[CHGSPLFA] STATUS no soportado: {}", status);
+        return;
+    }
+    let path = resolve_spool_file(&fields);
+    match OpenOptions::new().append(true).open(&path) {
+        Ok(mut file) => {
+            let _ = writeln!(file, "status={} changed_at={}", status, now_epoch_string());
+            clear_status();
+            println!("[CHGSPLFA] {} status={}.", path.display(), status);
+        }
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[CHGSPLFA] Error: {}", error);
         }
     }
 }
@@ -1572,16 +1700,25 @@ pub extern "C" fn l400_chkobjaut(spec: *const c_char) {
 pub extern "C" fn l400_chkobjint(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
+    let repair = fields
+        .get("REPAIR")
+        .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
+        .unwrap_or(false);
     let Some(obj) = fields.get("OBJ") else {
         emit_status("CPF0006", None, "CHKOBJINT requiere OBJ");
-        println!("[CHKOBJINT] Uso: CHKOBJINT OBJ(QGPL/MYOBJ)");
+        println!("[CHKOBJINT] Uso: CHKOBJINT OBJ(QGPL/MYOBJ) REPAIR(*NO)");
         return;
     };
     let root = crate::object::resolve_l400_root();
     let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
     println!("=== CHKOBJINT - Object Integrity ===");
     println!("  Object path . . . . . : {}", path.display());
+    println!(
+        "  Repair mode . . . . . : {}",
+        if repair { "*YES" } else { "*NO" }
+    );
     let mut issues = Vec::new();
+    let mut repairs = Vec::new();
     match crate::object::describe_object(&path) {
         Ok(object) => {
             println!("  Object . . . . . . . : {}", object.name);
@@ -1596,12 +1733,104 @@ pub extern "C" fn l400_chkobjint(spec: *const c_char) {
             if object.objtype == "*FILE" {
                 match object.attribute.as_deref() {
                     Some("PF") => {
-                        if crate::storage::read_string_attr(&path, "user.l400.record_len")
+                        if crate::storage::read_string_attr(
+                            &path,
+                            crate::L400_DATA_FORMAT_VERSION_ATTR,
+                        )
+                        .ok()
+                        .flatten()
+                        .is_none()
+                        {
+                            if repair
+                                && crate::storage::write_u32_attr(
+                                    &path,
+                                    crate::L400_DATA_FORMAT_VERSION_ATTR,
+                                    crate::L400_DATA_FORMAT_VERSION,
+                                )
+                                .is_ok()
+                            {
+                                repairs.push(format!(
+                                    "PF wrote {}={}",
+                                    crate::L400_DATA_FORMAT_VERSION_ATTR,
+                                    crate::L400_DATA_FORMAT_VERSION
+                                ));
+                            } else {
+                                issues.push(format!(
+                                    "PF missing {}",
+                                    crate::L400_DATA_FORMAT_VERSION_ATTR
+                                ));
+                            }
+                        }
+                        if crate::storage::read_string_attr(&path, crate::L400_STORAGE_BACKEND_ATTR)
                             .ok()
                             .flatten()
                             .is_none()
                         {
-                            issues.push("PF missing user.l400.record_len".to_string());
+                            if repair
+                                && crate::storage::write_storage_backend(
+                                    &path,
+                                    crate::storage::default_storage_backend(),
+                                )
+                                .is_ok()
+                            {
+                                repairs.push("PF wrote storage backend".to_string());
+                            } else {
+                                issues.push("PF missing user.l400.storage_backend".to_string());
+                            }
+                        }
+                        if crate::storage::read_string_attr(&path, crate::L400_RECORD_LEN_ATTR)
+                            .ok()
+                            .flatten()
+                            .is_none()
+                        {
+                            if repair
+                                && crate::storage::write_u32_attr(
+                                    &path,
+                                    crate::L400_RECORD_LEN_ATTR,
+                                    256,
+                                )
+                                .is_ok()
+                            {
+                                repairs.push("PF wrote default record_len=256".to_string());
+                            } else {
+                                issues.push("PF missing user.l400.record_len".to_string());
+                            }
+                        }
+                        if crate::storage::read_string_attr(&path, crate::L400_KEY_FIELDS_ATTR)
+                            .ok()
+                            .flatten()
+                            .is_none()
+                        {
+                            if repair
+                                && crate::storage::write_string_attr(
+                                    &path,
+                                    crate::L400_KEY_FIELDS_ATTR,
+                                    "KEY",
+                                )
+                                .is_ok()
+                            {
+                                repairs.push("PF wrote default key_fields=KEY".to_string());
+                            } else {
+                                issues.push("PF missing user.l400.key_fields".to_string());
+                            }
+                        }
+                        if crate::storage::read_string_attr(&path, crate::L400_PF_MEMBERS_ATTR)
+                            .ok()
+                            .flatten()
+                            .is_none()
+                        {
+                            if repair
+                                && crate::storage::write_string_attr(
+                                    &path,
+                                    crate::L400_PF_MEMBERS_ATTR,
+                                    crate::db::DEFAULT_PF_MEMBER,
+                                )
+                                .is_ok()
+                            {
+                                repairs.push("PF wrote default member list".to_string());
+                            } else {
+                                issues.push("PF missing user.l400.pf_members".to_string());
+                            }
                         }
                     }
                     Some("LF") => {
@@ -1610,11 +1839,142 @@ pub extern "C" fn l400_chkobjint(spec: *const c_char) {
                             .flatten();
                         if base_pf.as_deref().unwrap_or("").is_empty() {
                             issues.push("LF missing user.l400.base_pf".to_string());
+                        } else if crate::storage::read_string_attr(
+                            &path,
+                            crate::L400_STORAGE_BACKEND_ATTR,
+                        )
+                        .ok()
+                        .flatten()
+                        .is_none()
+                        {
+                            let repaired = repair
+                                && base_pf
+                                    .as_deref()
+                                    .and_then(|base| {
+                                        crate::storage::read_storage_backend(Path::new(base))
+                                            .ok()
+                                            .flatten()
+                                    })
+                                    .or_else(|| Some(crate::storage::default_storage_backend()))
+                                    .map(|backend| {
+                                        crate::storage::write_storage_backend(&path, backend)
+                                            .is_ok()
+                                    })
+                                    .unwrap_or(false);
+                            if repaired {
+                                repairs.push("LF wrote storage backend from base PF".to_string());
+                            } else {
+                                issues.push("LF missing user.l400.storage_backend".to_string());
+                            }
+                        }
+                        if crate::storage::read_string_attr(
+                            &path,
+                            crate::L400_DATA_FORMAT_VERSION_ATTR,
+                        )
+                        .ok()
+                        .flatten()
+                        .is_none()
+                        {
+                            if repair
+                                && crate::storage::write_u32_attr(
+                                    &path,
+                                    crate::L400_DATA_FORMAT_VERSION_ATTR,
+                                    crate::L400_DATA_FORMAT_VERSION,
+                                )
+                                .is_ok()
+                            {
+                                repairs.push("LF wrote data version".to_string());
+                            } else {
+                                issues.push(format!(
+                                    "LF missing {}",
+                                    crate::L400_DATA_FORMAT_VERSION_ATTR
+                                ));
+                            }
                         }
                     }
                     Some("SRC") => {}
                     Some(other) => issues.push(format!("unknown *FILE attribute {other}")),
                     None => issues.push("*FILE missing attribute".to_string()),
+                }
+            } else if object.objtype == "*DTAQ" {
+                if crate::storage::read_string_attr(&path, crate::L400_STORAGE_BACKEND_ATTR)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    if repair
+                        && crate::storage::write_storage_backend(
+                            &path,
+                            crate::storage::default_storage_backend(),
+                        )
+                        .is_ok()
+                    {
+                        repairs.push("DTAQ wrote storage backend".to_string());
+                    } else {
+                        issues.push("DTAQ missing user.l400.storage_backend".to_string());
+                    }
+                }
+                if crate::storage::read_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    if repair
+                        && crate::storage::write_u32_attr(
+                            &path,
+                            crate::L400_DATA_FORMAT_VERSION_ATTR,
+                            crate::L400_DATA_FORMAT_VERSION,
+                        )
+                        .is_ok()
+                    {
+                        repairs.push("DTAQ wrote data version".to_string());
+                    } else {
+                        issues.push(format!(
+                            "DTAQ missing {}",
+                            crate::L400_DATA_FORMAT_VERSION_ATTR
+                        ));
+                    }
+                }
+            } else if object.objtype == "*OUTQ" {
+                for (attr, default_value) in [
+                    (crate::L400_OUTQ_RETENTION_DAYS_ATTR, "7"),
+                    (crate::L400_OUTQ_ROUTING_ATTR, "QBATCH"),
+                    (crate::L400_OUTQ_DEFAULT_STATUS_ATTR, "READY"),
+                ] {
+                    if crate::storage::read_string_attr(&path, attr)
+                        .ok()
+                        .flatten()
+                        .is_none()
+                    {
+                        if repair
+                            && crate::storage::write_string_attr(&path, attr, default_value).is_ok()
+                        {
+                            repairs.push(format!("OUTQ wrote {attr}={default_value}"));
+                        } else {
+                            issues.push(format!("OUTQ missing {attr}"));
+                        }
+                    }
+                }
+                if crate::storage::read_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    if repair
+                        && crate::storage::write_u32_attr(
+                            &path,
+                            crate::L400_DATA_FORMAT_VERSION_ATTR,
+                            crate::L400_DATA_FORMAT_VERSION,
+                        )
+                        .is_ok()
+                    {
+                        repairs.push("OUTQ wrote data version".to_string());
+                    } else {
+                        issues.push(format!(
+                            "OUTQ missing {}",
+                            crate::L400_DATA_FORMAT_VERSION_ATTR
+                        ));
+                    }
                 }
             }
         }
@@ -1633,6 +1993,12 @@ pub extern "C" fn l400_chkobjint(spec: *const c_char) {
         println!("  Result . . . . . . . : CHECK");
         for issue in issues {
             println!("  - {}", issue);
+        }
+    }
+    if !repairs.is_empty() {
+        println!("  Repairs . . . . . . : {}", repairs.len());
+        for repair in repairs {
+            println!("  + {}", repair);
         }
     }
     println!("===================================");
@@ -2176,7 +2542,7 @@ pub extern "C" fn l400_call(pgm: *const c_char) {
     let user = runtime_user();
     match crate::object::describe_object(&path) {
         Ok(object) if object.objtype != "*PGM" => {
-            set_status("CPF9801");
+            set_status("CPF9802");
             audit_runtime(
                 "ACCESS_DENIED",
                 &path,
@@ -2502,13 +2868,17 @@ pub extern "C" fn l400_strsql() {
 
     match crate::db::run_sql_statement(&statement, None) {
         Ok(result) => print_sql_result(result),
-        Err(error) => println!("SQL9001 [STRSQL] {}", error),
+        Err(error) => {
+            emit_status("CPF0001", None, &format!("STRSQL SQL9001 {error}"));
+            println!("SQL9001 [STRSQL] {}", error);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{PowerDownAction, confirmed_yes, parse_command_fields};
+    use super::{PowerDownAction, confirmed_yes, parse_command_fields, spool_file_status};
+    use std::io::Write;
 
     #[test]
     fn parse_command_fields_keeps_values_with_spaces() {
@@ -2544,5 +2914,16 @@ mod tests {
         assert!(confirmed_yes(Some(&yes)));
         assert!(!confirmed_yes(Some(&no)));
         assert!(!confirmed_yes(None));
+    }
+
+    #[test]
+    fn spool_file_status_uses_latest_status_field() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let path = root.path().join("demo.splf");
+        let mut file = std::fs::File::create(&path).expect("create splf");
+        writeln!(file, "spool_version=1 status=RUN").expect("write run");
+        writeln!(file, "status=HELD changed_at=1").expect("write held");
+
+        assert_eq!(spool_file_status(&path).as_deref(), Some("HELD"));
     }
 }

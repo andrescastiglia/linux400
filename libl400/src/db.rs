@@ -1,10 +1,10 @@
 use crate::bdb_native::{BdbError, BdbHandle};
 use crate::object::{ObjectError, catalog_object};
 use crate::storage::{
-    L400_BASE_PF_ATTR, L400_FIELD_SCHEMA_ATTR, L400_KEY_FIELDS_ATTR, L400_PF_MEMBERS_ATTR,
-    L400_RECORD_LEN_ATTR, StorageBackend, StorageError, default_storage_backend, open_sled_db,
-    read_storage_backend, read_string_attr, read_u32_attr, write_storage_backend,
-    write_string_attr, write_u32_attr,
+    L400_BASE_PF_ATTR, L400_DATA_FORMAT_VERSION, L400_DATA_FORMAT_VERSION_ATTR,
+    L400_FIELD_SCHEMA_ATTR, L400_KEY_FIELDS_ATTR, L400_PF_MEMBERS_ATTR, L400_RECORD_LEN_ATTR,
+    StorageBackend, StorageError, default_storage_backend, open_sled_db, read_storage_backend,
+    read_string_attr, read_u32_attr, write_storage_backend, write_string_attr, write_u32_attr,
 };
 use crate::zfs::{ZfsError, get_objtype, validate_objtype};
 use sled::{Db, Tree};
@@ -138,6 +138,11 @@ pub fn create_pf(lib_path: &Path, name: &str, record_len: usize) -> Result<Physi
     catalog_object(&target, "*FILE", Some("PF"), Some("Physical file"))?;
     write_storage_backend(&target, backend)?;
     write_u32_attr(&target, L400_RECORD_LEN_ATTR, record_len as u32)?;
+    write_u32_attr(
+        &target,
+        L400_DATA_FORMAT_VERSION_ATTR,
+        L400_DATA_FORMAT_VERSION,
+    )?;
     write_string_attr(&target, L400_KEY_FIELDS_ATTR, "KEY")?;
     write_string_attr(&target, L400_PF_MEMBERS_ATTR, DEFAULT_PF_MEMBER)?;
 
@@ -152,6 +157,11 @@ pub fn create_pf(lib_path: &Path, name: &str, record_len: usize) -> Result<Physi
 
 pub fn write_pf_schema(path: &Path, schema: &PfSchema) -> Result<(), DbError> {
     write_u32_attr(path, L400_RECORD_LEN_ATTR, schema.record_len)?;
+    write_u32_attr(
+        path,
+        L400_DATA_FORMAT_VERSION_ATTR,
+        L400_DATA_FORMAT_VERSION,
+    )?;
     let fields = schema
         .fields
         .iter()
@@ -555,6 +565,11 @@ pub fn create_lf_filtered(
     };
 
     write_string_attr(&lf_path, L400_BASE_PF_ATTR, &over_pf.path.to_string_lossy())?;
+    write_u32_attr(
+        &lf_path,
+        L400_DATA_FORMAT_VERSION_ATTR,
+        L400_DATA_FORMAT_VERSION,
+    )?;
     if let Some(value) = select_value {
         write_string_attr(&lf_path, "user.l400.lf.select", value)?;
     }
@@ -1436,6 +1451,23 @@ mod tests {
         let leido = pf.chain_rcd(key).expect("chain_rcd falló");
 
         assert_eq!(leido, valor, "Round-trip de datos fallido");
+    }
+
+    #[test]
+    fn create_pf_and_lf_write_data_format_version() {
+        let root = tmp_lib();
+        let lib_path = l400_library(&root, "QGPL");
+        let pf = create_pf(&lib_path, "CUSTOMERS", 80).unwrap();
+        assert_eq!(
+            read_u32_attr(&pf.path, L400_DATA_FORMAT_VERSION_ATTR).unwrap(),
+            Some(L400_DATA_FORMAT_VERSION)
+        );
+
+        let lf = create_lf(&lib_path, "CUSTLF", &pf).unwrap();
+        assert_eq!(
+            read_u32_attr(&lib_path.join(&lf.name), L400_DATA_FORMAT_VERSION_ATTR).unwrap(),
+            Some(L400_DATA_FORMAT_VERSION)
+        );
     }
 
     #[test]

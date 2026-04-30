@@ -24,7 +24,7 @@ pub use bootstrap::{BootstrapError, BootstrapReport, bootstrap_l400_root};
 pub use cgroup::{
     CgroupError, CgroupParams, WorkloadJob, WorkloadType, assign_to_workload, cleanup_l400_slices,
     create_l400_slices, end_job, get_current_workload, get_workload_params, hold_job,
-    is_cgroup_v2_available, job_log_path, list_jobs, register_current_job, register_job,
+    is_cgroup_v2_available, job_log_path, kill_job, list_jobs, register_current_job, register_job,
     release_job, remove_job, set_cpu_priority, set_memory_limit, subsystem_description,
     subsystem_descriptions, update_job_status,
 };
@@ -50,14 +50,16 @@ pub use object::{
 };
 pub use runtime::{
     LoaderStatus, RuntimeStatusError, l400_run_dir, loader_status_path, read_loader_status,
-    write_loader_status,
+    runtime_version, write_loader_status,
 };
 pub use status::{
     CPF_CATALOG, CommandStatus, CommandStatusOccurrence, command_status, command_status_occurrence,
     normalize_cpf,
 };
 pub use storage::{
-    L400_BASE_PF_ATTR, L400_FIELD_SCHEMA_ATTR, L400_KEY_FIELDS_ATTR, L400_PF_MEMBERS_ATTR,
+    L400_BASE_PF_ATTR, L400_DATA_FORMAT_VERSION, L400_DATA_FORMAT_VERSION_ATTR,
+    L400_FIELD_SCHEMA_ATTR, L400_KEY_FIELDS_ATTR, L400_OUTQ_DEFAULT_STATUS_ATTR,
+    L400_OUTQ_RETENTION_DAYS_ATTR, L400_OUTQ_ROUTING_ATTR, L400_PF_MEMBERS_ATTR,
     L400_RECORD_LEN_ATTR, L400_STORAGE_BACKEND_ATTR, StorageBackend, StorageError,
     default_storage_backend, read_storage_backend, read_string_attr, read_u32_attr,
     write_storage_backend, write_string_attr, write_u32_attr,

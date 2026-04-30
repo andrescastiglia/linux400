@@ -1,8 +1,9 @@
 use crate::bdb_native::{BdbError, BdbHandle};
 use crate::object::{ObjectError, catalog_object};
 use crate::storage::{
-    StorageBackend, StorageError, default_storage_backend, open_sled_db, read_storage_backend,
-    write_storage_backend,
+    L400_DATA_FORMAT_VERSION, L400_DATA_FORMAT_VERSION_ATTR, StorageBackend, StorageError,
+    default_storage_backend, open_sled_db, read_storage_backend, write_storage_backend,
+    write_u32_attr,
 };
 use crate::zfs::{ZfsError, get_objtype, validate_objtype};
 use sled::{Db, Tree};
@@ -83,6 +84,11 @@ pub fn crtdtaq(lib_path: &Path, name: &str) -> Result<DataQueue, DtaqError> {
 
     catalog_object(&target, "*DTAQ", Some("DTAQ"), Some("Data queue"))?;
     write_storage_backend(&target, backend)?;
+    write_u32_attr(
+        &target,
+        L400_DATA_FORMAT_VERSION_ATTR,
+        L400_DATA_FORMAT_VERSION,
+    )?;
 
     Ok(DataQueue {
         name: name.to_string(),
@@ -205,5 +211,18 @@ mod tests {
         let received = dtaq.rcvdtaq(0).expect("rcvdtaq falló");
         assert_eq!(received, b"MSG1");
         assert_eq!(dtaq.read_all().expect("read_all falló").len(), 1);
+    }
+
+    #[test]
+    fn crtdtaq_writes_data_format_version() {
+        let root = tempfile::tempdir().expect("No se pudo crear directorio temporal");
+        let lib = create_library(root.path(), "QUSRSYS").expect("create_library falló");
+        crtdtaq(&lib, "DQ1").expect("crtdtaq falló");
+        let version = crate::storage::read_u32_attr(
+            &lib.join("DQ1"),
+            crate::storage::L400_DATA_FORMAT_VERSION_ATTR,
+        )
+        .expect("version attr");
+        assert_eq!(version, Some(crate::storage::L400_DATA_FORMAT_VERSION));
     }
 }

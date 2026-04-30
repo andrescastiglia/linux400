@@ -254,6 +254,14 @@ fn check_authority_with_groups(
         }
     }
 
+    // El dueño conserva *ALL implícito antes del fallback público.
+    if let Some(raw) = xattr::get(path, crate::object::L400_OWNER_ATTR)?
+        && let Ok(owner) = String::from_utf8(raw)
+        && owner == user
+    {
+        return Ok(true);
+    }
+
     // Fallback a permiso público (*PUBLIC)
     if let Some(auth) = auths.get("*PUBLIC") {
         if *auth == L400Authority::Exclude {
@@ -263,14 +271,6 @@ fn check_authority_with_groups(
     }
 
     // Por defecto, sin permiso explícito ni público, se deniega (OS/400 strict)
-    // Opcionalmente se puede comprobar si el usuario es el dueño leyendo "user.l400.owner"
-    if let Some(raw) = xattr::get(path, crate::object::L400_OWNER_ATTR)?
-        && let Ok(owner) = String::from_utf8(raw)
-        && owner == user
-    {
-        return Ok(true); // El dueño siempre tiene *ALL implícito
-    }
-
     Ok(false)
 }
 
@@ -442,6 +442,28 @@ mod tests {
         assert!(
             check_authority_for_identity(&file, &identity, L400Authority::Use)
                 .expect("check group authority")
+        );
+    }
+
+    #[test]
+    fn owner_authority_allows_runtime_operation_when_public_excluded() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let lib = create_library(root.path(), "QGPL").expect("create library");
+        let file = lib.join("OWNED");
+        std::fs::write(&file, "data").expect("write file");
+        catalog_object(&file, "*FILE", Some("PF"), Some("test")).expect("catalog file");
+        xattr::set(&file, crate::object::L400_OWNER_ATTR, b"QOWNER").expect("owner attr");
+        grant_object_authority(&file, "*PUBLIC", L400Authority::Exclude).expect("grant exclude");
+
+        let identity = L400Identity {
+            profile: "QOWNER".to_string(),
+            uid: 1000,
+            owner: "QOWNER".to_string(),
+            groups: Vec::new(),
+        };
+        assert!(
+            check_authority_for_identity(&file, &identity, L400Authority::Change)
+                .expect("check owner authority")
         );
     }
 }

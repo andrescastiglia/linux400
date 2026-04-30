@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use l400::{
-    WorkloadJob, WorkloadType, end_job, get_workload_params, is_cgroup_v2_available, list_jobs,
-    subsystem_descriptions,
+    WorkloadJob, WorkloadType, end_job, get_workload_params, hold_job, is_cgroup_v2_available,
+    kill_job, list_jobs, release_job, subsystem_descriptions,
 };
 use ratatui::{
     Frame,
@@ -30,7 +30,13 @@ pub struct WorkManagement {
     scroll_offset: usize,
     subsystem_filter: Option<String>,
     detail: Option<String>,
-    pending_end_pid: Option<u64>,
+    pending_action: Option<PendingJobAction>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PendingJobAction {
+    EndControlled(u64),
+    EndImmediate(u64),
 }
 
 impl WorkManagement {
@@ -46,7 +52,7 @@ impl WorkManagement {
             scroll_offset: 0,
             subsystem_filter: None,
             detail: None,
-            pending_end_pid: None,
+            pending_action: None,
         }
     }
 
@@ -138,7 +144,35 @@ impl WorkManagement {
         });
     }
 
-    fn request_end_selected_job(&mut self) {
+    fn hold_selected_job(&mut self) {
+        let Some(job) = self.selected_job() else {
+            self.detail = Some("No job selected.".to_string());
+            return;
+        };
+        let pid = job.pid;
+        let name = job.name.clone();
+        match hold_job(pid) {
+            Ok(_) => self.detail = Some(format!("Job {} PID={} held.", name, pid)),
+            Err(error) => self.detail = Some(format!("Error holding job {}: {}", name, error)),
+        }
+        self.refresh();
+    }
+
+    fn release_selected_job(&mut self) {
+        let Some(job) = self.selected_job() else {
+            self.detail = Some("No job selected.".to_string());
+            return;
+        };
+        let pid = job.pid;
+        let name = job.name.clone();
+        match release_job(pid) {
+            Ok(_) => self.detail = Some(format!("Job {} PID={} released.", name, pid)),
+            Err(error) => self.detail = Some(format!("Error releasing job {}: {}", name, error)),
+        }
+        self.refresh();
+    }
+
+    fn request_end_selected_job(&mut self, immediate: bool) {
         let Some(job) = self.selected_job() else {
             self.detail = Some("No job selected.".to_string());
             return;
@@ -149,16 +183,25 @@ impl WorkManagement {
         }
         let pid = job.pid;
         let name = job.name.clone();
-        self.pending_end_pid = Some(pid);
+        self.pending_action = Some(if immediate {
+            PendingJobAction::EndImmediate(pid)
+        } else {
+            PendingJobAction::EndControlled(pid)
+        });
         self.detail = Some(format!(
-            "Confirm end job {} PID={}. Press Enter to confirm or F12 to cancel.",
-            name, pid
+            "Confirm {} end for job {} PID={}. Press Enter to confirm or F12 to cancel.",
+            if immediate { "*IMMED" } else { "*CNTRLD" },
+            name,
+            pid
         ));
     }
 
     fn confirm_end_job(&mut self) {
-        let Some(pid) = self.pending_end_pid.take() else {
+        let Some(action) = self.pending_action.take() else {
             return;
+        };
+        let pid = match action {
+            PendingJobAction::EndControlled(pid) | PendingJobAction::EndImmediate(pid) => pid,
         };
         let name = self
             .jobs
@@ -166,7 +209,11 @@ impl WorkManagement {
             .find(|job| job.pid == pid)
             .map(|job| job.name.clone())
             .unwrap_or_else(|| pid.to_string());
-        match end_job(pid) {
+        let result = match action {
+            PendingJobAction::EndControlled(_) => end_job(pid),
+            PendingJobAction::EndImmediate(_) => kill_job(pid),
+        };
+        match result {
             Ok(_) => self.detail = Some(format!("Job {} PID={} ended.", name, pid)),
             Err(error) => self.detail = Some(format!("Error ending job {}: {}", name, error)),
         }
@@ -191,14 +238,14 @@ impl Screen for WorkManagement {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
-        if self.pending_end_pid.is_some() {
+        if self.pending_action.is_some() {
             match key.code {
                 KeyCode::Enter => {
                     self.confirm_end_job();
                     return ScreenResult::none();
                 }
                 KeyCode::F(12) | KeyCode::Esc => {
-                    self.pending_end_pid = None;
+                    self.pending_action = None;
                     self.detail = Some("End job cancelled.".to_string());
                     return ScreenResult::none();
                 }
@@ -255,11 +302,19 @@ impl Screen for WorkManagement {
                 ScreenResult::none()
             }
             KeyCode::F(10) => {
-                self.request_end_selected_job();
+                self.request_end_selected_job(true);
+                ScreenResult::none()
+            }
+            KeyCode::Char('3') => {
+                self.hold_selected_job();
                 ScreenResult::none()
             }
             KeyCode::Char('4') => {
-                self.request_end_selected_job();
+                self.request_end_selected_job(false);
+                ScreenResult::none()
+            }
+            KeyCode::Char('6') => {
+                self.release_selected_job();
                 ScreenResult::none()
             }
             _ => ScreenResult::none(),
@@ -362,10 +417,12 @@ impl WorkManagement {
             "F4=Prompt   ".into(),
             "F5=Refresh   ".into(),
             "F6=Filter   ".into(),
-            "F10=End   ".into(),
+            "3=Hold   ".into(),
             "4=End   ".into(),
             "5=Detail   ".into(),
+            "6=Release   ".into(),
             "9=Log   ".into(),
+            "F10=End immed   ".into(),
             "F11/Enter=Detail   ".into(),
             "F12=Cancel   ".into(),
         ]);
@@ -403,5 +460,25 @@ fn cgroup_summary() -> String {
 impl Default for WorkManagement {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WorkManagement;
+    use crate::screens::Screen;
+    use crossterm::event::{KeyCode, KeyEvent};
+
+    #[test]
+    fn job_options_without_selection_show_operator_message() {
+        let mut screen = WorkManagement::new();
+        screen.jobs.clear();
+        screen.state.select(None);
+
+        screen.handle_key(KeyEvent::from(KeyCode::Char('3')));
+        assert_eq!(screen.detail.as_deref(), Some("No job selected."));
+
+        screen.handle_key(KeyEvent::from(KeyCode::Char('6')));
+        assert_eq!(screen.detail.as_deref(), Some("No job selected."));
     }
 }

@@ -133,6 +133,13 @@ const ENDJOB_PARAMS: &[CommandParameter] = &[
         values: "*YES,*NO",
         default: "*NO",
     },
+    CommandParameter {
+        name: "OPTION",
+        type_: "CHAR",
+        required: false,
+        values: "*CNTRLD,*IMMED",
+        default: "*CNTRLD",
+    },
 ];
 const OBJ_PARAMS: &[CommandParameter] = &[
     CommandParameter {
@@ -312,6 +319,36 @@ const OBJ_AUTH_PARAMS: &[CommandParameter] = &[
         required: false,
         values: "*PGM,*FILE,*DTAQ,*CMD,*LIB,*OUTQ,*ALL",
         default: "*ALL",
+    },
+];
+const OBJ_INTEGRITY_PARAMS: &[CommandParameter] = &[
+    CommandParameter {
+        name: "OBJ",
+        type_: "NAME",
+        required: true,
+        values: "LIB/OBJ",
+        default: "",
+    },
+    CommandParameter {
+        name: "LIB",
+        type_: "NAME",
+        required: false,
+        values: "library name",
+        default: "*LIBL",
+    },
+    CommandParameter {
+        name: "OBJTYPE",
+        type_: "CHAR",
+        required: false,
+        values: "*PGM,*FILE,*DTAQ,*CMD,*LIB,*OUTQ,*ALL",
+        default: "*ALL",
+    },
+    CommandParameter {
+        name: "REPAIR",
+        type_: "CHAR",
+        required: false,
+        values: "*YES,*NO",
+        default: "*NO",
     },
 ];
 const GRANT_AUTH_PARAMS: &[CommandParameter] = &[
@@ -559,6 +596,27 @@ const FILE_CREATE_PARAMS: &[CommandParameter] = &[
         required: false,
         values: "description",
         default: "",
+    },
+    CommandParameter {
+        name: "RETAIN",
+        type_: "DEC",
+        required: false,
+        values: "retention days",
+        default: "7",
+    },
+    CommandParameter {
+        name: "ROUTING",
+        type_: "CHAR",
+        required: false,
+        values: "routing name",
+        default: "QBATCH",
+    },
+    CommandParameter {
+        name: "STATUS",
+        type_: "CHAR",
+        required: false,
+        values: "*READY,*HELD,*SAVED",
+        default: "*READY",
     },
 ];
 const LF_CREATE_PARAMS: &[CommandParameter] = &[
@@ -927,6 +985,36 @@ const SPLF_DELETE_PARAMS: &[CommandParameter] = &[
         default: "*NO",
     },
 ];
+const SPLF_CHANGE_PARAMS: &[CommandParameter] = &[
+    CommandParameter {
+        name: "SPLF",
+        type_: "NAME",
+        required: true,
+        values: "spool file id",
+        default: "",
+    },
+    CommandParameter {
+        name: "FILE",
+        type_: "NAME",
+        required: false,
+        values: "spool file name",
+        default: "",
+    },
+    CommandParameter {
+        name: "STATUS",
+        type_: "CHAR",
+        required: false,
+        values: "*READY,*HELD,*SAVED",
+        default: "*READY",
+    },
+    CommandParameter {
+        name: "STATE",
+        type_: "CHAR",
+        required: false,
+        values: "*READY,*HELD,*SAVED",
+        default: "*READY",
+    },
+];
 const POWER_PARAMS: &[CommandParameter] = &[
     CommandParameter {
         name: "OPTION",
@@ -1099,6 +1187,12 @@ pub const COMMAND_METADATA: &[CommandMetadata] = &[
         parameters: SPLF_PARAMS,
     },
     CommandMetadata {
+        name: "CHGSPLFA",
+        text: "Change spool file attributes",
+        authority: "*CHANGE",
+        parameters: SPLF_CHANGE_PARAMS,
+    },
+    CommandMetadata {
         name: "DLTSPLF",
         text: "Delete spool file",
         authority: "*CHANGE",
@@ -1156,7 +1250,7 @@ pub const COMMAND_METADATA: &[CommandMetadata] = &[
         name: "CHKOBJINT",
         text: "Check object integrity",
         authority: "*USE",
-        parameters: OBJ_AUTH_PARAMS,
+        parameters: OBJ_INTEGRITY_PARAMS,
     },
     CommandMetadata {
         name: "DSPPOLICY",
@@ -1405,6 +1499,7 @@ mod tests {
         "CRTOUTQ",
         "DLTOUTQ",
         "DSPSPLF",
+        "CHGSPLFA",
         "DLTSPLF",
         "PWRDWNSYS",
         "SBMJOB",

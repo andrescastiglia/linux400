@@ -3,9 +3,9 @@ use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Row, Table, TableState},
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
@@ -31,11 +31,25 @@ pub struct AdminCommandView {
     object_spec: Option<String>,
     line_filter: Option<String>,
     pending_action: Option<PendingAction>,
+    spool_files: Vec<SpoolInfo>,
+    spool_state: TableState,
+    spool_status_filter: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PendingAction {
     DeleteObject(String),
+    DeleteSpool(PathBuf),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SpoolInfo {
+    file_name: String,
+    path: PathBuf,
+    size: u64,
+    status: String,
+    job: String,
+    user: String,
 }
 
 impl AdminCommandView {
@@ -110,12 +124,19 @@ impl AdminCommandView {
             object_spec: None,
             line_filter: None,
             pending_action: None,
+            spool_files: Vec::new(),
+            spool_state: TableState::default(),
+            spool_status_filter: None,
         };
         view.refresh();
         view
     }
 
     fn refresh(&mut self) {
+        if self.kind == AdminViewKind::SpoolOutq {
+            self.refresh_spool();
+            return;
+        }
         self.lines.clear();
         let state = self.session.snapshot();
         for command in &self.commands {
@@ -175,6 +196,39 @@ impl AdminCommandView {
         };
     }
 
+    fn refresh_spool(&mut self) {
+        self.spool_files = list_spool_files()
+            .into_iter()
+            .filter(|spool| {
+                self.spool_status_filter
+                    .as_deref()
+                    .map(|status| spool.status.eq_ignore_ascii_case(status))
+                    .unwrap_or(true)
+            })
+            .collect();
+        if self.spool_files.is_empty() {
+            self.spool_state.select(None);
+        } else if self
+            .spool_state
+            .selected()
+            .is_none_or(|index| index >= self.spool_files.len())
+        {
+            self.spool_state.select(Some(0));
+        }
+        self.lines.clear();
+        self.lines.push("==> WRKSPLF".to_string());
+        self.lines.push(format!(
+            "{} spool file(s), filtro STATUS({})",
+            self.spool_files.len(),
+            self.spool_status_filter.as_deref().unwrap_or("*ALL")
+        ));
+        self.status = format!(
+            "Opciones: 5=Display 6=Hold 7=Release 8=Save 4=Delete F6=Status({}).",
+            self.spool_status_filter.as_deref().unwrap_or("*ALL")
+        );
+        self.scroll = 0;
+    }
+
     fn run_l400_command(&mut self, command: &str) {
         let state = self.session.snapshot();
         self.lines.clear();
@@ -209,7 +263,11 @@ impl AdminCommandView {
     }
 
     fn display_first_spool_file(&mut self) {
-        let Some(path) = first_spool_file() else {
+        let Some(path) = self
+            .selected_spool()
+            .map(|spool| spool.path.clone())
+            .or_else(first_spool_file)
+        else {
             self.lines = vec!["No hay spool files para visualizar.".to_string()];
             self.status = "Spool vacio.".to_string();
             return;
@@ -227,6 +285,48 @@ impl AdminCommandView {
             }
         }
         self.scroll = 0;
+    }
+
+    fn selected_spool(&self) -> Option<&SpoolInfo> {
+        self.spool_state
+            .selected()
+            .and_then(|index| self.spool_files.get(index))
+    }
+
+    fn change_selected_spool_status(&mut self, status: &str) {
+        let Some(path) = self.selected_spool().map(|spool| spool.path.clone()) else {
+            self.status = "No hay spool seleccionado.".to_string();
+            return;
+        };
+        self.run_l400_command(&format!(
+            "CHGSPLFA FILE({}) STATUS(*{})",
+            path.display(),
+            status
+        ));
+        self.refresh_spool();
+        self.status = format!("{} status={}", path.display(), status);
+    }
+
+    fn request_delete_selected_spool(&mut self) {
+        let Some(path) = self.selected_spool().map(|spool| spool.path.clone()) else {
+            self.status = "No hay spool seleccionado.".to_string();
+            return;
+        };
+        self.pending_action = Some(PendingAction::DeleteSpool(path.clone()));
+        self.status = format!(
+            "Confirmar DLTSPLF {}: Enter=Confirm F12=Cancel.",
+            path.display()
+        );
+    }
+
+    fn cycle_spool_status_filter(&mut self) {
+        self.spool_status_filter = match self.spool_status_filter.as_deref() {
+            None => Some("READY".to_string()),
+            Some("READY") => Some("HELD".to_string()),
+            Some("HELD") => Some("SAVED".to_string()),
+            _ => None,
+        };
+        self.refresh_spool();
     }
 }
 
@@ -257,6 +357,14 @@ impl Screen for AdminCommandView {
                             self.run_l400_command(&format!("DLTOBJ OBJ({spec}) CONFIRM(*YES)"));
                             self.pending_action = None;
                         }
+                        PendingAction::DeleteSpool(path) => {
+                            self.run_l400_command(&format!(
+                                "DLTSPLF FILE({}) CONFIRM(*YES)",
+                                path.display()
+                            ));
+                            self.pending_action = None;
+                            self.refresh_spool();
+                        }
                     }
                     return ScreenResult::none();
                 }
@@ -276,15 +384,31 @@ impl Screen for AdminCommandView {
                 self.refresh();
                 ScreenResult::none()
             }
+            KeyCode::F(6) if self.kind == AdminViewKind::SpoolOutq => {
+                self.cycle_spool_status_filter();
+                ScreenResult::none()
+            }
             KeyCode::Up => {
-                self.scroll = self.scroll.saturating_sub(1);
+                if self.kind == AdminViewKind::SpoolOutq {
+                    let current = self.spool_state.selected().unwrap_or(0);
+                    self.spool_state.select(Some(current.saturating_sub(1)));
+                } else {
+                    self.scroll = self.scroll.saturating_sub(1);
+                }
                 ScreenResult::none()
             }
             KeyCode::Down => {
-                self.scroll = self
-                    .scroll
-                    .saturating_add(1)
-                    .min(self.lines.len().saturating_sub(1));
+                if self.kind == AdminViewKind::SpoolOutq {
+                    let max = self.spool_files.len().saturating_sub(1);
+                    let current = self.spool_state.selected().unwrap_or(0);
+                    self.spool_state
+                        .select(Some(current.saturating_add(1).min(max)));
+                } else {
+                    self.scroll = self
+                        .scroll
+                        .saturating_add(1)
+                        .min(self.lines.len().saturating_sub(1));
+                }
                 ScreenResult::none()
             }
             KeyCode::PageUp => {
@@ -355,6 +479,22 @@ impl Screen for AdminCommandView {
                 self.display_first_spool_file();
                 ScreenResult::none()
             }
+            KeyCode::Char('6') if self.kind == AdminViewKind::SpoolOutq => {
+                self.change_selected_spool_status("HELD");
+                ScreenResult::none()
+            }
+            KeyCode::Char('7') if self.kind == AdminViewKind::SpoolOutq => {
+                self.change_selected_spool_status("READY");
+                ScreenResult::none()
+            }
+            KeyCode::Char('8') if self.kind == AdminViewKind::SpoolOutq => {
+                self.change_selected_spool_status("SAVED");
+                ScreenResult::none()
+            }
+            KeyCode::Char('4') if self.kind == AdminViewKind::SpoolOutq => {
+                self.request_delete_selected_spool();
+                ScreenResult::none()
+            }
             _ => ScreenResult::none(),
         }
     }
@@ -376,6 +516,10 @@ impl AdminCommandView {
     }
 
     fn render_body(&self, frame: &mut Frame, area: Rect) {
+        if self.kind == AdminViewKind::SpoolOutq && !self.spool_files.is_empty() {
+            self.render_spool_table(frame, area);
+            return;
+        }
         let height = area.height.saturating_sub(2) as usize;
         let text = self
             .lines
@@ -391,6 +535,44 @@ impl AdminCommandView {
         let inner = block.inner(area);
         frame.render_widget(block, area);
         frame.render_widget(Paragraph::new(text).style(STYLE_NORMAL), inner);
+    }
+
+    fn render_spool_table(&self, frame: &mut Frame, area: Rect) {
+        let rows = self.spool_files.iter().map(|spool| {
+            Row::new(vec![
+                " ".to_string(),
+                spool.file_name.clone(),
+                spool.job.clone(),
+                spool.user.clone(),
+                spool.status.clone(),
+                spool.size.to_string(),
+            ])
+        });
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Length(3),
+                Constraint::Length(24),
+                Constraint::Length(12),
+                Constraint::Length(12),
+                Constraint::Length(10),
+                Constraint::Length(10),
+            ],
+        )
+        .header(
+            Row::new(vec!["Opt", "File", "Job", "User", "Status", "Size"])
+                .style(STYLE_TABLE_HEADER),
+        )
+        .block(
+            Block::default()
+                .title(" Spooled files ")
+                .borders(Borders::ALL)
+                .border_style(STYLE_BORDER),
+        )
+        .style(STYLE_NORMAL)
+        .row_highlight_style(STYLE_SELECTION);
+        let mut state = self.spool_state.clone();
+        frame.render_stateful_widget(table, area, &mut state);
     }
 
     fn render_status(&self, frame: &mut Frame, area: Rect) {
@@ -410,7 +592,16 @@ impl AdminCommandView {
             "F3=Exit   ".into(),
             "F4=Prompt   ".into(),
             "F5=Refresh   ".into(),
-            "2/3/4/5/8=Options   ".into(),
+            if self.kind == AdminViewKind::SpoolOutq {
+                "F6=Filter   ".into()
+            } else {
+                "".into()
+            },
+            if self.kind == AdminViewKind::SpoolOutq {
+                "4=Delete 5=Display 6=Hold 7=Release 8=Save   ".into()
+            } else {
+                "2/3/4/5/8=Options   ".into()
+            },
             "PgUp/PgDn=Roll   ".into(),
             "F12=Cancel".into(),
         ]);
@@ -480,21 +671,137 @@ fn extract_object_spec(data: &str) -> Option<String> {
 }
 
 fn first_spool_file() -> Option<PathBuf> {
+    list_spool_files()
+        .into_iter()
+        .next()
+        .map(|spool| spool.path)
+}
+
+fn list_spool_files() -> Vec<SpoolInfo> {
     let root = l400::resolve_l400_root();
     let candidates = [
         std::env::var("L400_SPOOL_DIR").ok().map(PathBuf::from),
         Some(root.join("QUSRSYS").join("QSPL")),
         Some(root.join("spool")),
     ];
-    candidates
+    let mut files = candidates
         .into_iter()
         .flatten()
         .filter(|dir| dir.exists())
-        .find_map(|dir| {
+        .flat_map(|dir| {
             std::fs::read_dir(dir)
-                .ok()?
+                .into_iter()
+                .flatten()
                 .flatten()
                 .map(|entry| entry.path())
-                .find(|path| path.is_file())
+                .filter(|path| path.is_file())
+                .collect::<Vec<_>>()
         })
+        .map(|path| spool_info(path.as_path()))
+        .collect::<Vec<_>>();
+    files.sort_by(|left, right| left.file_name.cmp(&right.file_name));
+    files
+}
+
+fn spool_info(path: &Path) -> SpoolInfo {
+    let content = std::fs::read_to_string(path).unwrap_or_default();
+    let metadata = path.metadata().ok();
+    SpoolInfo {
+        file_name: path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.display().to_string()),
+        path: path.to_path_buf(),
+        size: metadata.map(|metadata| metadata.len()).unwrap_or_default(),
+        status: latest_spool_field(&content, "status").unwrap_or_else(|| "READY".to_string()),
+        job: latest_spool_field(&content, "job").unwrap_or_else(|| "-".to_string()),
+        user: latest_spool_field(&content, "user").unwrap_or_else(|| "-".to_string()),
+    }
+}
+
+fn latest_spool_field(content: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}=");
+    content
+        .lines()
+        .filter_map(|line| {
+            line.split_whitespace()
+                .find_map(|field| field.strip_prefix(&prefix))
+        })
+        .last()
+        .map(|value| value.trim_start_matches('*').to_uppercase())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{latest_spool_field, list_spool_files};
+    use std::io::Write;
+
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let original = std::env::var_os(key);
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
+    }
+
+    #[test]
+    fn latest_spool_field_reads_last_status() {
+        let content = "job=JOB1 user=QPGMR status=RUN\nstatus=*HELD changed_at=1\n";
+        assert_eq!(
+            latest_spool_field(content, "status").as_deref(),
+            Some("HELD")
+        );
+        assert_eq!(latest_spool_field(content, "job").as_deref(), Some("JOB1"));
+    }
+
+    #[test]
+    fn list_spool_files_uses_configured_spool_dir() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let _spool = EnvGuard::set("L400_SPOOL_DIR", root.path().to_str().expect("utf8"));
+        let mut file = std::fs::File::create(root.path().join("demo.splf")).expect("create splf");
+        writeln!(file, "spool_version=1 job=JOB1 user=QPGMR status=READY").expect("write splf");
+
+        let files = list_spool_files();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name, "demo.splf");
+        assert_eq!(files[0].job, "JOB1");
+        assert_eq!(files[0].user, "QPGMR");
+        assert_eq!(files[0].status, "READY");
+    }
+
+    #[test]
+    fn spool_status_filter_cycles_like_work_screen_subset() {
+        let mut view =
+            super::AdminCommandView::spool_outq(None, crate::session::SessionContext::new(1));
+
+        assert_eq!(view.spool_status_filter, None);
+        view.cycle_spool_status_filter();
+        assert_eq!(view.spool_status_filter.as_deref(), Some("READY"));
+        view.cycle_spool_status_filter();
+        assert_eq!(view.spool_status_filter.as_deref(), Some("HELD"));
+        view.cycle_spool_status_filter();
+        assert_eq!(view.spool_status_filter.as_deref(), Some("SAVED"));
+        view.cycle_spool_status_filter();
+        assert_eq!(view.spool_status_filter, None);
+    }
 }

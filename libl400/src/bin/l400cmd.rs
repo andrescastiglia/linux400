@@ -27,6 +27,7 @@ const COMMAND_BINARIES: &[&str] = &[
     "CRTOUTQ",
     "DLTOUTQ",
     "DSPSPLF",
+    "CHGSPLFA",
     "DLTSPLF",
     "PWRDWNSYS",
     "SBMJOB",
@@ -138,7 +139,7 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
         "ENDJOB" => dispatch_spec(
             command,
             args,
-            &["JOB", "PID", "CONFIRM"],
+            &["JOB", "PID", "CONFIRM", "OPTION"],
             ffi_commands::l400_endjob,
         ),
         "WRKSYSVAL" => {
@@ -179,7 +180,7 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
         "CRTOUTQ" => dispatch_spec(
             command,
             args,
-            &["OUTQ", "LIB", "TEXT"],
+            &["OUTQ", "LIB", "TEXT", "RETAIN", "ROUTING", "STATUS"],
             ffi_commands::l400_crtoutq,
         ),
         "DLTOUTQ" => dispatch_spec(
@@ -189,6 +190,12 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             ffi_commands::l400_dltoutq,
         ),
         "DSPSPLF" => dispatch_spec(command, args, &["SPLF", "FILE"], ffi_commands::l400_dspsplf),
+        "CHGSPLFA" => dispatch_spec(
+            command,
+            args,
+            &["SPLF", "FILE", "STATUS", "STATE"],
+            ffi_commands::l400_chgsplfa,
+        ),
         "DLTSPLF" => dispatch_spec(
             command,
             args,
@@ -258,7 +265,7 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
         "CHKOBJINT" => dispatch_spec(
             command,
             args,
-            &["OBJ", "LIB", "OBJTYPE"],
+            &["OBJ", "LIB", "OBJTYPE", "REPAIR"],
             ffi_commands::l400_chkobjint,
         ),
         "DSPPOLICY" => {

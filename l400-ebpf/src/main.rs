@@ -14,7 +14,8 @@ use l400_ebpf_common::{
     STAT_EXEC_ALLOWED_OWNER, STAT_EXEC_ALLOWED_PGM, STAT_EXEC_ALLOWED_USER_AUTH,
     STAT_EXEC_CHECK_ALLOWED, STAT_EXEC_CHECK_DENIED, STAT_EXEC_DECISION_MISSING,
     STAT_EXEC_DENIED_EXCLUDE, STAT_EXEC_DENIED_INVALID_FORMAT, STAT_EXEC_DENIED_WRONG_TYPE,
-    STAT_OBJTYPE_BASE, STAT_OPEN_ALLOWED, VALID_OBJ_TYPES,
+    STAT_OBJTYPE_BASE, STAT_OPEN_ALLOWED, STAT_OPEN_ALLOWED_OWNER, STAT_OPEN_ALLOWED_USER_AUTH,
+    STAT_OPEN_DENIED_EXCLUDE, VALID_OBJ_TYPES,
 };
 
 #[map(name = "L400_STATS")]
@@ -313,6 +314,21 @@ fn try_file_open(ctx: LsmContext) -> Result<i32, i32> {
         ObjTypeLookup::Untagged => Ok(0),
         ObjTypeLookup::Known(_, index) => {
             inc_stat(STAT_OBJTYPE_BASE + index as u32);
+            if lookup_file_public_auth_exclude(file) {
+                let uid = (bpf_get_current_uid_gid() & 0xffff_ffff) as u32;
+                if lookup_file_owner_uid_matches(file, uid) {
+                    inc_stat(STAT_OPEN_ALLOWED_OWNER);
+                } else if lookup_file_uid_auth_allows(file, uid) {
+                    inc_stat(STAT_OPEN_ALLOWED_USER_AUTH);
+                } else {
+                    inc_stat(STAT_OPEN_DENIED_EXCLUDE);
+                    warn!(
+                        &ctx,
+                        "Policy {}: file_open denegado por *PUBLIC:*EXCLUDE", L400_POLICY_VERSION
+                    );
+                    return Err(EACCES);
+                }
+            }
             inc_stat(STAT_OPEN_ALLOWED);
             info!(
                 &ctx,
