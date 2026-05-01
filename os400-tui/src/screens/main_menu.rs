@@ -10,12 +10,23 @@ use ratatui::{
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::session::SessionContext;
 use crate::style::*;
+use crate::widgets::command_input::CommandInput;
 use crate::widgets::help_bar::{HelpAction, HelpBar};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MenuKind {
+    Main,
+    CmdObj,
+    CmdSql,
+    CmdSys,
+}
 
 pub struct MainMenu {
     selected_index: usize,
     pending_option: String,
+    command_input: CommandInput,
     session: SessionContext,
+    kind: MenuKind,
 }
 
 impl MainMenu {
@@ -27,52 +38,93 @@ impl MainMenu {
         Self {
             selected_index: 0,
             pending_option: String::new(),
+            command_input: CommandInput::new(),
             session,
+            kind: MenuKind::Main,
         }
     }
 
-    fn menu_items() -> Vec<(&'static str, &'static str, &'static str)> {
-        vec![
-            ("1", "Work with libraries . . . . . . . . . . .", "WRKLIB"),
-            ("2", "Work with programs  . . . . . . . . . .", "WRKPGM"),
-            ("3", "Work with files . . . . . . . . . . . .", "WRKOBJ"),
-            ("4", "Work with jobs . . . . . . . . . . . .", "WRKACTJOB"),
-            ("5", "Data queues  . . . . . . . . . . . . .", "DSPDTAQ"),
-            ("6", "Command entry . . . . . . . . . . . .", "CMD"),
-            ("7", "Programming Development Manager . . . .", "STRPDM"),
-            ("8", "System status  . . . . . . . . . . .", "WRKSYSSTS"),
-            ("9", "System values  . . . . . . . . . . .", "WRKSYSVAL"),
-            (" ", " ", " "),
-            ("10", "User profiles . . . . . . . . . . .", "WRKUSRPRF"),
-            ("11", "Spool files . . . . . . . . . . . .", "WRKSPLF"),
-            ("12", "Policy and audit  . . . . . . . . .", "DSPPOLICY"),
-        ]
+    pub fn command_menu(target: &str, session: SessionContext) -> Self {
+        let kind = match target.trim().to_uppercase().as_str() {
+            "CMDOBJ" => MenuKind::CmdObj,
+            "CMDSQL" => MenuKind::CmdSql,
+            "CMDSYS" => MenuKind::CmdSys,
+            _ => MenuKind::Main,
+        };
+        Self {
+            kind,
+            ..Self::with_session(session)
+        }
+    }
+
+    fn menu_items(&self) -> Vec<(&'static str, &'static str, &'static str)> {
+        match self.kind {
+            MenuKind::Main => vec![
+                ("1", "Work with libraries . . . . . . . . . . .", "WRKLIB"),
+                ("2", "Work with objects . . . . . . . . . . . .", "WRKOBJ"),
+                ("3", "Work with files . . . . . . . . . . . .", "WRKOBJ"),
+                ("4", "Work with jobs . . . . . . . . . . . .", "WRKACTJOB"),
+                ("5", "Data queues  . . . . . . . . . . . . .", "DSPDTAQ"),
+                ("6", "Command entry . . . . . . . . . . . .", "CMD"),
+                ("7", "Programming Development Manager . . . .", "STRPDM"),
+                ("8", "System status  . . . . . . . . . . .", "WRKSYSSTS"),
+                ("9", "System values  . . . . . . . . . . .", "WRKSYSVAL"),
+                (" ", " ", " "),
+                ("10", "User profiles . . . . . . . . . . .", "WRKUSRPRF"),
+                ("11", "Spool files . . . . . . . . . . . .", "WRKSPLF"),
+                ("12", "Policy and audit  . . . . . . . . .", "DSPPOLICY"),
+                ("13", "Command groups  . . . . . . . . . . . .", "GO CMDOBJ"),
+                ("90", "Power down system . . . . . . . . .", "PWRDWNSYS"),
+            ],
+            MenuKind::CmdObj => vec![
+                ("1", "Work with libraries . . . . . . . . . . .", "WRKLIB"),
+                ("2", "Work with objects . . . . . . . . . . . .", "WRKOBJ"),
+                ("3", "Display object description . . . . . . .", "DSPOBJD"),
+                ("4", "Display object authority . . . . . . . .", "DSPOBJAUT"),
+                ("5", "Data queue operations . . . . . . . . .", "DSPDTAQ"),
+            ],
+            MenuKind::CmdSql => vec![
+                ("1", "Start interactive SQL . . . . . . . . .", "STRSQL"),
+                (
+                    "2",
+                    "Show physical files . . . . . . . . . .",
+                    "SHOW TABLES",
+                ),
+                (
+                    "3",
+                    "Describe physical file . . . . . . . .",
+                    "DESCRIBE TABLE",
+                ),
+            ],
+            MenuKind::CmdSys => vec![
+                ("1", "Work with active jobs . . . . . . . . .", "WRKACTJOB"),
+                ("2", "Work with user profiles . . . . . . . .", "WRKUSRPRF"),
+                ("3", "Work with spool files . . . . . . . . .", "WRKSPLF"),
+                ("4", "Policy and audit . . . . . . . . . . .", "DSPPOLICY"),
+                ("90", "Power down system . . . . . . . . . .", "PWRDWNSYS"),
+            ],
+        }
     }
 
     fn handle_option(&self, option: &str) -> ScreenResult {
-        match option {
-            "1" | "2" | "3" => ScreenResult::goto(ScreenId::ObjectBrowser),
-            "4" => ScreenResult::goto(ScreenId::WorkManagement),
-            "5" => ScreenResult::goto(ScreenId::DataQueueViewer),
-            "6" => ScreenResult::goto(ScreenId::CommandLine),
-            "7" => ScreenResult::goto(ScreenId::PdmBrowser),
-            "8" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKSYSSTS"),
-            "9" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKSYSVAL"),
-            "10" => ScreenResult::goto(ScreenId::UserProfiles),
-            "11" => ScreenResult::goto(ScreenId::SpoolOutq),
-            "12" => ScreenResult::goto(ScreenId::PolicyAudit),
-            _ => ScreenResult::none(),
-        }
+        let Some((_, _, command)) = self
+            .menu_items()
+            .into_iter()
+            .find(|(item, _, _)| *item == option)
+        else {
+            return ScreenResult::none();
+        };
+        self.route_command(command)
     }
 
-    fn option_index(option: &str) -> Option<usize> {
-        Self::menu_items()
+    fn option_index(&self, option: &str) -> Option<usize> {
+        self.menu_items()
             .iter()
             .position(|(item_option, _, _)| *item_option == option)
     }
 
     fn move_selection(&mut self, step: isize) {
-        let items = Self::menu_items();
+        let items = self.menu_items();
         if items.is_empty() {
             return;
         }
@@ -95,7 +147,7 @@ impl MainMenu {
 
     fn execute_selected(&mut self) -> ScreenResult {
         self.pending_option.clear();
-        let items = Self::menu_items();
+        let items = self.menu_items();
         if self.selected_index < items.len() {
             self.handle_option(items[self.selected_index].0)
         } else {
@@ -110,7 +162,8 @@ impl MainMenu {
 
         self.pending_option.push(digit);
 
-        let has_prefix = Self::menu_items()
+        let has_prefix = self
+            .menu_items()
             .iter()
             .any(|(option, _, _)| option.starts_with(&self.pending_option));
         if !has_prefix {
@@ -118,10 +171,10 @@ impl MainMenu {
             return ScreenResult::none();
         }
 
-        if let Some(idx) = Self::option_index(&self.pending_option) {
+        if let Some(idx) = self.option_index(&self.pending_option) {
             self.selected_index = idx;
 
-            let has_longer_match = Self::menu_items().iter().any(|(option, _, _)| {
+            let has_longer_match = self.menu_items().iter().any(|(option, _, _)| {
                 option != &self.pending_option && option.starts_with(&self.pending_option)
             });
             if !has_longer_match {
@@ -130,6 +183,31 @@ impl MainMenu {
         }
 
         ScreenResult::none()
+    }
+
+    fn route_command(&self, command: &str) -> ScreenResult {
+        let command = command.trim().to_uppercase();
+        match command.as_str() {
+            "GO MAIN" => ScreenResult::goto(ScreenId::MainMenu),
+            "GO CMDOBJ" => ScreenResult::with_data(ScreenId::CommandMenu, "CMDOBJ"),
+            "GO CMDSQL" => ScreenResult::with_data(ScreenId::CommandMenu, "CMDSQL"),
+            "GO CMDSYS" => ScreenResult::with_data(ScreenId::CommandMenu, "CMDSYS"),
+            "WRKLIB" | "WRKOBJ" | "WRKPGM" => ScreenResult::goto(ScreenId::ObjectBrowser),
+            "WRKACTJOB" => ScreenResult::goto(ScreenId::WorkManagement),
+            "DSPDTAQ" => ScreenResult::goto(ScreenId::DataQueueViewer),
+            "CMD" => ScreenResult::goto(ScreenId::CommandLine),
+            "STRPDM" => ScreenResult::goto(ScreenId::PdmBrowser),
+            "STRSQL" | "SHOW TABLES" | "DESCRIBE TABLE" => ScreenResult::goto(ScreenId::StrSql),
+            "PWRDWNSYS" => ScreenResult::goto(ScreenId::PowerDown),
+            "WRKSYSSTS" | "WRKSYSVAL" | "DSPCMD" | "WRKCMD" => {
+                ScreenResult::with_data(ScreenId::SystemPanel, command)
+            }
+            "WRKUSRPRF" => ScreenResult::goto(ScreenId::UserProfiles),
+            "WRKSPLF" | "WRKOUTQ" => ScreenResult::goto(ScreenId::SpoolOutq),
+            "DSPPOLICY" | "DSPAUD" => ScreenResult::goto(ScreenId::PolicyAudit),
+            "DSPOBJD" | "DSPOBJAUT" => ScreenResult::with_data(ScreenId::ObjectDetail, command),
+            _ => ScreenResult::with_data(ScreenId::CommandLine, command),
+        }
     }
 }
 
@@ -140,13 +218,16 @@ impl Screen for MainMenu {
             .constraints([
                 Constraint::Length(4),
                 Constraint::Min(0),
+                Constraint::Length(1),
                 Constraint::Length(3),
             ])
             .split(frame.area());
 
         self.render_header(frame, chunks[0]);
         self.render_menu(frame, chunks[1]);
-        self.render_help(frame, chunks[2]);
+        self.command_input.active = true;
+        self.command_input.render(frame, chunks[2]);
+        self.render_help(frame, chunks[3]);
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
@@ -158,7 +239,11 @@ impl Screen for MainMenu {
             }
             KeyCode::F(12) | KeyCode::Esc => {
                 self.pending_option.clear();
-                ScreenResult::none()
+                if self.kind == MenuKind::Main {
+                    ScreenResult::none()
+                } else {
+                    ScreenResult::back()
+                }
             }
             KeyCode::Up => {
                 self.pending_option.clear();
@@ -170,10 +255,18 @@ impl Screen for MainMenu {
                 self.move_selection(1);
                 ScreenResult::none()
             }
+            KeyCode::Enter if !self.command_input.value.trim().is_empty() => {
+                if let Some(command) = self.command_input.handle_key(key) {
+                    self.pending_option.clear();
+                    self.route_command(&command)
+                } else {
+                    ScreenResult::none()
+                }
+            }
             KeyCode::Enter => self.execute_selected(),
             KeyCode::Backspace => {
                 self.pending_option.pop();
-                if let Some(idx) = Self::option_index(&self.pending_option) {
+                if let Some(idx) = self.option_index(&self.pending_option) {
                     self.selected_index = idx;
                 }
                 ScreenResult::none()
@@ -183,14 +276,21 @@ impl Screen for MainMenu {
             {
                 self.apply_pending_option(c)
             }
-            _ => ScreenResult::none(),
+            _ => {
+                if let Some(command) = self.command_input.handle_key(key) {
+                    self.pending_option.clear();
+                    self.route_command(&command)
+                } else {
+                    ScreenResult::none()
+                }
+            }
         }
     }
 }
 
 impl MainMenu {
     fn render_header(&self, frame: &mut Frame, area: Rect) {
-        let title = Line::from(vec![" L400 Main Menu ".into()]);
+        let title = Line::from(vec![format!(" {} ", self.title()).into()]);
         let session = self.session.snapshot();
 
         let block = Block::default()
@@ -230,7 +330,7 @@ impl MainMenu {
     }
 
     fn render_menu(&self, frame: &mut Frame, area: Rect) {
-        let items = Self::menu_items();
+        let items = self.menu_items();
         let menu_items: Vec<ListItem> = items
             .iter()
             .enumerate()
@@ -248,7 +348,7 @@ impl MainMenu {
         let list = List::new(menu_items)
             .block(
                 Block::default()
-                    .title("Work with objects")
+                    .title(self.menu_panel_title())
                     .borders(Borders::ALL)
                     .border_style(STYLE_BORDER),
             )
@@ -263,10 +363,29 @@ impl MainMenu {
             .actions(vec![
                 HelpAction::new("F3", "Signoff"),
                 HelpAction::new("F4", "Prompt"),
-                HelpAction::new("F12", "Cancel"),
+                HelpAction::new("F12", "Back"),
                 HelpAction::new("Enter", "Select"),
+                HelpAction::new("Tab", "Complete"),
             ])
             .render(frame, area);
+    }
+
+    fn title(&self) -> &'static str {
+        match self.kind {
+            MenuKind::Main => "L400 Main Menu",
+            MenuKind::CmdObj => "Object Commands",
+            MenuKind::CmdSql => "SQL Commands",
+            MenuKind::CmdSys => "System Commands",
+        }
+    }
+
+    fn menu_panel_title(&self) -> &'static str {
+        match self.kind {
+            MenuKind::Main => "Main",
+            MenuKind::CmdObj => "GO CMDOBJ",
+            MenuKind::CmdSql => "GO CMDSQL",
+            MenuKind::CmdSys => "GO CMDSYS",
+        }
     }
 }
 
@@ -380,5 +499,31 @@ mod tests {
         assert_eq!(menu.handle_key(key(KeyCode::Char('1'))).next, None);
         let result = menu.handle_key(key(KeyCode::Char('2')));
         assert_eq!(result.next, Some(ScreenId::PolicyAudit));
+    }
+
+    #[test]
+    fn embedded_command_input_routes_go_submenus() {
+        let mut menu = MainMenu::new();
+        for ch in "GO CMDOBJ".chars() {
+            assert_eq!(menu.handle_key(key(KeyCode::Char(ch))).next, None);
+        }
+        let result = menu.handle_key(key(KeyCode::Enter));
+        assert_eq!(result.next, Some(ScreenId::CommandMenu));
+        assert_eq!(result.data.as_deref(), Some("CMDOBJ"));
+    }
+
+    #[test]
+    fn command_submenu_f12_pops_navigation_stack() {
+        let mut menu = MainMenu::command_menu("CMDSYS", SessionContext::new(911));
+        let result = menu.handle_key(key(KeyCode::F(12)));
+        assert_eq!(result.next, Some(ScreenId::Back));
+    }
+
+    #[test]
+    fn option_ninety_opens_power_down_confirmation() {
+        let mut menu = MainMenu::new();
+        assert_eq!(menu.handle_key(key(KeyCode::Char('9'))).next, None);
+        let result = menu.handle_key(key(KeyCode::Char('0')));
+        assert_eq!(result.next, Some(ScreenId::PowerDown));
     }
 }

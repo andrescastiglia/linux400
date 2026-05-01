@@ -39,9 +39,10 @@ impl StatusBar {
         };
 
         let message = state.last_message.clone().unwrap_or_default();
+        let clock = local_hms();
 
         // Truncate message to fit available width.
-        let fixed_width = 60; // approximate fixed portion
+        let fixed_width = 72; // approximate fixed portion
         let max_msg = (area.width as usize).saturating_sub(fixed_width);
         let message_display = if message.chars().count() > max_msg {
             message.chars().take(max_msg).collect::<String>() + "..."
@@ -50,7 +51,7 @@ impl StatusBar {
         };
 
         let spans = vec![
-            Span::styled("L400", STYLE_STATUS_BAR),
+            Span::styled("System:L400", STYLE_STATUS_BAR),
             Span::styled("  ", STYLE_STATUS_BAR),
             Span::styled(format!("User:{:<8}", state.user_profile), STYLE_STATUS_BAR),
             Span::styled("  ", STYLE_STATUS_BAR),
@@ -61,6 +62,8 @@ impl StatusBar {
             Span::styled("  ", STYLE_STATUS_BAR),
             Span::styled(format!("Job:{:<6}", state.job_id), STYLE_STATUS_BAR),
             Span::styled("  ", STYLE_STATUS_BAR),
+            Span::styled(clock, STYLE_STATUS_BAR),
+            Span::styled("  ", STYLE_STATUS_BAR),
             Span::styled(format!("[{}]", mode_label), mode_style),
             Span::styled("  ", STYLE_STATUS_BAR),
             Span::styled(message_display, STYLE_STATUS_BAR),
@@ -69,6 +72,18 @@ impl StatusBar {
         let line = Line::from(spans);
         frame.render_widget(Paragraph::new(line).style(STYLE_STATUS_BAR), area);
     }
+}
+
+fn local_hms() -> String {
+    let mut now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    now %= 24 * 60 * 60;
+    let hour = now / 3600;
+    let minute = (now % 3600) / 60;
+    let second = now % 60;
+    format!("{hour:02}:{minute:02}:{second:02}")
 }
 
 /// Current enforcement mode of the system.

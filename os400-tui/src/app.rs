@@ -1,6 +1,9 @@
 use anyhow::Result;
 use crossterm::event::KeyEvent;
-use ratatui::Terminal;
+use ratatui::{
+    Terminal,
+    layout::{Constraint, Direction, Layout},
+};
 
 use crate::screens::admin_views::AdminCommandView;
 use crate::screens::cmd_line::CommandLine;
@@ -8,6 +11,7 @@ use crate::screens::dtaq_viewer::DataQueueViewer;
 use crate::screens::main_menu::MainMenu;
 use crate::screens::object_browser::ObjectBrowser;
 use crate::screens::pdm_browser::PdmBrowser;
+use crate::screens::power_down::PowerDownSystem;
 use crate::screens::sign_on::SignOnScreen;
 use crate::screens::str_seu::StrSeu;
 use crate::screens::str_sql::StrSql;
@@ -16,6 +20,7 @@ use crate::screens::work_mgmt::WorkManagement;
 use crate::screens::wrk_mbr_pdm::WrkMbrPdm;
 use crate::screens::{Screen, ScreenId};
 use crate::session::SessionContext;
+use crate::widgets::status_bar::StatusBar;
 
 /// Maximum navigation stack depth to prevent unbounded growth.
 const MAX_NAV_STACK: usize = 16;
@@ -60,6 +65,11 @@ impl App {
 
             terminal.draw(|frame| {
                 self.current_screen.render(frame);
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(0), Constraint::Length(1)])
+                    .split(frame.area());
+                StatusBar::new(self.session.clone()).render(frame, chunks[1]);
             })?;
 
             self.handle_events()?;
@@ -78,8 +88,9 @@ impl App {
                 }
                 Event::Mouse(_) => {}
                 Event::Resize(_, _) => {
-                    // Ratatui handles resize automatically on next draw.
-                    // No per-screen state reset needed at this stage.
+                    let _ = self
+                        .current_screen
+                        .handle_key(KeyEvent::from(crossterm::event::KeyCode::Null));
                 }
                 Event::FocusGained => {}
                 Event::FocusLost => {}
@@ -158,6 +169,11 @@ impl App {
         match screen_id {
             ScreenId::SignOn => Box::new(SignOnScreen::new()),
             ScreenId::MainMenu => Box::new(MainMenu::with_session(self.session.clone())),
+            ScreenId::CommandMenu => Box::new(MainMenu::command_menu(
+                data.as_deref().unwrap_or("MAIN"),
+                self.session.clone(),
+            )),
+            ScreenId::PowerDown => Box::new(PowerDownSystem::new(self.session.clone())),
             ScreenId::WorkManagement => Box::new(WorkManagement::new()),
             ScreenId::ObjectBrowser => Box::new(ObjectBrowser::with_session(self.session.clone())),
             ScreenId::DataQueueViewer => Box::new(
@@ -295,5 +311,40 @@ fn parse_member_spec(spec: Option<&str>, session: &SessionContext) -> (String, S
             "QCLSRC".to_string(),
             "NEWMBR.CLP".to_string(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn navigation_stack_pops_through_four_levels() {
+        let mut app = App::new();
+
+        app.switch_screen(ScreenId::MainMenu, None);
+        app.switch_screen(ScreenId::CommandMenu, Some("CMDOBJ".to_string()));
+        app.switch_screen(ScreenId::CommandLine, None);
+        app.switch_screen(ScreenId::ObjectBrowser, None);
+
+        assert_eq!(app.nav_depth(), 4);
+
+        app.navigate_back();
+        assert_eq!(app.current_screen_id, ScreenId::CommandLine);
+        app.navigate_back();
+        assert_eq!(app.current_screen_id, ScreenId::CommandMenu);
+        app.navigate_back();
+        assert_eq!(app.current_screen_id, ScreenId::MainMenu);
+        app.navigate_back();
+        assert_eq!(app.current_screen_id, ScreenId::SignOn);
+    }
+
+    #[test]
+    fn navigation_stack_is_limited() {
+        let mut app = App::new();
+        for _ in 0..32 {
+            app.switch_screen(ScreenId::CommandLine, None);
+        }
+        assert_eq!(app.nav_depth(), MAX_NAV_STACK);
     }
 }

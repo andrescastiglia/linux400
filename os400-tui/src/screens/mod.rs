@@ -4,6 +4,7 @@ pub mod dtaq_viewer;
 pub mod main_menu;
 pub mod object_browser;
 pub mod pdm_browser;
+pub mod power_down;
 pub mod sign_on;
 pub mod str_seu;
 pub mod str_sql;
@@ -18,6 +19,8 @@ use ratatui::Frame;
 pub enum ScreenId {
     SignOn,
     MainMenu,
+    CommandMenu,
+    PowerDown,
     WorkManagement,
     ObjectBrowser,
     DataQueueViewer,

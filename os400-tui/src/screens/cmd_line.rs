@@ -386,16 +386,21 @@ impl CommandLine {
                     .get(1)
                     .map(|value| value.trim().to_uppercase())
                     .unwrap_or_default();
-                if target == "MAIN" {
-                    Some(ScreenResult::goto(ScreenId::MainMenu))
-                } else {
-                    self.show_usage_error("Usage: GO MAIN");
-                    Some(ScreenResult::none())
+                match target.as_str() {
+                    "MAIN" => Some(ScreenResult::goto(ScreenId::MainMenu)),
+                    "CMDOBJ" | "CMDSQL" | "CMDSYS" => {
+                        Some(ScreenResult::with_data(ScreenId::CommandMenu, target))
+                    }
+                    _ => {
+                        self.show_usage_error("Usage: GO MAIN, GO CMDOBJ, GO CMDSQL, GO CMDSYS");
+                        Some(ScreenResult::none())
+                    }
                 }
             }
             "SIGNOFF" => Some(ScreenResult::goto(ScreenId::SignOn)),
             "STRPDM" => Some(ScreenResult::goto(ScreenId::PdmBrowser)),
             "STRSQL" => Some(ScreenResult::goto(ScreenId::StrSql)),
+            "PWRDWNSYS" => Some(ScreenResult::goto(ScreenId::PowerDown)),
             "WRKACTJOB" => Some(ScreenResult::goto(ScreenId::WorkManagement)),
             "WRKOBJ" | "WRKLIB" => Some(ScreenResult::goto(ScreenId::ObjectBrowser)),
             "WRKUSRPRF" => Some(ScreenResult::goto(ScreenId::UserProfiles)),
@@ -794,6 +799,17 @@ mod tests {
         let result = cmd.execute_command();
 
         assert_eq!(result.next, Some(ScreenId::SignOn));
+    }
+
+    #[test]
+    fn go_cmdobj_routes_to_command_menu() {
+        let mut cmd = CommandLine::new();
+        cmd.command = "GO CMDOBJ".to_string();
+
+        let result = cmd.execute_command();
+
+        assert_eq!(result.next, Some(ScreenId::CommandMenu));
+        assert_eq!(result.data.as_deref(), Some("CMDOBJ"));
     }
 
     #[test]

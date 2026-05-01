@@ -97,7 +97,7 @@ siguientes, eliminando deuda técnica.
   configurable. Reemplaza `pending_delete`/`pending_action` ad-hoc.
 - [x] `StatusBar`: barra inferior con reloj, user, current library, job,
   system name, último CPF. Presente en todas las pantallas.
-- [ ] `CommandInput`: línea de comandos embebida (1 línea) con autocompletado
+- [x] `CommandInput`: línea de comandos embebida (1 línea) con autocompletado
   del catálogo `*CMD`, integrable en la parte inferior de cualquier pantalla.
 - [x] `ModeIndicator`: badge que muestra `FULL`, `DEGRADED` o `DEV` con color
   semántico (verde/amarillo/rojo).
@@ -135,23 +135,23 @@ Criterio de cierre:
 
 - [ ] Los 6 widgets tienen unit tests.
 - [ ] `tokenize_cl_command` tiene una sola definición.
-- [ ] El navigation stack se prueba con un flujo de 4 niveles de profundidad.
-- [ ] `cargo test -p os400-tui` pasa sin regresiones.
+- [x] El navigation stack se prueba con un flujo de 4 niveles de profundidad.
+- [x] `cargo test -p os400-tui` pasa sin regresiones.
 
 ---
 
 ## Fase 2: pantalla de sign-on y status bar global
 
-Estado: **pendiente**.
+Estado: **en progreso para 0.3-pre**.
 
 Objetivo: que la primera impresión del sistema transmita identidad y que la
 status bar sea omnipresente.
 
 ### 2.1 Sign-on mejorado
 
-- [ ] Usar `InputField` para User y Password.
-- [ ] Agregar campo `Current library` (default `QGPL`).
-- [ ] Agregar campo `Initial menu` (default `MAIN`) — visual solamente.
+- [x] Usar `InputField` para User y Password.
+- [x] Agregar campo `Current library` (default `QGPL`).
+- [x] Agregar campo `Initial menu` (default `MAIN`) — visual solamente.
 - [ ] Mostrar nombre de sistema, versión y modo (FULL/DEGRADED/DEV) en el
   panel de sign-on.
 - [ ] Animación de arranque mínima: banner "Linux/400" con versión al
@@ -159,23 +159,23 @@ status bar sea omnipresente.
 
 ### 2.2 Status bar global
 
-- [ ] Integrar `StatusBar` en `App::run()`, renderizando siempre la última
+- [x] Integrar `StatusBar` en `App::run()`, renderizando siempre la última
   fila del terminal.
-- [ ] Contenido: `System: L400  User: QPGMR  Lib: TESTLIB  Job: 12345  HH:MM:SS  [FULL]`.
-- [ ] Actualización del reloj cada segundo (usando tick en el event loop).
+- [x] Contenido: `System: L400  User: QPGMR  Lib: TESTLIB  Job: 12345  HH:MM:SS  [FULL]`.
+- [x] Actualización del reloj cada segundo (usando tick en el event loop).
 - [ ] Último CPF con severity (info/warning/error coloreado).
 
 Criterio de cierre:
 
-- [ ] Sign-on usa widgets de la fase 1.
-- [ ] La status bar aparece en todas las pantallas.
+- [x] Sign-on usa widgets de la fase 1.
+- [x] La status bar aparece en todas las pantallas.
 - [ ] El banner de arranque se puede desactivar con `L400_NO_BANNER=1`.
 
 ---
 
 ## Fase 3: menú principal y navegación multinivel
 
-Estado: **pendiente**.
+Estado: **en progreso para 0.3-pre**.
 
 Objetivo: que el menú principal sea un hub efectivo y que la navegación sea
 predecible.
@@ -188,32 +188,32 @@ predecible.
   - **Operaciones**: 7=Jobs, 8=System status, 9=System values
   - **Administración**: 10=Users, 11=Spool, 12=Policy/Audit
   - **Sistema**: 90=PWRDWNSYS
-- [ ] Agregar `GO` con submenús: `GO MAIN`, `GO CMDOBJ`, `GO CMDSQL`,
+- [x] Agregar `GO` con submenús: `GO MAIN`, `GO CMDOBJ`, `GO CMDSQL`,
   `GO CMDSYS`.
 - [ ] La selección por teclado numérico ya funciona; agregar feedback
   visual de la opción pendiente en la status bar.
 
 ### 3.2 Command line embebida
 
-- [ ] Agregar `CommandInput` en la parte inferior del menú principal, justo
+- [x] Agregar `CommandInput` en la parte inferior del menú principal, justo
   encima de la help bar.
-- [ ] El operador puede escribir un comando directamente desde el menú sin
+- [x] El operador puede escribir un comando directamente desde el menú sin
   necesidad de ir a opción 6.
-- [ ] Autocompletado de nombre de comando (Tab) usando `COMMAND_METADATA`.
+- [x] Autocompletado de nombre de comando (Tab) usando `COMMAND_METADATA`.
 
 ### 3.3 Menus GO secundarios
 
-- [ ] `GO CMDOBJ` — menú de comandos de objetos.
-- [ ] `GO CMDSQL` — menú de SQL operativo.
-- [ ] `GO CMDSYS` — menú de sistema y seguridad.
-- [ ] Implementar como pantallas de menú reutilizando la estructura de
+- [x] `GO CMDOBJ` — menú de comandos de objetos.
+- [x] `GO CMDSQL` — menú de SQL operativo.
+- [x] `GO CMDSYS` — menú de sistema y seguridad.
+- [x] Implementar como pantallas de menú reutilizando la estructura de
   `MainMenu`.
 
 Criterio de cierre:
 
-- [ ] `GO MAIN` desde command line vuelve al menú principal.
-- [ ] `GO CMDOBJ` muestra un submenú funcional.
-- [ ] `90` desde menú principal navega a `PWRDWNSYS` (con confirmación).
+- [x] `GO MAIN` desde command line vuelve al menú principal.
+- [x] `GO CMDOBJ` muestra un submenú funcional.
+- [x] `90` desde menú principal navega a `PWRDWNSYS` (con confirmación).
 
 ---
 
@@ -504,16 +504,16 @@ Objetivo: que la TUI sea robusta, accesible y verificable.
 
 ### 10.4 PWRDWNSYS desde TUI
 
-- [ ] Comando `PWRDWNSYS` accesible desde menú (opción 90) y command line.
-- [ ] Confirmación obligatoria con `ConfirmDialog`.
-- [ ] Requiere usuario con autoridad `*ALLOBJ` o `QSECOFR`.
-- [ ] `L400_PWRDWNSYS_DRY_RUN=1` para smoke seguro.
+- [x] Comando `PWRDWNSYS` accesible desde menú (opción 90) y command line.
+- [x] Confirmación obligatoria con `ConfirmDialog`.
+- [x] Requiere usuario con autoridad `*ALLOBJ` o `QSECOFR`.
+- [x] `L400_PWRDWNSYS_DRY_RUN=1` para smoke seguro.
 
 Criterio de cierre:
 
 - [ ] Todos los tests de smoke pasan.
 - [ ] Render a 80×24 no tiene overflow visual.
-- [ ] PWRDWNSYS funciona con dry-run desde TUI.
+- [x] PWRDWNSYS funciona con dry-run desde TUI.
 
 ---
 

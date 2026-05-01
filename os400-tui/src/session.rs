@@ -37,8 +37,11 @@ impl SessionContext {
             inner: Arc::new(Mutex::new(state)),
             state_path,
         };
-        context.apply_env();
-        let _ = context.save();
+        #[cfg(not(test))]
+        {
+            context.apply_env();
+            let _ = context.save();
+        }
         context
     }
 
