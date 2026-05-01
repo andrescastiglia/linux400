@@ -43,7 +43,7 @@ trap write_evidence_summary EXIT
 
 run_dev_fast() {
     echo "=== Cargo test gate ==="
-    cargo test -p l400
+    cargo test -p l400 -- --test-threads=1
     cargo test -p clc
     cargo test -p os400-tui
 }

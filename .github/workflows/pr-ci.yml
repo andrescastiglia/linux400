@@ -45,7 +45,7 @@ jobs:
         run: cargo clippy -p l400 --all-targets -- -D warnings
 
       - name: Run tests (libl400)
-        run: cargo test -p l400 --verbose
+        run: cargo test -p l400 --verbose -- --test-threads=1
 
       - name: Run tests (CL compiler)
         run: cargo test -p clc --verbose
