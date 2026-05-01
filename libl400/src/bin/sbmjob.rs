@@ -4,10 +4,11 @@ use l400::cgroup::{
 };
 use std::env;
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::thread;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Submit Job (SBMJOB) - Linux/400", long_about = None)]
@@ -53,18 +54,62 @@ fn spool_file_path(pid: u64) -> PathBuf {
         .join(format!("{}_{}.splf", pid, chrono_like_timestamp()))
 }
 
-fn append_bytes(file: &mut std::fs::File, bytes: &[u8]) {
-    let _ = file.write_all(bytes);
-    if !bytes.ends_with(b"\n") {
-        let _ = writeln!(file);
-    }
-}
-
 fn chrono_like_timestamp() -> String {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs().to_string())
         .unwrap_or_else(|_| "0".to_string())
+}
+
+fn append_line(path: &PathBuf, line: &str) {
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+fn stream_to_spool_and_log<R>(
+    mut reader: R,
+    label: &'static str,
+    spool_path: PathBuf,
+    log_path: PathBuf,
+) -> thread::JoinHandle<()>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut spool = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&spool_path)
+            .ok();
+        let mut log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok();
+
+        if let Some(file) = spool.as_mut() {
+            let _ = writeln!(file, "--- {label} ---");
+        }
+        if let Some(file) = log.as_mut() {
+            let _ = writeln!(file, "--- {label} ---");
+        }
+
+        let mut buffer = [0_u8; 8192];
+        while let Ok(read) = reader.read(&mut buffer) {
+            if read == 0 {
+                break;
+            }
+            if let Some(file) = spool.as_mut() {
+                let _ = file.write_all(&buffer[..read]);
+                let _ = file.flush();
+            }
+            if let Some(file) = log.as_mut() {
+                let _ = file.write_all(&buffer[..read]);
+                let _ = file.flush();
+            }
+        }
+    })
 }
 
 fn main() {
@@ -143,59 +188,77 @@ fn main() {
             );
         }
 
-        let output = Command::new(&args.cmd).args(&args.args).output();
+        drop(spool);
+        drop(log);
 
-        let final_status = match &output {
-            Ok(output) if output.status.success() => JobStatus::Completed,
-            _ => JobStatus::Failed,
-        };
-        match output {
-            Ok(output) => {
-                if let Some(file) = spool.as_mut() {
-                    let _ = writeln!(file, "--- stdout ---");
-                    append_bytes(file, &output.stdout);
-                    let _ = writeln!(file, "--- stderr ---");
-                    append_bytes(file, &output.stderr);
-                    let _ = writeln!(file, "exit_status={}", output.status);
+        let child = Command::new(&args.cmd)
+            .args(&args.args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn();
+
+        let final_status = match child {
+            Ok(mut child) => {
+                let stdout_handle = child.stdout.take().map(|stdout| {
+                    stream_to_spool_and_log(stdout, "stdout", spool_path.clone(), log_path.clone())
+                });
+                let stderr_handle = child.stderr.take().map(|stderr| {
+                    stream_to_spool_and_log(stderr, "stderr", spool_path.clone(), log_path.clone())
+                });
+
+                let status = child.wait();
+                if let Some(handle) = stdout_handle {
+                    let _ = handle.join();
                 }
-                if let Some(file) = log.as_mut() {
-                    let _ = writeln!(file, "--- stdout ---");
-                    append_bytes(file, &output.stdout);
-                    let _ = writeln!(file, "--- stderr ---");
-                    append_bytes(file, &output.stderr);
-                    let _ = writeln!(file, "exit_status={}", output.status);
+                if let Some(handle) = stderr_handle {
+                    let _ = handle.join();
+                }
+
+                match status {
+                    Ok(status) if status.success() => {
+                        append_line(&spool_path, &format!("exit_status={status}"));
+                        append_line(&log_path, &format!("exit_status={status}"));
+                        JobStatus::Completed
+                    }
+                    Ok(status) => {
+                        append_line(&spool_path, &format!("exit_status={status}"));
+                        append_line(&log_path, &format!("exit_status={status}"));
+                        JobStatus::Failed
+                    }
+                    Err(error) => {
+                        append_line(&spool_path, &format!("wait_error={error}"));
+                        append_line(&log_path, &format!("wait_error={error}"));
+                        JobStatus::Failed
+                    }
                 }
             }
             Err(error) => {
-                if let Some(file) = spool.as_mut() {
-                    let _ = writeln!(file, "spawn_error={error}");
-                }
-                if let Some(file) = log.as_mut() {
-                    let _ = writeln!(file, "spawn_error={error}");
-                }
+                append_line(&spool_path, &format!("spawn_error={error}"));
+                append_line(&log_path, &format!("spawn_error={error}"));
+                JobStatus::Failed
             }
-        }
+        };
 
         // 4. Actualizar el estado final
         let _ = update_job_status(pid, final_status);
-        if let Some(mut file) = spool {
-            let _ = writeln!(
-                file,
+        append_line(
+            &spool_path,
+            &format!(
                 "job={} status={} ended_at={}",
                 args.job,
                 final_status,
                 chrono_like_timestamp()
-            );
-        }
-        if let Some(mut file) = log {
-            let _ = writeln!(
-                file,
+            ),
+        );
+        append_line(
+            &log_path,
+            &format!(
                 "job={} status={} ended_at={}",
                 args.job,
                 final_status,
                 chrono_like_timestamp()
-            );
-        }
+            ),
+        );
     } else {
         // Somos el SBMJOB original que invoca el usuario.
         // Hacemos fork/spawn de nosotros mismos con --daemon.
