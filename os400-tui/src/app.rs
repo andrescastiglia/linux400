@@ -28,7 +28,7 @@ use crate::screens::wrk_lib::WrkLib;
 use crate::screens::wrk_mbr_pdm::WrkMbrPdm;
 use crate::screens::wrk_sysval::WrkSysVal;
 use crate::screens::wrk_usrprf::WrkUsrPrf;
-use crate::screens::{Screen, ScreenId};
+use crate::screens::{Screen, ScreenId, with_screen_area_override};
 use crate::session::SessionContext;
 use crate::widgets::status_bar::StatusBar;
 
@@ -45,6 +45,7 @@ struct NavEntry {
 pub struct App {
     current_screen: Box<dyn Screen>,
     current_screen_id: ScreenId,
+    current_screen_data: Option<String>,
     should_exit: bool,
     /// Navigation stack for back-navigation (LIFO).
     /// Each entry records the screen we came from and the data it was created with.
@@ -57,6 +58,7 @@ impl App {
         Self {
             current_screen: Box::new(SignOnScreen::new()),
             current_screen_id: ScreenId::SignOn,
+            current_screen_data: None,
             should_exit: false,
             nav_stack: Vec::new(),
             session: SessionContext::new(std::process::id() as u64),
@@ -74,11 +76,11 @@ impl App {
             }
 
             terminal.draw(|frame| {
-                self.current_screen.render(frame);
                 let chunks = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([Constraint::Min(0), Constraint::Length(1)])
                     .split(frame.area());
+                with_screen_area_override(chunks[0], || self.current_screen.render(frame));
                 StatusBar::new(self.session.clone()).render(frame, chunks[1]);
             })?;
 
@@ -129,6 +131,7 @@ impl App {
     fn navigate_back(&mut self) {
         if let Some(entry) = self.nav_stack.pop() {
             self.current_screen_id = entry.screen_id;
+            self.current_screen_data = entry.data.clone();
             self.current_screen = self.create_screen(entry.screen_id, entry.data, None);
         }
         // If stack is empty, stay on current screen.
@@ -153,7 +156,7 @@ impl App {
         if next != ScreenId::SignOn && next != ScreenId::Exit {
             self.nav_stack.push(NavEntry {
                 screen_id: origin,
-                data: None, // we don't track the original creation data of the current screen
+                data: self.current_screen_data.clone(),
             });
             // Enforce stack limit.
             if self.nav_stack.len() > MAX_NAV_STACK {
@@ -162,6 +165,7 @@ impl App {
         }
 
         self.current_screen_id = next;
+        self.current_screen_data = data.clone();
         self.current_screen = self.create_screen(next, data, Some(origin));
 
         if next == ScreenId::Exit {
@@ -370,6 +374,21 @@ mod tests {
         assert_eq!(app.current_screen_id, ScreenId::MainMenu);
         app.navigate_back();
         assert_eq!(app.current_screen_id, ScreenId::SignOn);
+    }
+
+    #[test]
+    fn back_navigation_preserves_screen_creation_data() {
+        let mut app = App::new();
+        app.switch_screen(ScreenId::MainMenu, None);
+        app.switch_screen(ScreenId::ObjectBrowser, Some("QTEMP".to_string()));
+        app.switch_screen(
+            ScreenId::ObjectDetail,
+            Some("DSPOBJD OBJ(QGPL/HELLO)".to_string()),
+        );
+
+        app.navigate_back();
+        assert_eq!(app.current_screen_id, ScreenId::ObjectBrowser);
+        assert_eq!(app.current_screen_data.as_deref(), Some("QTEMP"));
     }
 
     #[test]

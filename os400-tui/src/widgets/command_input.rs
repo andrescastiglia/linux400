@@ -15,7 +15,7 @@ use crate::style::*;
 pub struct CommandInput {
     /// Current input text.
     pub value: String,
-    /// Cursor position (byte offset).
+    /// Cursor position (byte offset, always kept on a UTF-8 boundary).
     pub cursor: usize,
     /// Whether the widget is currently focused / active.
     pub active: bool,
@@ -54,13 +54,13 @@ impl CommandInput {
                 self.candidates.clear();
                 let c = c.to_ascii_uppercase();
                 self.value.insert(self.cursor, c);
-                self.cursor += 1;
+                self.cursor += c.len_utf8();
                 None
             }
             KeyCode::Backspace => {
                 self.candidates.clear();
                 if self.cursor > 0 {
-                    self.cursor -= 1;
+                    self.cursor = prev_boundary(&self.value, self.cursor);
                     self.value.remove(self.cursor);
                 }
                 None
@@ -73,11 +73,11 @@ impl CommandInput {
                 None
             }
             KeyCode::Left => {
-                self.cursor = self.cursor.saturating_sub(1);
+                self.cursor = prev_boundary(&self.value, self.cursor);
                 None
             }
             KeyCode::Right => {
-                self.cursor = self.cursor.saturating_add(1).min(self.value.len());
+                self.cursor = next_boundary(&self.value, self.cursor);
                 None
             }
             KeyCode::Home => {
@@ -138,12 +138,17 @@ impl CommandInput {
         let prefix = "===> ";
         let prefix_len = prefix.len();
         let available = width.saturating_sub(prefix_len);
-        let display = if self.value.len() > available {
-            &self.value[self.value.len() - available..]
+        let value_chars = self.value.chars().count();
+        let display = if value_chars > available {
+            self.value
+                .chars()
+                .skip(value_chars.saturating_sub(available))
+                .collect::<String>()
         } else {
-            &self.value
+            self.value.clone()
         };
-        let padding = available.saturating_sub(display.len());
+        let display_chars = display.chars().count();
+        let padding = available.saturating_sub(display_chars);
 
         let spans = vec![
             Span::styled(prefix, STYLE_NORMAL),
@@ -153,12 +158,32 @@ impl CommandInput {
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
 
         if self.active {
-            let cursor_x = area.x + prefix_len as u16 + self.cursor.min(available) as u16;
+            let cursor_chars = self.value[..self.cursor].chars().count();
+            let visible_cursor = cursor_chars
+                .saturating_sub(value_chars.saturating_sub(available))
+                .min(available);
+            let cursor_x = area.x + prefix_len as u16 + visible_cursor as u16;
             if cursor_x < area.x + area.width {
                 frame.set_cursor_position((cursor_x, area.y));
             }
         }
     }
+}
+
+fn prev_boundary(value: &str, cursor: usize) -> usize {
+    value[..cursor]
+        .char_indices()
+        .last()
+        .map(|(index, _)| index)
+        .unwrap_or(0)
+}
+
+fn next_boundary(value: &str, cursor: usize) -> usize {
+    value[cursor..]
+        .char_indices()
+        .nth(1)
+        .map(|(index, _)| cursor + index)
+        .unwrap_or(value.len())
 }
 
 impl Default for CommandInput {
@@ -209,6 +234,17 @@ mod tests {
         input.cursor = 3;
         input.handle_key(key(KeyCode::Backspace));
         assert_eq!(input.value, "AB");
+    }
+
+    #[test]
+    fn unicode_editing_keeps_cursor_on_char_boundary() {
+        let mut input = CommandInput::new();
+        input.handle_key(key(KeyCode::Char('ñ')));
+        input.handle_key(key(KeyCode::Char('A')));
+        input.handle_key(key(KeyCode::Left));
+        input.handle_key(key(KeyCode::Backspace));
+        assert_eq!(input.value, "A");
+        assert!(input.value.is_char_boundary(input.cursor));
     }
 
     #[test]

@@ -39,6 +39,7 @@ write_evidence_summary() {
                 > "${L400_RC_EVIDENCE_DIR}/support-profile.txt" || true
     fi
 }
+trap write_evidence_summary EXIT
 
 run_dev_fast() {
     echo "=== Cargo test gate ==="
@@ -118,4 +119,3 @@ case "${L400_RELEASE_GATE}" in
 esac
 
 echo "=== Linux/400 RC smoke tests passed ==="
-write_evidence_summary

@@ -8,8 +8,8 @@ trap 'rm -rf "$TMP_RUN"' EXIT
 assert_non_empty_field() {
     local output="$1"
     local key="$2"
-    grep -Eq "^${key}=.+" <<<"${output}"
-    ! grep -Eq "^${key}=unknown$" <<<"${output}"
+    grep -Eq "^${key}=.+" <<<"${output}" &&
+        ! grep -Eq "^${key}=unknown$" <<<"${output}"
 }
 
 DEV_RUN="${TMP_RUN}/dev"

@@ -130,7 +130,7 @@ impl Screen for DspPolicy {
                 Constraint::Length(3),
                 Constraint::Length(3),
             ])
-            .split(frame.area());
+            .split(crate::screens::screen_area(frame));
         self.render_header(frame, chunks[0]);
         self.table.render(frame, chunks[1]);
         CpfMessage::info("CPF0000", self.status.clone()).render(frame, chunks[2]);

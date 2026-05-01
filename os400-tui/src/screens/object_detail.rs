@@ -156,7 +156,7 @@ impl Screen for ObjectDetail {
                 Constraint::Length(3),
                 Constraint::Length(3),
             ])
-            .split(frame.area());
+            .split(crate::screens::screen_area(frame));
 
         self.render_header(frame, chunks[0]);
         self.render_fields(frame, chunks[1]);

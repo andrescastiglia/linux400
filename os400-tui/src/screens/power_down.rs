@@ -63,7 +63,7 @@ impl PowerDownSystem {
 
 impl Screen for PowerDownSystem {
     fn render(&mut self, frame: &mut Frame) {
-        let area = frame.area();
+        let area = crate::screens::screen_area(frame);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([

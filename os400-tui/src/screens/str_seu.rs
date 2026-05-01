@@ -291,7 +291,7 @@ impl Screen for StrSeu {
                 Constraint::Length(2),
                 Constraint::Length(3),
             ])
-            .split(frame.area());
+            .split(crate::screens::screen_area(frame));
 
         self.render_header(frame, chunks[0]);
         self.adjust_scroll(chunks[1].height.saturating_sub(2) as usize);

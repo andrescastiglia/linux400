@@ -15,7 +15,7 @@ use crate::style::*;
 pub struct InputField {
     /// Current text value.
     pub value: String,
-    /// Cursor position within the value (byte offset).
+    /// Cursor position within the value (byte offset, always kept on a UTF-8 boundary).
     pub cursor: usize,
     /// Label displayed to the left of the field.
     pub label: String,
@@ -82,7 +82,7 @@ impl InputField {
     /// Delete the character before the cursor (backspace).
     pub fn delete_back(&mut self) {
         if self.cursor > 0 {
-            self.cursor -= 1;
+            self.cursor = prev_boundary(&self.value, self.cursor);
             self.value.remove(self.cursor);
         }
     }
@@ -96,12 +96,12 @@ impl InputField {
 
     /// Move cursor left by one character.
     pub fn move_left(&mut self) {
-        self.cursor = self.cursor.saturating_sub(1);
+        self.cursor = prev_boundary(&self.value, self.cursor);
     }
 
     /// Move cursor right by one character.
     pub fn move_right(&mut self) {
-        self.cursor = self.cursor.saturating_add(1).min(self.value.len());
+        self.cursor = next_boundary(&self.value, self.cursor);
     }
 
     /// Move cursor to the beginning.
@@ -167,12 +167,29 @@ impl InputField {
 
         // Set cursor position when active.
         if self.active {
-            let cursor_x = area.x + label_width as u16 + self.cursor as u16;
+            let cursor_x =
+                area.x + label_width as u16 + self.value[..self.cursor].chars().count() as u16;
             if cursor_x < area.x + area.width {
                 frame.set_cursor_position((cursor_x, area.y));
             }
         }
     }
+}
+
+fn prev_boundary(value: &str, cursor: usize) -> usize {
+    value[..cursor]
+        .char_indices()
+        .last()
+        .map(|(index, _)| index)
+        .unwrap_or(0)
+}
+
+fn next_boundary(value: &str, cursor: usize) -> usize {
+    value[cursor..]
+        .char_indices()
+        .nth(1)
+        .map(|(index, _)| cursor + index)
+        .unwrap_or(value.len())
 }
 
 #[cfg(test)]
@@ -219,6 +236,17 @@ mod tests {
         field.cursor = 0;
         field.delete_forward(); // removes 'h'
         assert_eq!(field.value, "ell");
+    }
+
+    #[test]
+    fn unicode_backspace_uses_utf8_boundaries() {
+        let mut field = InputField::new("Name", 10);
+        field.insert_char('ñ');
+        field.insert_char('A');
+        field.move_left();
+        field.delete_back();
+        assert_eq!(field.value, "A");
+        assert!(field.value.is_char_boundary(field.cursor));
     }
 
     #[test]

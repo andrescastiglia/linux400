@@ -124,20 +124,25 @@ fn command_parameter_to_equals_spec(parameter: &crate::ast::Parameter) -> String
     }
 }
 
-fn command_to_spec(command: &crate::ast::Command) -> String {
-    command
-        .parameters
-        .iter()
-        .map(command_parameter_to_spec)
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 fn command_to_equals_spec(command: &crate::ast::Command) -> String {
     command
         .parameters
         .iter()
         .map(command_parameter_to_equals_spec)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn shell_quote_arg(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn command_to_shell_spec(command: &crate::ast::Command) -> String {
+    command
+        .parameters
+        .iter()
+        .map(command_parameter_to_spec)
+        .map(|parameter| shell_quote_arg(&parameter))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -198,7 +203,7 @@ fn generate_command_call(command: &crate::ast::Command) -> String {
             format!("l400_dltsplf({});", escape_c_string(&spec))
         }
         "SBMJOB" => {
-            let spec = format!("l400cmd SBMJOB {}", command_to_spec(command));
+            let spec = format!("l400cmd SBMJOB {}", command_to_shell_spec(command));
             format!("system({});", escape_c_string(&spec))
         }
         "WRKUSRPRF" => {
@@ -887,7 +892,25 @@ mod tests {
         assert!(code.contains("while (atof(var_COUNT) < atof(\"3\"))"));
         assert!(code.contains("l400_wrksplf();"));
         assert!(code.contains("l400_dspsplf(\"FILE=LAST\");"));
-        assert!(code.contains("system(\"l400cmd SBMJOB CMD(WRKSYSSTS)\");"));
+        assert!(code.contains("system(\"l400cmd SBMJOB 'CMD(WRKSYSSTS)'\");"));
+    }
+
+    #[test]
+    fn sbmjob_specs_are_quoted_for_shell_system_calls() {
+        let program = Program {
+            commands: Vec::new(),
+            parameters: Vec::new(),
+            statements: vec![Statement::Command(Command {
+                name: "SBMJOB".to_string(),
+                parameters: vec![Parameter::Named(
+                    "CMD".to_string(),
+                    Value::StringLiteral("CALL PGM(HELLO)".to_string()),
+                )],
+            })],
+        };
+
+        let code = generate_c_backend("demo.clp", &program);
+        assert!(code.contains("system(\"l400cmd SBMJOB 'CMD(CALL PGM(HELLO))'\");"));
     }
 
     #[test]

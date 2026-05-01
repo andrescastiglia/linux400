@@ -231,7 +231,7 @@ impl Screen for WrkUsrPrf {
                 Constraint::Length(3),
                 Constraint::Length(3),
             ])
-            .split(frame.area());
+            .split(crate::screens::screen_area(frame));
 
         self.render_header(frame, chunks[0]);
         self.table.render(frame, chunks[1]);

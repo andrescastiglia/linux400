@@ -23,7 +23,23 @@ pub mod wrk_sysval;
 pub mod wrk_usrprf;
 
 use crossterm::event::KeyEvent;
-use ratatui::Frame;
+use ratatui::{Frame, layout::Rect};
+use std::cell::Cell;
+
+thread_local! {
+    static SCREEN_AREA_OVERRIDE: Cell<Option<Rect>> = const { Cell::new(None) };
+}
+
+pub fn screen_area(frame: &Frame) -> Rect {
+    SCREEN_AREA_OVERRIDE.get().unwrap_or_else(|| frame.area())
+}
+
+pub fn with_screen_area_override<T>(area: Rect, render: impl FnOnce() -> T) -> T {
+    SCREEN_AREA_OVERRIDE.set(Some(area));
+    let result = render();
+    SCREEN_AREA_OVERRIDE.set(None);
+    result
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScreenId {

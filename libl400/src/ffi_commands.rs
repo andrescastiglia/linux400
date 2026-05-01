@@ -1318,11 +1318,7 @@ pub extern "C" fn l400_pwrdwnsys(option: *const c_char) {
     clear_status();
     let spec = c_str_to_string(option);
     let fields = parse_command_fields(&spec);
-    let opt = fields
-        .get("OPTION")
-        .cloned()
-        .unwrap_or_else(|| spec.trim().to_string())
-        .to_uppercase();
+    let opt = power_down_option_from_spec(&spec, &fields);
     let Some(action) = PowerDownAction::from_option(&opt) else {
         emit_status(
             "CPF0006",
@@ -1361,6 +1357,19 @@ pub extern "C" fn l400_pwrdwnsys(option: *const c_char) {
             );
         }
     }
+}
+
+fn power_down_option_from_spec(
+    spec: &str,
+    fields: &std::collections::HashMap<String, String>,
+) -> String {
+    if let Some(option) = fields.get("OPTION") {
+        return option.to_uppercase();
+    }
+    if fields.is_empty() && !spec.trim().is_empty() {
+        return spec.trim().to_uppercase();
+    }
+    "*CNTRLD".to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -2976,7 +2985,8 @@ pub extern "C" fn l400_strsql() {
 #[cfg(test)]
 mod tests {
     use super::{
-        PowerDownAction, confirmed_yes, l400_call, parse_command_fields, spool_file_status,
+        PowerDownAction, confirmed_yes, l400_call, parse_command_fields,
+        power_down_option_from_spec, spool_file_status,
     };
     use crate::auth::{L400Authority, grant_object_authority};
     use crate::ffi::{l400_clear_status, l400_last_cpf_code};
@@ -3035,6 +3045,18 @@ mod tests {
             Some(PowerDownAction::Restart)
         );
         assert_eq!(PowerDownAction::from_option("*BAD"), None);
+    }
+
+    #[test]
+    fn pwrdwnsys_defaults_option_when_only_confirm_is_present() {
+        let fields = parse_command_fields("CONFIRM=*YES");
+        assert_eq!(
+            power_down_option_from_spec("CONFIRM=*YES", &fields),
+            "*CNTRLD"
+        );
+
+        let raw_fields = parse_command_fields("*IMMED");
+        assert_eq!(power_down_option_from_spec("*IMMED", &raw_fields), "*IMMED");
     }
 
     #[test]

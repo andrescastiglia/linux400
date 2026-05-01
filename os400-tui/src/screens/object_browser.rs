@@ -336,7 +336,7 @@ impl Screen for ObjectBrowser {
                 Constraint::Length(3),
                 Constraint::Length(3),
             ])
-            .split(frame.area());
+            .split(crate::screens::screen_area(frame));
 
         self.render_header(frame, chunks[0]);
         self.table.render(frame, chunks[1]);
@@ -344,10 +344,10 @@ impl Screen for ObjectBrowser {
         self.render_help(frame, chunks[3]);
 
         if let Some(dialog) = &self.pending_delete {
-            dialog.render(frame, frame.area());
+            dialog.render(frame, crate::screens::screen_area(frame));
         }
         if let Some((_, _, dialog)) = &self.pending_rename {
-            dialog.render(frame, frame.area());
+            dialog.render(frame, crate::screens::screen_area(frame));
         }
     }
 

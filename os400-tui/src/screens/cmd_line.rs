@@ -543,7 +543,7 @@ impl Screen for CommandLine {
                 Constraint::Min(0),
                 Constraint::Length(3),
             ])
-            .split(frame.area());
+            .split(crate::screens::screen_area(frame));
 
         self.render_command_line(frame, chunks[0]);
         if self.show_output {
@@ -666,7 +666,7 @@ impl CommandLine {
                 Constraint::Min(0),
                 Constraint::Length(3),
             ])
-            .split(frame.area());
+            .split(crate::screens::screen_area(frame));
 
         let command = self.prompt_command.as_deref().unwrap_or("WRKOBJ");
         let block = Block::default()

@@ -117,7 +117,7 @@ impl SignOnScreen {
 
 impl Screen for SignOnScreen {
     fn render(&mut self, frame: &mut Frame) {
-        let area = frame.area();
+        let area = crate::screens::screen_area(frame);
         frame.render_widget(Block::default().style(STYLE_HEADER), area);
 
         let overlay = centered_rect(68, 16, area);
