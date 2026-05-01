@@ -2,7 +2,6 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    text::Line,
     widgets::{Block, Borders, Paragraph, Row, Table, TableState},
 };
 use std::path::{Path, PathBuf};
@@ -11,6 +10,7 @@ use std::process::Command;
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::session::SessionContext;
 use crate::style::*;
+use crate::widgets::help_bar::{CpfMessage, HelpAction, HelpBar};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AdminViewKind {
@@ -182,16 +182,16 @@ impl AdminCommandView {
         self.scroll = 0;
         self.status = match self.kind {
             AdminViewKind::ObjectDetail => {
-                "Opciones: 2=Change text 3=Copy 4=Delete 8=Authorities F5=Refresh.".to_string()
+                "Options: 2=Change text 3=Copy 4=Delete 8=Authorities F5=Refresh.".to_string()
             }
             AdminViewKind::UserProfiles => {
-                "Opciones: 2=Create QPGMR2 4=Disable QPGMR2 5=Display QPGMR.".to_string()
+                "Options: 2=Create QPGMR2 4=Disable QPGMR2 5=Display QPGMR.".to_string()
             }
             AdminViewKind::PolicyAudit => {
-                "Opciones: 1=Denied 2=User changes 0=All F5=Refresh.".to_string()
+                "Options: 1=Denied 2=User changes 0=All F5=Refresh.".to_string()
             }
             AdminViewKind::SpoolOutq => {
-                "Opciones: 5=Display first spool 0=List F5=Refresh.".to_string()
+                "Options: 5=Display first spool 0=List F5=Refresh.".to_string()
             }
         };
     }
@@ -223,7 +223,7 @@ impl AdminCommandView {
             self.spool_status_filter.as_deref().unwrap_or("*ALL")
         ));
         self.status = format!(
-            "Opciones: 5=Display 6=Hold 7=Release 8=Save 4=Delete F6=Status({}).",
+            "Options: 5=Display 6=Hold 7=Release 8=Save 4=Delete F6=Status({}).",
             self.spool_status_filter.as_deref().unwrap_or("*ALL")
         );
         self.scroll = 0;
@@ -295,7 +295,7 @@ impl AdminCommandView {
 
     fn change_selected_spool_status(&mut self, status: &str) {
         let Some(path) = self.selected_spool().map(|spool| spool.path.clone()) else {
-            self.status = "No hay spool seleccionado.".to_string();
+            self.status = "No spool file selected.".to_string();
             return;
         };
         self.run_l400_command(&format!(
@@ -314,7 +314,7 @@ impl AdminCommandView {
         };
         self.pending_action = Some(PendingAction::DeleteSpool(path.clone()));
         self.status = format!(
-            "Confirmar DLTSPLF {}: Enter=Confirm F12=Cancel.",
+            "DLTSPLF {} pending. Enter=confirm visual delete, F12=cancel.",
             path.display()
         );
     }
@@ -370,7 +370,7 @@ impl Screen for AdminCommandView {
                 }
                 KeyCode::F(12) | KeyCode::Esc => {
                     self.pending_action = None;
-                    self.status = "Accion cancelada.".to_string();
+                    self.status = "Action cancelled.".to_string();
                     return ScreenResult::none();
                 }
                 _ => return ScreenResult::none(),
@@ -576,42 +576,39 @@ impl AdminCommandView {
     }
 
     fn render_status(&self, frame: &mut Frame, area: Rect) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-        frame.render_widget(
-            Paragraph::new(self.status.clone()).style(STYLE_NORMAL),
-            inner,
-        );
+        let cpf = if self.status.to_ascii_lowercase().contains("error") {
+            CpfMessage::error("CPF9898", self.status.clone())
+        } else {
+            CpfMessage::info("CPF0000", self.status.clone())
+        };
+        cpf.render(frame, area);
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
-        let help_text = Line::from(vec![
-            "F3=Exit   ".into(),
-            "F4=Prompt   ".into(),
-            "F5=Refresh   ".into(),
-            if self.kind == AdminViewKind::SpoolOutq {
-                "F6=Filter   ".into()
-            } else {
-                "".into()
-            },
-            if self.kind == AdminViewKind::SpoolOutq {
-                "4=Delete 5=Display 6=Hold 7=Release 8=Save   ".into()
-            } else {
-                "2/3/4/5/8=Options   ".into()
-            },
-            "PgUp/PgDn=Roll   ".into(),
-            "F12=Cancel".into(),
-        ]);
-        let block = Block::default()
-            .style(STYLE_HELP)
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+        let command = match self.kind {
+            AdminViewKind::ObjectDetail => "DSPOBJD",
+            AdminViewKind::UserProfiles => "WRKUSRPRF",
+            AdminViewKind::PolicyAudit => "DSPPOLICY",
+            AdminViewKind::SpoolOutq => "WRKSPLF",
+        };
+        let mut actions = vec![
+            HelpAction::new("F3", "Exit"),
+            HelpAction::new("F4", "Prompt"),
+            HelpAction::new("F5", "Refresh"),
+        ];
+        if self.kind == AdminViewKind::SpoolOutq {
+            actions.push(HelpAction::new("F6", "Filter"));
+            actions.push(HelpAction::new("4/5/6/7/8", "Spool opts"));
+        } else {
+            actions.push(HelpAction::new("2/3/4/5/8", "Options"));
+        }
+        actions.push(HelpAction::new("PgUp/PgDn", "Roll"));
+        actions.push(HelpAction::new("F12", "Cancel"));
+
+        HelpBar::new()
+            .command(command)
+            .actions(actions)
+            .render(frame, area);
     }
 }
 

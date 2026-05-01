@@ -794,6 +794,24 @@ fn spool_dir() -> PathBuf {
         })
 }
 
+fn compile_spool_file(program: &str) -> PathBuf {
+    let safe_name = program
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ch.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    spool_dir().join(format!(
+        "CRTCLPGM_{}_{}.splf",
+        safe_name,
+        now_epoch_string()
+    ))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn l400_crtoutq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
@@ -2595,6 +2613,19 @@ pub extern "C" fn l400_call(pgm: *const c_char) {
             return;
         }
     }
+    if let Err(error) = crate::storage::verify_toolchain_manifest(&path) {
+        set_status("CPF9898");
+        audit_runtime(
+            "ACCESS_DENIED",
+            &path,
+            &format!("CALL user={} manifest_error={}", user, error),
+        );
+        println!(
+            "[CALL] Denegado: {} no tiene manifest de toolchain valido ({error}).",
+            path.display()
+        );
+        return;
+    }
     audit_runtime("PGM_EXEC", &path, &format!("CALL user={}", user));
     match std::process::Command::new(&path).status() {
         Ok(status) if status.success() => {
@@ -2630,6 +2661,7 @@ pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcm
         }
     });
     let Ok(source_path) = source_path else {
+        set_status("CPF9801");
         println!(
             "[CRTCLPGM] No se encontro fuente {}/{} {}.",
             src_library, src_file, srcmbr
@@ -2637,22 +2669,88 @@ pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcm
         return;
     };
 
-    let status = std::process::Command::new(resolve_clc_binary())
+    let spool_path = compile_spool_file(&format!("{pgm_library}_{pgm_name}"));
+    let _ = std::fs::create_dir_all(spool_path.parent().unwrap_or_else(|| Path::new(".")));
+    let output = std::process::Command::new(resolve_clc_binary())
         .arg("--input")
         .arg(&source_path)
         .arg("--output")
         .arg(&output_path)
-        .status();
-    match status {
-        Ok(status) if status.success() => println!(
-            "[CRTCLPGM] {}/{} compilado desde {}.",
-            pgm_library,
-            pgm_name,
-            source_path.display()
-        ),
-        Ok(status) => println!("[CRTCLPGM] clc finalizo con estado {}.", status),
-        Err(error) => println!("[CRTCLPGM] Error ejecutando clc: {}", error),
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            clear_status();
+            let _ = write_compile_spool(&spool_path, "CPF0000", &source_path, &output);
+            println!(
+                "[CRTCLPGM] {}/{} compilado desde {}. Spool: {}",
+                pgm_library,
+                pgm_name,
+                source_path.display(),
+                spool_path.display()
+            );
+        }
+        Ok(output) => {
+            set_status("CPF0006");
+            let _ = write_compile_spool(&spool_path, "CPF0006", &source_path, &output);
+            println!(
+                "[CRTCLPGM] clc finalizo con estado {}. Spool: {}",
+                output.status,
+                spool_path.display()
+            );
+        }
+        Err(error) => {
+            set_status("CPF0001");
+            let _ = std::fs::write(
+                &spool_path,
+                format!(
+                    "spool_version=1 status=FAILED command=CRTCLPGM cpf=CPF0001\nsource={}\nerror={}\n",
+                    source_path.display(),
+                    error
+                ),
+            );
+            println!(
+                "[CRTCLPGM] Error ejecutando clc: {}. Spool: {}",
+                error,
+                spool_path.display()
+            );
+        }
     }
+}
+
+fn write_compile_spool(
+    path: &Path,
+    cpf: &str,
+    source_path: &Path,
+    output: &std::process::Output,
+) -> std::io::Result<()> {
+    let status = if output.status.success() {
+        "READY"
+    } else {
+        "FAILED"
+    };
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(path)?;
+    writeln!(
+        file,
+        "spool_version=1 status={} command=CRTCLPGM cpf={}",
+        status, cpf
+    )?;
+    writeln!(file, "source={}", source_path.display())?;
+    writeln!(file, "exit_status={}", output.status)?;
+    writeln!(file, "--- stdout ---")?;
+    file.write_all(&output.stdout)?;
+    if !output.stdout.ends_with(b"\n") {
+        writeln!(file)?;
+    }
+    writeln!(file, "--- stderr ---")?;
+    file.write_all(&output.stderr)?;
+    if !output.stderr.ends_with(b"\n") {
+        writeln!(file)?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -2877,8 +2975,41 @@ pub extern "C" fn l400_strsql() {
 
 #[cfg(test)]
 mod tests {
-    use super::{PowerDownAction, confirmed_yes, parse_command_fields, spool_file_status};
+    use super::{
+        PowerDownAction, confirmed_yes, l400_call, parse_command_fields, spool_file_status,
+    };
+    use crate::auth::{L400Authority, grant_object_authority};
+    use crate::ffi::{l400_clear_status, l400_last_cpf_code};
+    use crate::object::{catalog_object, ensure_library};
     use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &std::path::Path) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(previous) = &self.previous {
+                    std::env::set_var(self.key, previous);
+                } else {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
 
     #[test]
     fn parse_command_fields_keeps_values_with_spaces() {
@@ -2925,5 +3056,25 @@ mod tests {
         writeln!(file, "status=HELD changed_at=1").expect("write held");
 
         assert_eq!(spool_file_status(&path).as_deref(), Some("HELD"));
+    }
+
+    #[test]
+    fn call_rejects_program_without_toolchain_manifest() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let _root = EnvGuard::set("L400_ROOT", root.path());
+        let qgpl = ensure_library(root.path(), "QGPL").expect("library");
+        let pgm = qgpl.join("NOMAN");
+        std::fs::write(&pgm, "#!/usr/bin/env sh\nexit 0\n").expect("write pgm");
+        let mut permissions = std::fs::metadata(&pgm).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&pgm, permissions).expect("chmod");
+        catalog_object(&pgm, "*PGM", Some("CL"), Some("No manifest")).expect("catalog");
+        grant_object_authority(&pgm, "*PUBLIC", L400Authority::Use).expect("grant public use");
+
+        l400_clear_status();
+        let c_pgm = std::ffi::CString::new("QGPL/NOMAN").expect("cstring");
+        l400_call(c_pgm.as_ptr());
+
+        assert_eq!(l400_last_cpf_code(), 9898);
     }
 }

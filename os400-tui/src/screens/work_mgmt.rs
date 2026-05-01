@@ -12,6 +12,7 @@ use ratatui::{
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::style::*;
+use crate::widgets::help_bar::{HelpAction, HelpBar};
 
 pub struct JobInfo {
     pub name: String,
@@ -412,30 +413,19 @@ impl WorkManagement {
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
-        let help_text = Line::from(vec![
-            "F3=Exit   ".into(),
-            "F4=Prompt   ".into(),
-            "F5=Refresh   ".into(),
-            "F6=Filter   ".into(),
-            "3=Hold   ".into(),
-            "4=End   ".into(),
-            "5=Detail   ".into(),
-            "6=Release   ".into(),
-            "9=Log   ".into(),
-            "F10=End immed   ".into(),
-            "F11/Enter=Detail   ".into(),
-            "F12=Cancel   ".into(),
-        ]);
-
-        let block = Block::default()
-            .style(STYLE_HELP)
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-
-        frame.render_widget(block, area);
-
-        let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
-        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+        HelpBar::new()
+            .command("WRKACTJOB")
+            .actions(vec![
+                HelpAction::new("F3", "Exit"),
+                HelpAction::new("F4", "Prompt"),
+                HelpAction::new("F5", "Refresh"),
+                HelpAction::new("F6", "Filter"),
+                HelpAction::new("3/4/5/6/9", "Options"),
+                HelpAction::new("F10", "End immed"),
+                HelpAction::new("F11/Enter", "Detail"),
+                HelpAction::new("F12", "Cancel"),
+            ])
+            .render(frame, area);
     }
 }
 

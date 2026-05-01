@@ -5,6 +5,40 @@ L400_SRC_DIR="${L400_SRC_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 RUN_E2E_INSTALL="${RUN_E2E_INSTALL:-0}"
 RUN_BUILD_USERSPACE="${RUN_BUILD_USERSPACE:-1}"
 L400_RELEASE_GATE="${L400_RELEASE_GATE:-all}"
+L400_RC_VERSION="${L400_RC_VERSION:-${VERSION:-dev}}"
+L400_RC_EVIDENCE_DIR="${L400_RC_EVIDENCE_DIR:-}"
+
+if [[ -n "${L400_RC_EVIDENCE_DIR}" ]]; then
+    mkdir -p "${L400_RC_EVIDENCE_DIR}"
+    exec > >(tee "${L400_RC_EVIDENCE_DIR}/release-gate.log") 2>&1
+fi
+
+write_evidence_summary() {
+    [[ -n "${L400_RC_EVIDENCE_DIR}" ]] || return 0
+
+    {
+        echo "version=${L400_RC_VERSION}"
+        echo "gate=${L400_RELEASE_GATE}"
+        echo "run_e2e_install=${RUN_E2E_INSTALL}"
+        echo "run_build_userspace=${RUN_BUILD_USERSPACE}"
+        echo "source_dir=${L400_SRC_DIR}"
+        echo "host_uname=$(uname -a)"
+        echo "kernel_release=$(uname -r)"
+        echo "arch=$(uname -m)"
+        echo "rustc=$(rustc --version 2>/dev/null || echo unavailable)"
+        echo "cargo=$(cargo --version 2>/dev/null || echo unavailable)"
+        echo "tested_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "reproduce=RUN_E2E_INSTALL=${RUN_E2E_INSTALL} L400_RELEASE_GATE=${L400_RELEASE_GATE} ./scripts/test/test_release_rc.sh"
+    } > "${L400_RC_EVIDENCE_DIR}/release-gate.env"
+
+    if [[ -f "${L400_SRC_DIR}/scripts/runtime/l400-support-report.sh" ]]; then
+        L400_RUN_DIR="${L400_RC_EVIDENCE_DIR}/run" \
+            bash "${L400_SRC_DIR}/scripts/runtime/l400-support-report.sh" \
+                --write \
+                --output "${L400_RC_EVIDENCE_DIR}/support-profile" \
+                > "${L400_RC_EVIDENCE_DIR}/support-profile.txt" || true
+    fi
+}
 
 run_dev_fast() {
     echo "=== Cargo test gate ==="
@@ -38,6 +72,7 @@ run_kernel_optional() {
 run_upgrade_restore() {
     echo "=== Backup/restore and upgrade gate ==="
     bash "${L400_SRC_DIR}/scripts/test/test_l400_backup_restore.sh"
+    bash "${L400_SRC_DIR}/scripts/test/test_l400_upgrade_metadata.sh"
 }
 
 run_install_qemu() {
@@ -83,3 +118,4 @@ case "${L400_RELEASE_GATE}" in
 esac
 
 echo "=== Linux/400 RC smoke tests passed ==="
+write_evidence_summary

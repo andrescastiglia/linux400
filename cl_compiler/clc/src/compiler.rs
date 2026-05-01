@@ -36,6 +36,16 @@ fn value_to_c_expr(value: &crate::ast::Value) -> String {
     }
 }
 
+fn value_is_numeric_literal(value: &crate::ast::Value) -> bool {
+    match value {
+        crate::ast::Value::StringLiteral(value)
+        | crate::ast::Value::Keyword(value)
+        | crate::ast::Value::Identifier(value) => value.parse::<f64>().is_ok(),
+        crate::ast::Value::Variable(_) => true,
+        crate::ast::Value::List(_) => false,
+    }
+}
+
 fn named_param<'a>(command: &'a crate::ast::Command, key: &str) -> Option<&'a crate::ast::Value> {
     for p in &command.parameters {
         if let crate::ast::Parameter::Named(k, v) = p
@@ -98,6 +108,22 @@ fn generate_assignment(variable: &str, value: &crate::ast::Value) -> String {
     )
 }
 
+fn command_parameter_to_spec(parameter: &crate::ast::Parameter) -> String {
+    match parameter {
+        crate::ast::Parameter::Positional(value) => value_to_string(value),
+        crate::ast::Parameter::Named(key, value) => format!("{}({})", key, value_to_string(value)),
+    }
+}
+
+fn command_to_spec(command: &crate::ast::Command) -> String {
+    command
+        .parameters
+        .iter()
+        .map(command_parameter_to_spec)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn generate_command_call(command: &crate::ast::Command) -> String {
     match command.name.as_str() {
         "PGM" | "ENDPGM" => String::new(),
@@ -107,7 +133,16 @@ fn generate_command_call(command: &crate::ast::Command) -> String {
             };
             named_param(command, "VALUE")
                 .map(|value| generate_assignment(var, value))
-                .unwrap_or_else(|| format!("/* DCL &{} */", sanitize_c_identifier(var)))
+                .unwrap_or_else(|| {
+                    if named_param(command, "TYPE")
+                        .map(value_to_string)
+                        .is_some_and(|value| value.contains("*DEC") || value.contains("*INT"))
+                    {
+                        generate_assignment(var, &crate::ast::Value::StringLiteral("0".to_string()))
+                    } else {
+                        format!("/* DCL &{} */", sanitize_c_identifier(var))
+                    }
+                })
         }
         "CHGVAR" => {
             let Some(crate::ast::Value::Variable(var)) = named_param(command, "VAR") else {
@@ -130,6 +165,24 @@ fn generate_command_call(command: &crate::ast::Command) -> String {
         "WRKACTJOB" => "l400_wrkactjob();".to_string(),
         "WRKSYSVAL" => "l400_wrksysval();".to_string(),
         "DSPLOG" => "l400_dsplog();".to_string(),
+        "WRKSPLF" => "l400_wrksplf();".to_string(),
+        "WRKOUTQ" => "l400_wrkoutq();".to_string(),
+        "DSPSPLF" => {
+            let spec = command_to_spec(command);
+            format!("l400_dspsplf({});", escape_c_string(&spec))
+        }
+        "CHGSPLFA" => {
+            let spec = command_to_spec(command);
+            format!("l400_chgsplfa({});", escape_c_string(&spec))
+        }
+        "DLTSPLF" => {
+            let spec = command_to_spec(command);
+            format!("l400_dltsplf({});", escape_c_string(&spec))
+        }
+        "SBMJOB" => {
+            let spec = format!("l400cmd SBMJOB {}", command_to_spec(command));
+            format!("system({});", escape_c_string(&spec))
+        }
         "WRKUSRPRF" => {
             let profile = first_value(command, "USRPRF", "*ALL");
             format!("l400_wrkusrprf({});", value_to_c_expr(&profile))
@@ -245,6 +298,30 @@ fn condition_to_c(condition: &crate::ast::Condition) -> String {
     match condition.operator.as_str() {
         "*EQ" | "=" | "EQ" => format!("strcmp({left}, {right}) == 0"),
         "*NE" | "<>" | "NE" => format!("strcmp({left}, {right}) != 0"),
+        "*GT" | ">" | "GT"
+            if value_is_numeric_literal(&condition.left)
+                || value_is_numeric_literal(&condition.right) =>
+        {
+            format!("atof({left}) > atof({right})")
+        }
+        "*LT" | "<" | "LT"
+            if value_is_numeric_literal(&condition.left)
+                || value_is_numeric_literal(&condition.right) =>
+        {
+            format!("atof({left}) < atof({right})")
+        }
+        "*GE" | ">=" | "GE"
+            if value_is_numeric_literal(&condition.left)
+                || value_is_numeric_literal(&condition.right) =>
+        {
+            format!("atof({left}) >= atof({right})")
+        }
+        "*LE" | "<=" | "LE"
+            if value_is_numeric_literal(&condition.left)
+                || value_is_numeric_literal(&condition.right) =>
+        {
+            format!("atof({left}) <= atof({right})")
+        }
         "*GT" | ">" | "GT" => format!("strcmp({left}, {right}) > 0"),
         "*LT" | "<" | "LT" => format!("strcmp({left}, {right}) < 0"),
         "*GE" | ">=" | "GE" => format!("strcmp({left}, {right}) >= 0"),
@@ -298,6 +375,23 @@ fn generate_statement(statement: &crate::ast::Statement, indent: usize, out: &mu
                 }
             }
         }
+        crate::ast::Statement::While {
+            condition,
+            body,
+            until,
+        } => {
+            let condition = condition_to_c(condition);
+            let test = if *until {
+                format!("!({condition})")
+            } else {
+                condition
+            };
+            out.push(format!("{pad}while ({test}) {{"));
+            for statement in body {
+                generate_statement(statement, indent + 1, out);
+            }
+            out.push(format!("{pad}}}"));
+        }
     }
 }
 
@@ -349,6 +443,7 @@ fn generate_c_backend(source_path: &str, ast: &crate::ast::Program) -> String {
     format!(
         "#include <stdio.h>\n\
          #include <string.h>\n\
+         #include <stdlib.h>\n\
          extern void l400_sndpgmmsg(const char*);\n\
          extern unsigned int l400_last_cpf_code(void);\n\
          extern void l400_clear_status(void);\n\
@@ -356,6 +451,11 @@ fn generate_c_backend(source_path: &str, ast: &crate::ast::Program) -> String {
          extern void l400_wrkactjob(void);\n\
          extern void l400_wrksysval(void);\n\
          extern void l400_dsplog(void);\n\
+         extern void l400_wrksplf(void);\n\
+         extern void l400_wrkoutq(void);\n\
+         extern void l400_dspsplf(const char*);\n\
+         extern void l400_chgsplfa(const char*);\n\
+         extern void l400_dltsplf(const char*);\n\
          extern void l400_wrkusrprf(const char*);\n\
          extern void l400_pwrdwnsys(const char*);\n\
          extern void l400_wrkobj(const char*);\n\
@@ -656,5 +756,62 @@ mod tests {
         assert!(code.contains("strcmp(var_TARGET, \"DEMO\") == 0"));
         assert!(code.contains("l400_call(\"QGPL/HELLO\");"));
         assert!(code.contains("l400_crtclpgm(\"QGPL/HELLO\", \"QGPL/QCLSRC\", \"HELLO.CLP\");"));
+    }
+
+    #[test]
+    fn numeric_loops_and_spool_commands_emit_c() {
+        let program = Program {
+            commands: Vec::new(),
+            parameters: Vec::new(),
+            statements: vec![
+                Statement::Command(Command {
+                    name: "DCL".to_string(),
+                    parameters: vec![
+                        Parameter::Named("VAR".to_string(), Value::Variable("COUNT".to_string())),
+                        Parameter::Named("TYPE".to_string(), Value::Keyword("*DEC".to_string())),
+                    ],
+                }),
+                Statement::While {
+                    condition: Condition {
+                        left: Value::Variable("COUNT".to_string()),
+                        operator: "*LT".to_string(),
+                        right: Value::Identifier("3".to_string()),
+                    },
+                    body: vec![Statement::Command(Command {
+                        name: "SNDPGMMSG".to_string(),
+                        parameters: vec![Parameter::Named(
+                            "MSG".to_string(),
+                            Value::StringLiteral("loop".to_string()),
+                        )],
+                    })],
+                    until: false,
+                },
+                Statement::Command(Command {
+                    name: "WRKSPLF".to_string(),
+                    parameters: vec![],
+                }),
+                Statement::Command(Command {
+                    name: "DSPSPLF".to_string(),
+                    parameters: vec![Parameter::Named(
+                        "FILE".to_string(),
+                        Value::Identifier("LAST".to_string()),
+                    )],
+                }),
+                Statement::Command(Command {
+                    name: "SBMJOB".to_string(),
+                    parameters: vec![Parameter::Named(
+                        "CMD".to_string(),
+                        Value::Identifier("WRKSYSSTS".to_string()),
+                    )],
+                }),
+            ],
+        };
+
+        let code = generate_c_backend("demo.clp", &program);
+        assert!(code.contains("snprintf(var_COUNT"));
+        assert!(code.contains("while (atof(var_COUNT) < atof(\"3\"))"));
+        assert!(code.contains("l400_wrksplf();"));
+        assert!(code.contains("l400_dspsplf(\"FILE(LAST)\");"));
+        assert!(code.contains("system(\"l400cmd SBMJOB CMD(WRKSYSSTS)\");"));
     }
 }

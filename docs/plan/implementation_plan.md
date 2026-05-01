@@ -257,13 +257,13 @@ Criterio de cierre:
 
 ## Fase 6: experiencia TUI end-to-end
 
-Estado: **planificado**.
+Estado: **finalizado**.
 
 Objetivo: validar la consola como interfaz primaria real.
 
 Trabajo:
 
-- [ ] Crear suite de smoke interactivo con terminal automatizado:
+- [x] Crear suite de smoke interactivo con terminal automatizado:
   - sign-on;
   - menu;
   - command line;
@@ -273,10 +273,10 @@ Trabajo:
   - STRSQL;
   - WRKACTJOB;
   - WRKSPLF.
-- [ ] Unificar ayuda contextual por pantalla desde metadata `*CMD`.
-- [ ] Eliminar textos demo silenciosos cuando falta runtime real.
-- [ ] Agregar barra de mensajes CPF comun.
-- [ ] Revisar accesibilidad terminal:
+- [x] Unificar ayuda contextual por pantalla desde metadata `*CMD`.
+- [x] Eliminar textos demo silenciosos cuando falta runtime real.
+- [x] Agregar barra de mensajes CPF comun.
+- [x] Revisar accesibilidad terminal:
   - ancho 80/132;
   - scroll;
   - foco;
@@ -290,29 +290,30 @@ Criterio de cierre:
 
 ## Fase 7: toolchain y ciclo de desarrollo
 
-Estado: **planificado**.
+Estado: **finalizado**.
 
 Objetivo: que desarrollar dentro de Linux/400 sea una experiencia completa.
 
 Trabajo:
 
-- [ ] Mejorar diagnosticos de `clc`:
+- [x] Mejorar diagnosticos de `clc`:
   - linea/columna;
   - CPF asociado;
   - spool de compilacion.
-- [ ] Extender CL prioritario:
+- [x] Extender CL prioritario:
   - parametros;
   - variables numericas;
   - `DOWHILE`/`DOUNTIL` si aplica;
   - `SNDPGMMSG`;
   - comandos de job/spool.
-- [ ] Hacer `CRTCLPGM` y `CRTPGM` visibles desde PDM/SEU.
-- [ ] Definir contrato de `*SRVPGM`:
+- [x] Hacer `CRTCLPGM` y `CRTPGM` visibles desde PDM/SEU.
+- [x] Definir contrato de `*SRVPGM`:
   - si es objetivo o backlog;
   - metadata;
   - autoridad;
   - linking/carga.
-- [ ] Reemplazar marcas simples de toolchain por manifest verificable.
+  - contrato documentado en `docs/srvpgm_contract.md`.
+- [x] Reemplazar marcas simples de toolchain por manifest verificable.
 
 Criterio de cierre:
 
@@ -322,7 +323,7 @@ Criterio de cierre:
 
 ## Fase 8: release, instalacion y soporte
 
-Estado: **planificado**.
+Estado: **finalizado**.
 
 Objetivo: que cada RC produzca evidencia reproducible.
 
@@ -334,11 +335,11 @@ Trabajo:
   - `kernel-optional`;
   - `install-qemu`;
   - `upgrade-restore`.
-- [ ] Publicar artefactos y logs por RC.
+- [x] Publicar artefactos y logs por RC.
 - [x] Hacer que `l400-support-report --write` genere un perfil adjuntable a
   issues.
-- [ ] Agregar test de upgrade desde metadata version anterior.
-- [ ] Documentar procedimientos:
+- [x] Agregar test de upgrade desde metadata version anterior.
+- [x] Documentar procedimientos:
   - instalacion;
   - backup;
   - restore;

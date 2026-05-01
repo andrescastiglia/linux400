@@ -3,13 +3,13 @@ use l400::run_select_query;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    text::Line,
     widgets::{Block, Borders, Paragraph, Row, Table, TableState},
 };
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::session::SessionContext;
 use crate::style::*;
+use crate::widgets::help_bar::{HelpAction, HelpBar};
 
 pub struct StrSql {
     input: String,
@@ -336,23 +336,17 @@ impl StrSql {
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
-        let help_text = Line::from(vec![
-            "F3=Exit   ".into(),
-            "F5=Clear   ".into(),
-            "F7/F8=Cols   ".into(),
-            "F12=Cancel   ".into(),
-            "Enter=Run   ".into(),
-            "Up/Down=History".into(),
-        ]);
-
-        let block = Block::default()
-            .style(STYLE_HELP)
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-        frame.render_widget(block, area);
-
-        let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
-        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+        HelpBar::new()
+            .command("STRSQL")
+            .actions(vec![
+                HelpAction::new("F3", "Exit"),
+                HelpAction::new("F5", "Clear"),
+                HelpAction::new("F7/F8", "Cols"),
+                HelpAction::new("F12", "Cancel"),
+                HelpAction::new("Enter", "Run"),
+                HelpAction::new("Up/Down", "History"),
+            ])
+            .render(frame, area);
     }
 }
 

@@ -8,19 +8,52 @@ pub struct CLParser;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     message: String,
+    line: Option<usize>,
+    column: Option<usize>,
+    cpf: &'static str,
 }
 
 impl ParseError {
     fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            line: None,
+            column: None,
+            cpf: "CPF0006",
         }
+    }
+
+    fn with_location(mut self, line: usize, column: usize) -> Self {
+        self.line = Some(line);
+        self.column = Some(column);
+        self
+    }
+
+    pub fn cpf(&self) -> &'static str {
+        self.cpf
+    }
+
+    pub fn line(&self) -> Option<usize> {
+        self.line
+    }
+
+    pub fn column(&self) -> Option<usize> {
+        self.column
     }
 }
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
+        match (self.line, self.column) {
+            (Some(line), Some(column)) => {
+                write!(
+                    f,
+                    "{} line={} column={}: {}",
+                    self.cpf, line, column, self.message
+                )
+            }
+            _ => write!(f, "{}: {}", self.cpf, self.message),
+        }
     }
 }
 
@@ -35,12 +68,18 @@ enum Frame {
         in_else: bool,
     },
     Do(Vec<Statement>),
+    While {
+        condition: Condition,
+        body: Vec<Statement>,
+        until: bool,
+    },
 }
 
 impl Frame {
     fn push(&mut self, statement: Statement) {
         match self {
             Frame::Root(statements) | Frame::Do(statements) => statements.push(statement),
+            Frame::While { body, .. } => body.push(statement),
             Frame::If {
                 then_branch,
                 else_branch,
@@ -63,7 +102,8 @@ pub fn parse_file(source: &str) -> Result<Program, ParseError> {
     let mut commands = Vec::new();
     let mut parameters = Vec::new();
 
-    for raw_line in source.lines() {
+    for (line_index, raw_line) in source.lines().enumerate() {
+        let line_number = line_index + 1;
         let line = raw_line.trim();
         if line.is_empty() || line.starts_with("//") {
             continue;
@@ -72,14 +112,18 @@ pub fn parse_file(source: &str) -> Result<Program, ParseError> {
         if upper == "ELSE" || upper == "ELSE DO" || upper == "ELSEDO" {
             match frames.last_mut() {
                 Some(Frame::If { in_else, .. }) => *in_else = true,
-                _ => return Err(ParseError::new("ELSE without matching IF")),
+                _ => {
+                    return Err(
+                        ParseError::new("ELSE without matching IF").with_location(line_number, 1)
+                    );
+                }
             }
             continue;
         }
         if upper == "ENDDO" {
-            let closed = frames
-                .pop()
-                .ok_or_else(|| ParseError::new("ENDDO without open block"))?;
+            let closed = frames.pop().ok_or_else(|| {
+                ParseError::new("ENDDO without open block").with_location(line_number, 1)
+            })?;
             let statement = match closed {
                 Frame::If {
                     condition,
@@ -91,27 +135,47 @@ pub fn parse_file(source: &str) -> Result<Program, ParseError> {
                     then_branch,
                     else_branch,
                 },
+                Frame::While {
+                    condition,
+                    body,
+                    until,
+                } => Statement::While {
+                    condition,
+                    body,
+                    until,
+                },
                 Frame::Do(statements) => {
                     for statement in statements {
                         frames
                             .last_mut()
-                            .ok_or_else(|| ParseError::new("internal parser stack underflow"))?
+                            .ok_or_else(|| {
+                                ParseError::new("internal parser stack underflow")
+                                    .with_location(line_number, 1)
+                            })?
                             .push(statement);
                     }
                     continue;
                 }
-                Frame::Root(_) => return Err(ParseError::new("ENDDO closes root block")),
+                Frame::Root(_) => {
+                    return Err(
+                        ParseError::new("ENDDO closes root block").with_location(line_number, 1)
+                    );
+                }
             };
             frames
                 .last_mut()
-                .ok_or_else(|| ParseError::new("internal parser stack underflow"))?
+                .ok_or_else(|| {
+                    ParseError::new("internal parser stack underflow").with_location(line_number, 1)
+                })?
                 .push(statement);
             continue;
         }
 
-        let command = parse_command_line(line)?;
+        let command =
+            parse_command_line(line).map_err(|error| error.with_location(line_number, 1))?;
         if command.name == "IF" {
-            let condition = parse_condition(&command)?;
+            let condition =
+                parse_condition(&command).map_err(|error| error.with_location(line_number, 1))?;
             if command_uses_do(&command, "THEN") {
                 frames.push(Frame::If {
                     condition,
@@ -121,7 +185,8 @@ pub fn parse_file(source: &str) -> Result<Program, ParseError> {
                 });
             } else if let Some(inline) = named_param(&command, "THEN")
                 .map(command_from_value)
-                .transpose()?
+                .transpose()
+                .map_err(|error| error.with_location(line_number, 1))?
                 .flatten()
             {
                 frames.last_mut().unwrap().push(Statement::If {
@@ -131,13 +196,25 @@ pub fn parse_file(source: &str) -> Result<Program, ParseError> {
                 });
                 commands.push(inline);
             } else {
-                return Err(ParseError::new("IF requires THEN(DO) or THEN(command)"));
+                return Err(ParseError::new("IF requires THEN(DO) or THEN(command)")
+                    .with_location(line_number, 1));
             }
             commands.push(command);
             continue;
         }
         if command.name == "DO" {
             frames.push(Frame::Do(Vec::new()));
+            commands.push(command);
+            continue;
+        }
+        if command.name == "DOWHILE" || command.name == "DOUNTIL" {
+            let condition =
+                parse_condition(&command).map_err(|error| error.with_location(line_number, 1))?;
+            frames.push(Frame::While {
+                condition,
+                body: Vec::new(),
+                until: command.name == "DOUNTIL",
+            });
             commands.push(command);
             continue;
         }
@@ -149,7 +226,8 @@ pub fn parse_file(source: &str) -> Result<Program, ParseError> {
                 .unwrap_or_else(|| "CPF0000".to_string());
             let exec = named_param(&command, "EXEC")
                 .map(command_from_value)
-                .transpose()?
+                .transpose()
+                .map_err(|error| error.with_location(line_number, 1))?
                 .flatten();
             frames.last_mut().unwrap().push(Statement::MonMsg {
                 msgid,
@@ -430,7 +508,7 @@ mod tests {
     #[test]
     fn parse_control_language_blocks() {
         let program = parse_file(
-            "PGM PARM(&LIB)\nDCL VAR(&LIB) TYPE(*CHAR) VALUE('QGPL')\nIF COND(&LIB *EQ 'QGPL') THEN(DO)\nSNDPGMMSG MSG('ok')\nELSE\nSNDPGMMSG MSG('bad')\nENDDO\nMONMSG MSGID(CPF0000) EXEC(SNDPGMMSG MSG('ignored'))\nENDPGM\n",
+            "PGM PARM(&LIB)\nDCL VAR(&LIB) TYPE(*CHAR) VALUE('QGPL')\nIF COND(&LIB *EQ 'QGPL') THEN(DO)\nSNDPGMMSG MSG('ok')\nELSE\nSNDPGMMSG MSG('bad')\nENDDO\nDOWHILE COND(&LIB *EQ 'QGPL')\nSNDPGMMSG MSG('loop')\nENDDO\nMONMSG MSGID(CPF0000) EXEC(SNDPGMMSG MSG('ignored'))\nENDPGM\n",
         )
         .expect("parse_file falló");
 
@@ -447,5 +525,21 @@ mod tests {
                 .iter()
                 .any(|statement| matches!(statement, Statement::MonMsg { .. }))
         );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, Statement::While { .. }))
+        );
+    }
+
+    #[test]
+    fn parse_errors_include_cpf_and_location() {
+        let error = parse_file("PGM\nIF COND(&A *EQ) THEN(DO)\nENDPGM\n").unwrap_err();
+
+        assert_eq!(error.cpf(), "CPF0006");
+        assert_eq!(error.line(), Some(2));
+        assert_eq!(error.column(), Some(1));
+        assert!(error.to_string().contains("line=2 column=1"));
     }
 }

@@ -60,9 +60,11 @@ pub use storage::{
     L400_BASE_PF_ATTR, L400_DATA_FORMAT_VERSION, L400_DATA_FORMAT_VERSION_ATTR,
     L400_FIELD_SCHEMA_ATTR, L400_KEY_FIELDS_ATTR, L400_OUTQ_DEFAULT_STATUS_ATTR,
     L400_OUTQ_RETENTION_DAYS_ATTR, L400_OUTQ_ROUTING_ATTR, L400_PF_MEMBERS_ATTR,
-    L400_RECORD_LEN_ATTR, L400_STORAGE_BACKEND_ATTR, StorageBackend, StorageError,
-    default_storage_backend, read_storage_backend, read_string_attr, read_u32_attr,
-    write_storage_backend, write_string_attr, write_u32_attr,
+    L400_RECORD_LEN_ATTR, L400_STORAGE_BACKEND_ATTR, L400_TOOLCHAIN_MANIFEST_ATTR,
+    L400_TOOLCHAIN_MANIFEST_VERSION, StorageBackend, StorageError, build_toolchain_manifest,
+    default_storage_backend, file_checksum, read_storage_backend, read_string_attr, read_u32_attr,
+    verify_toolchain_manifest, write_storage_backend, write_string_attr, write_toolchain_manifest,
+    write_u32_attr,
 };
 pub use util::AlignedBuffer;
 pub use zfs::{

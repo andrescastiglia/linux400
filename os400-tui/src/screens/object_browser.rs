@@ -11,6 +11,7 @@ use ratatui::{
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::session::SessionContext;
 use crate::style::*;
+use crate::widgets::help_bar::{CpfMessage, HelpAction, HelpBar};
 
 pub struct ObjectInfo {
     pub library: String,
@@ -42,7 +43,7 @@ impl ObjectBrowser {
         let (objects, using_runtime_data) = Self::load_objects(&current_library);
         let status_message = objects
             .is_empty()
-            .then(|| "Sin catalogo runtime para esta biblioteca.".to_string());
+            .then(|| "Runtime catalog not available for this library.".to_string());
         Self {
             current_library,
             objects,
@@ -87,7 +88,8 @@ impl ObjectBrowser {
         self.using_runtime_data = using_runtime_data;
         if self.objects.is_empty() {
             self.state.select(None);
-            self.status_message = Some("Sin catalogo runtime para esta biblioteca.".to_string());
+            self.status_message =
+                Some("Runtime catalog not available for this library.".to_string());
         } else if self.state.selected().is_none() {
             self.state.select(Some(0));
             self.status_message = None;
@@ -107,12 +109,12 @@ impl ObjectBrowser {
 
     fn request_delete_selected(&mut self) {
         let Some(spec) = self.selected_object_spec() else {
-            self.status_message = Some("No hay objeto seleccionado.".to_string());
+            self.status_message = Some("No object selected.".to_string());
             return;
         };
         self.pending_delete = Some(spec.clone());
         self.status_message = Some(format!(
-            "Confirmar DLTOBJ {}: presione Enter para borrar o F12 para cancelar.",
+            "DLTOBJ {} pending. Enter=confirm visual delete, F12=cancel.",
             spec
         ));
     }
@@ -123,16 +125,16 @@ impl ObjectBrowser {
         };
         let root = resolve_l400_root();
         let Some((library, object)) = spec.split_once('/') else {
-            self.status_message = Some("DLTOBJ cancelado: especificacion invalida.".to_string());
+            self.status_message = Some("DLTOBJ cancelled: invalid object spec.".to_string());
             return;
         };
         match delete_object(&root.join(library).join(object)) {
             Ok(_) => {
-                self.status_message = Some(format!("{} borrado.", spec));
+                self.status_message = Some(format!("{} deleted.", spec));
                 self.refresh();
             }
             Err(error) => {
-                self.status_message = Some(format!("Error borrando {}: {}", spec, error));
+                self.status_message = Some(format!("Error deleting {}: {}", spec, error));
             }
         }
     }
@@ -165,7 +167,7 @@ impl Screen for ObjectBrowser {
                 }
                 KeyCode::F(12) | KeyCode::Esc => {
                     self.pending_delete = None;
-                    self.status_message = Some("DLTOBJ cancelado.".to_string());
+                    self.status_message = Some("DLTOBJ cancelled.".to_string());
                     return ScreenResult::none();
                 }
                 _ => return ScreenResult::none(),
@@ -207,7 +209,7 @@ impl Screen for ObjectBrowser {
                     )
                 })
                 .unwrap_or_else(|| {
-                    self.status_message = Some("Opcion 3 requiere un *FILE PF.".to_string());
+                    self.status_message = Some("Option 3 requires a *FILE PF.".to_string());
                     ScreenResult::none()
                 }),
             KeyCode::Char('4') => {
@@ -225,7 +227,7 @@ impl Screen for ObjectBrowser {
                 })
                 .unwrap_or_else(|| {
                     self.status_message =
-                        Some("Opcion 2 requiere un *FILE PF/source file.".to_string());
+                        Some("Option 2 requires a *FILE PF/source file.".to_string());
                     ScreenResult::none()
                 }),
             KeyCode::Char('8') => self
@@ -238,7 +240,7 @@ impl Screen for ObjectBrowser {
                     )
                 })
                 .unwrap_or_else(|| {
-                    self.status_message = Some("Opcion 8 requiere un *DTAQ.".to_string());
+                    self.status_message = Some("Option 8 requires a *DTAQ.".to_string());
                     ScreenResult::none()
                 }),
             _ => ScreenResult::none(),
@@ -329,37 +331,30 @@ impl ObjectBrowser {
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
-        let help_text = Line::from(vec![
-            "F3=Exit   ".into(),
-            "F4=Prompt   ".into(),
-            "F5=Refresh   ".into(),
-            "2=Members   ".into(),
-            "3=Records   ".into(),
-            "4=Delete   ".into(),
-            "5=Display   ".into(),
-            "8=DTAQ   ".into(),
-            "F12=Cancel".into(),
-        ]);
-
-        let block = Block::default()
-            .style(STYLE_HELP)
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-
-        frame.render_widget(block, area);
-
-        let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
-        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+        HelpBar::new()
+            .command("WRKOBJ")
+            .actions(vec![
+                HelpAction::new("F3", "Exit"),
+                HelpAction::new("F4", "Prompt"),
+                HelpAction::new("F5", "Refresh"),
+                HelpAction::new("2", "Members"),
+                HelpAction::new("3", "Records"),
+                HelpAction::new("4", "Delete"),
+                HelpAction::new("5", "Display"),
+                HelpAction::new("8", "DTAQ"),
+                HelpAction::new("F12", "Cancel"),
+            ])
+            .render(frame, area);
     }
 
     fn render_status(&self, frame: &mut Frame, area: Rect) {
         let message = self.status_message.clone().unwrap_or_default();
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-        frame.render_widget(Paragraph::new(message).style(STYLE_NORMAL), inner);
+        let cpf = if message.to_ascii_lowercase().contains("error") {
+            CpfMessage::error("CPF9898", message)
+        } else {
+            CpfMessage::info("CPF0000", message)
+        };
+        cpf.render(frame, area);
     }
 }
 

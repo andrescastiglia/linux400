@@ -4,7 +4,7 @@ pub mod compiler;
 pub mod parser;
 
 use clap::Parser;
-use l400::{catalog_object, write_string_attr};
+use l400::{catalog_object, write_string_attr, write_toolchain_manifest};
 use std::path::Path;
 use std::process::Command;
 
@@ -93,17 +93,16 @@ fn main() {
 
             match catalog_object(output_path, "*PGM", Some("CL"), Some("CL compiled program")) {
                 Ok(_) => {
-                    let _ = write_string_attr(output_path, "user.l400.toolchain", "clc");
-                    let _ = write_string_attr(
+                    if let Err(error) = write_toolchain_manifest(
                         output_path,
-                        "user.l400.toolchain_version",
+                        "clc",
                         env!("CARGO_PKG_VERSION"),
-                    );
-                    let _ = write_string_attr(
-                        output_path,
-                        "user.l400.signature",
-                        &format!("linux400-clc-v1:{}", output_path.display()),
-                    );
+                        Some(&args.input),
+                    ) {
+                        eprintln!("✘ Falla al escribir manifest de toolchain: {}", error);
+                        std::process::exit(1);
+                    }
+                    let _ = write_string_attr(output_path, "user.l400.signature", "manifest:v1");
                     println!("✔ Objeto nativo L400 creado en '{}'", args.output);
                 }
                 Err(e) => {

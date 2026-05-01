@@ -7,9 +7,11 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 use std::path::PathBuf;
+use std::process::Command;
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::style::*;
+use crate::widgets::help_bar::{CpfMessage, HelpAction, HelpBar};
 
 pub struct StrSeu {
     path: PathBuf,
@@ -82,10 +84,10 @@ impl StrSeu {
         match std::fs::write(&self.path, content) {
             Ok(_) => {
                 self.modified = false;
-                self.status_msg = Some("Miembro guardado.".to_string());
+                self.status_msg = Some("Member saved.".to_string());
             }
             Err(error) => {
-                self.status_msg = Some(format!("Error al guardar: {}", error));
+                self.status_msg = Some(format!("Error saving member: {}", error));
             }
         }
     }
@@ -101,10 +103,55 @@ impl StrSeu {
                 self.cursor_col = 0;
                 self.scroll_offset = 0;
                 self.modified = false;
-                self.status_msg = Some("Miembro recargado.".to_string());
+                self.status_msg = Some("Member reloaded.".to_string());
             }
             Err(error) => {
-                self.status_msg = Some(format!("Error al recargar: {}", error));
+                self.status_msg = Some(format!("Error reloading member: {}", error));
+            }
+        }
+    }
+
+    fn member_parts(&self) -> Option<(&str, &str, &str)> {
+        let mut parts = self.title.split('/');
+        let library = parts.next()?;
+        let file = parts.next()?;
+        let member = parts.next()?;
+        Some((library, file, member))
+    }
+
+    fn program_spec(&self) -> Option<String> {
+        self.member_parts().map(|(library, _file, member)| {
+            let stem = member.split('.').next().unwrap_or(member).to_uppercase();
+            format!("{library}/{stem}")
+        })
+    }
+
+    fn run_toolchain_command(&mut self, command: String) {
+        if self.modified {
+            self.save();
+        }
+        match Command::new("l400cmd")
+            .args(crate::screens::cmd_line::tokenize_cl_command(&command))
+            .output()
+        {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let summary = stdout
+                    .lines()
+                    .chain(stderr.lines())
+                    .last()
+                    .unwrap_or("No compiler output.")
+                    .to_string();
+                self.status_msg = Some(format!(
+                    "{} status={} {}",
+                    command,
+                    output.status.code().unwrap_or_default(),
+                    summary
+                ));
+            }
+            Err(error) => {
+                self.status_msg = Some(format!("Error running {}: {}", command, error));
             }
         }
     }
@@ -175,6 +222,26 @@ impl Screen for StrSeu {
             }
             KeyCode::F(5) => {
                 self.reload();
+                ScreenResult::none()
+            }
+            KeyCode::F(14) => {
+                if let (Some((library, file, member)), Some(pgm)) =
+                    (self.member_parts(), self.program_spec())
+                {
+                    self.run_toolchain_command(format!(
+                        "CRTCLPGM PGM({pgm}) SRCFILE({library}/{file}) SRCMBR({member})"
+                    ));
+                } else {
+                    self.status_msg = Some("Cannot derive member spec for CRTCLPGM.".to_string());
+                }
+                ScreenResult::none()
+            }
+            KeyCode::F(17) => {
+                if let Some(pgm) = self.program_spec() {
+                    self.run_toolchain_command(format!("CRTPGM PGM({pgm})"));
+                } else {
+                    self.status_msg = Some("Cannot derive program spec for CRTPGM.".to_string());
+                }
                 ScreenResult::none()
             }
             KeyCode::F(12) | KeyCode::Esc => self.back_result(),
@@ -309,31 +376,25 @@ impl StrSeu {
     }
 
     fn render_status(&self, frame: &mut Frame, area: Rect) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-        frame.render_widget(
-            Paragraph::new(self.status_msg.clone().unwrap_or_default()).style(STYLE_NORMAL),
-            inner,
-        );
+        let message = self.status_msg.clone().unwrap_or_default();
+        let cpf = if message.to_ascii_lowercase().contains("error") {
+            CpfMessage::error("CPF9898", message)
+        } else {
+            CpfMessage::info("CPF0000", message)
+        };
+        cpf.render(frame, area);
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
-        let help_text = Line::from(vec![
-            "F3=Save   ".into(),
-            "F5=Reload   ".into(),
-            "F12=Cancel".into(),
-        ]);
-
-        let block = Block::default()
-            .style(STYLE_HELP)
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-        frame.render_widget(block, area);
-
-        let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
-        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+        HelpBar::new()
+            .command("STRSEU")
+            .actions(vec![
+                HelpAction::new("F3", "Save"),
+                HelpAction::new("F5", "Reload"),
+                HelpAction::new("F14", "CRTCLPGM"),
+                HelpAction::new("F12", "Cancel"),
+                HelpAction::new("F17", "CRTPGM"),
+            ])
+            .render(frame, area);
     }
 }

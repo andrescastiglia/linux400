@@ -10,6 +10,7 @@ use ratatui::{
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::session::SessionContext;
 use crate::style::*;
+use crate::widgets::help_bar::{HelpAction, HelpBar};
 
 pub struct PdmBrowser {
     libraries: Vec<String>,
@@ -60,7 +61,7 @@ impl PdmBrowser {
                 }
                 ordered
             }
-            Err(_) => vec!["QSYS".to_string(), "QGPL".to_string()],
+            Err(_) => Vec::new(),
         }
     }
 
@@ -173,7 +174,11 @@ impl PdmBrowser {
             .border_style(STYLE_BORDER);
         frame.render_widget(block, area);
 
-        let text = Line::from("  Select a library and press Enter.");
+        let text = Line::from(if self.libraries.is_empty() {
+            "  Runtime catalog not available. Run l400-bootstrap or set L400_ROOT."
+        } else {
+            "  Select a library and press Enter."
+        });
         let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 2);
         frame.render_widget(
             Paragraph::new(vec![Line::from(""), text]).style(STYLE_NORMAL),
@@ -202,20 +207,14 @@ impl PdmBrowser {
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
-        let help_text = Line::from(vec![
-            "F3=Exit   ".into(),
-            "F5=Refresh   ".into(),
-            "F12=Cancel   ".into(),
-            "Enter=Select Library".into(),
-        ]);
-
-        let block = Block::default()
-            .style(STYLE_HELP)
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-        frame.render_widget(block, area);
-
-        let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
-        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+        HelpBar::new()
+            .command("STRPDM")
+            .actions(vec![
+                HelpAction::new("F3", "Exit"),
+                HelpAction::new("F5", "Refresh"),
+                HelpAction::new("F12", "Cancel"),
+                HelpAction::new("Enter", "Select Library"),
+            ])
+            .render(frame, area);
     }
 }

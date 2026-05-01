@@ -10,6 +10,7 @@ use ratatui::{
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::session::SessionContext;
 use crate::style::*;
+use crate::widgets::help_bar::{HelpAction, HelpBar};
 
 pub struct MainMenu {
     selected_index: usize,
@@ -44,7 +45,7 @@ impl MainMenu {
             (" ", " ", " "),
             ("10", "User profiles . . . . . . . . . . .", "WRKUSRPRF"),
             ("11", "Spool files . . . . . . . . . . . .", "WRKSPLF"),
-            ("12", "Guided daily demo . . . . . . . . .", "DEMO"),
+            ("12", "Policy and audit  . . . . . . . . .", "DSPPOLICY"),
         ]
     }
 
@@ -59,7 +60,7 @@ impl MainMenu {
             "9" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKSYSVAL"),
             "10" => ScreenResult::goto(ScreenId::UserProfiles),
             "11" => ScreenResult::goto(ScreenId::SpoolOutq),
-            "12" => ScreenResult::with_data(ScreenId::SystemPanel, "WRKOBJ LIB(QGPL)"),
+            "12" => ScreenResult::goto(ScreenId::PolicyAudit),
             _ => ScreenResult::none(),
         }
     }
@@ -257,22 +258,15 @@ impl MainMenu {
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
-        let help_text = Line::from(vec![
-            "F3=Signoff   ".into(),
-            "F4=Prompt   ".into(),
-            "F12=Cancel   ".into(),
-            "Enter=Select".into(),
-        ]);
-
-        let block = Block::default()
-            .style(STYLE_HELP)
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-
-        frame.render_widget(block, area);
-
-        let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
-        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+        HelpBar::new()
+            .command("GO")
+            .actions(vec![
+                HelpAction::new("F3", "Signoff"),
+                HelpAction::new("F4", "Prompt"),
+                HelpAction::new("F12", "Cancel"),
+                HelpAction::new("Enter", "Select"),
+            ])
+            .render(frame, area);
     }
 }
 
@@ -378,5 +372,13 @@ mod tests {
         let mut menu = MainMenu::new();
         let result = menu.handle_key(key(KeyCode::Char('7')));
         assert_eq!(result.next, Some(ScreenId::PdmBrowser));
+    }
+
+    #[test]
+    fn option_twelve_opens_policy_audit_without_demo_stub() {
+        let mut menu = MainMenu::new();
+        assert_eq!(menu.handle_key(key(KeyCode::Char('1'))).next, None);
+        let result = menu.handle_key(key(KeyCode::Char('2')));
+        assert_eq!(result.next, Some(ScreenId::PolicyAudit));
     }
 }

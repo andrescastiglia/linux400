@@ -6,9 +6,11 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Paragraph, Row, Table, TableState},
 };
+use std::process::Command;
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::style::*;
+use crate::widgets::help_bar::{CpfMessage, HelpAction, HelpBar};
 
 pub struct MemberInfo {
     pub file_name: String,
@@ -102,6 +104,44 @@ impl WrkMbrPdm {
             .map(|member| format!("{}/{}/{}", self.library, self.file, member.file_name))
     }
 
+    fn selected_program_spec(&self) -> Option<String> {
+        self.state
+            .selected()
+            .and_then(|index| self.members.get(index))
+            .map(|member| {
+                let stem = member.file_name.split('.').next().unwrap_or(&member.name);
+                format!("{}/{}", self.library, stem.to_uppercase())
+            })
+    }
+
+    fn run_toolchain_command(&mut self, command: String) {
+        match Command::new("l400cmd")
+            .args(crate::screens::cmd_line::tokenize_cl_command(&command))
+            .output()
+        {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let summary = stdout
+                    .lines()
+                    .chain(stderr.lines())
+                    .last()
+                    .unwrap_or("No compiler output.")
+                    .to_string();
+                self.status_message = Some(format!(
+                    "{} status={} {}",
+                    command,
+                    output.status.code().unwrap_or_default(),
+                    summary
+                ));
+            }
+            Err(error) => {
+                self.status_message = Some(format!("Error running {}: {}", command, error));
+            }
+        }
+        self.refresh();
+    }
+
     fn normalized_new_member_name(&self) -> String {
         let trimmed = self.create_input.trim().to_uppercase();
         if trimmed.contains('.') {
@@ -116,13 +156,13 @@ impl WrkMbrPdm {
             KeyCode::Esc | KeyCode::F(12) => {
                 self.create_mode = false;
                 self.create_input.clear();
-                self.status_message = Some("Creacion cancelada.".to_string());
+                self.status_message = Some("Create member cancelled.".to_string());
                 ScreenResult::none()
             }
             KeyCode::Enter => {
                 let member_name = self.normalized_new_member_name();
                 if member_name == ".CLP" {
-                    self.status_message = Some("Ingrese un nombre de miembro.".to_string());
+                    self.status_message = Some("Enter a member name.".to_string());
                     return ScreenResult::none();
                 }
 
@@ -132,10 +172,10 @@ impl WrkMbrPdm {
                         self.create_input.clear();
                         self.refresh();
                         self.select_member_by_file_name(&member_name);
-                        self.status_message = Some(format!("Miembro {} creado.", member_name));
+                        self.status_message = Some(format!("Member {} created.", member_name));
                     }
                     Err(error) => {
-                        self.status_message = Some(format!("Error creando miembro: {}", error));
+                        self.status_message = Some(format!("Error creating member: {}", error));
                     }
                 }
                 ScreenResult::none()
@@ -191,12 +231,33 @@ impl Screen for WrkMbrPdm {
             KeyCode::F(6) => {
                 self.create_mode = true;
                 self.create_input.clear();
-                self.status_message =
-                    Some("Nuevo miembro: escriba nombre y presione Enter.".to_string());
+                self.status_message = Some("New member: type a name and press Enter.".to_string());
                 ScreenResult::none()
             }
             KeyCode::F(16) => {
                 ScreenResult::with_data(ScreenId::StrSql, format!("{}/{}", self.library, self.file))
+            }
+            KeyCode::F(14) => {
+                if let (Some(member), Some(pgm)) =
+                    (self.selected_member_spec(), self.selected_program_spec())
+                {
+                    let srcmbr = member.rsplit('/').next().unwrap_or("MAIN.CLP");
+                    self.run_toolchain_command(format!(
+                        "CRTCLPGM PGM({pgm}) SRCFILE({}/{}) SRCMBR({srcmbr})",
+                        self.library, self.file
+                    ));
+                } else {
+                    self.status_message = Some("No source member selected.".to_string());
+                }
+                ScreenResult::none()
+            }
+            KeyCode::F(17) => {
+                if let Some(pgm) = self.selected_program_spec() {
+                    self.run_toolchain_command(format!("CRTPGM PGM({pgm})"));
+                } else {
+                    self.status_message = Some("No source member selected.".to_string());
+                }
+                ScreenResult::none()
             }
             KeyCode::Up => {
                 let next = self.state.selected().unwrap_or(0).saturating_sub(1);
@@ -288,39 +349,38 @@ impl WrkMbrPdm {
         } else {
             self.status_message.clone().unwrap_or_default()
         };
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-        frame.render_widget(Paragraph::new(message).style(STYLE_NORMAL), inner);
+        let cpf = if message.to_ascii_lowercase().contains("error") {
+            CpfMessage::error("CPF9898", message)
+        } else {
+            CpfMessage::info("CPF0000", message)
+        };
+        cpf.render(frame, area);
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
-        let help_text = if self.create_mode {
-            Line::from(vec![
-                "Enter=Create   ".into(),
-                "F12=Cancel   ".into(),
-                "Esc=Cancel".into(),
-            ])
+        if self.create_mode {
+            HelpBar::new()
+                .command("WRKMBRPDM")
+                .actions(vec![
+                    HelpAction::new("Enter", "Create"),
+                    HelpAction::new("F12", "Cancel"),
+                    HelpAction::new("Esc", "Cancel"),
+                ])
+                .render(frame, area);
         } else {
-            Line::from(vec![
-                "F3=Exit   ".into(),
-                "F5=Refresh   ".into(),
-                "F6=Create   ".into(),
-                "2/5=Edit   ".into(),
-                "F15=Edit   ".into(),
-                "F16=STRSQL".into(),
-            ])
-        };
-
-        let block = Block::default()
-            .style(STYLE_HELP)
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-        frame.render_widget(block, area);
-
-        let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
-        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+            HelpBar::new()
+                .command("WRKMBRPDM")
+                .actions(vec![
+                    HelpAction::new("F3", "Exit"),
+                    HelpAction::new("F5", "Refresh"),
+                    HelpAction::new("F6", "Create"),
+                    HelpAction::new("2/5", "Edit"),
+                    HelpAction::new("F14", "CRTCLPGM"),
+                    HelpAction::new("F15", "Edit"),
+                    HelpAction::new("F16", "STRSQL"),
+                    HelpAction::new("F17", "CRTPGM"),
+                ])
+                .render(frame, area);
+        }
     }
 }

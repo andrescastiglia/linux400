@@ -11,6 +11,7 @@ use std::process::Command;
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::session::SessionContext;
 use crate::style::*;
+use crate::widgets::help_bar::{HelpAction, HelpBar};
 
 #[derive(Clone, Debug)]
 struct PromptField {
@@ -745,19 +746,15 @@ impl CommandLine {
             field_inner,
         );
 
-        let help_text = Line::from(vec![
-            "Enter=Run   ".into(),
-            "Tab=Next   ".into(),
-            "Shift-Tab=Prev   ".into(),
-            "F12=Cancel".into(),
-        ]);
-        let help = Block::default()
-            .style(STYLE_HELP)
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-        let help_inner = Rect::new(chunks[2].x + 1, chunks[2].y + 1, chunks[2].width - 2, 1);
-        frame.render_widget(help, chunks[2]);
-        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), help_inner);
+        HelpBar::new()
+            .command(command)
+            .actions(vec![
+                HelpAction::new("Enter", "Run"),
+                HelpAction::new("Tab", "Next"),
+                HelpAction::new("Shift-Tab", "Prev"),
+                HelpAction::new("F12", "Cancel"),
+            ])
+            .render(frame, chunks[2]);
 
         let cursor_y = field_inner.y + self.prompt_index as u16;
         let cursor_x = field_inner.x + 13 + self.prompt_cursor as u16;
@@ -803,27 +800,28 @@ impl CommandLine {
         frame.render_widget(block, area);
 
         let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, area.height - 2);
-        frame.render_widget(Paragraph::new(text).style(STYLE_NORMAL), inner);
+        let paragraph = Paragraph::new(text)
+            .style(STYLE_NORMAL)
+            .wrap(ratatui::widgets::Wrap { trim: false });
+        frame.render_widget(paragraph, inner);
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
-        let help_text = Line::from(vec![
-            "F3=Exit   ".into(),
-            "F4=Prompt   ".into(),
-            "F12=Cancel   ".into(),
-            "Enter=Execute   ".into(),
-            "Up/Down=History".into(),
-        ]);
-
-        let block = Block::default()
-            .style(STYLE_HELP)
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-
-        frame.render_widget(block, area);
-
-        let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
-        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+        HelpBar::new()
+            .command(
+                self.command_tokens()
+                    .first()
+                    .map(|value| value.to_uppercase())
+                    .unwrap_or_else(|| "CALL".to_string()),
+            )
+            .actions(vec![
+                HelpAction::new("F3", "Exit"),
+                HelpAction::new("F4", "Prompt"),
+                HelpAction::new("F12", "Cancel"),
+                HelpAction::new("Enter", "Execute"),
+                HelpAction::new("Up/Down", "History"),
+            ])
+            .render(frame, area);
     }
 }
 
