@@ -1,6 +1,7 @@
 pub mod admin_views;
 pub mod cmd_line;
 pub mod dsp_log;
+pub mod dsp_policy;
 pub mod dtaq_viewer;
 pub mod main_menu;
 pub mod object_authority;
@@ -35,6 +36,7 @@ pub enum ScreenId {
     ObjectBrowser,
     DataQueueViewer,
     DspLog,
+    DspPolicy,
     CommandLine,
     PdmBrowser,
     WrkMbrPdm,

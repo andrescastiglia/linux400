@@ -209,7 +209,8 @@ impl MainMenu {
             "WRKUSRPRF" => ScreenResult::goto(ScreenId::UserProfiles),
             "WRKSPLF" | "WRKOUTQ" => ScreenResult::goto(ScreenId::SpoolOutq),
             "DSPLOG" => ScreenResult::goto(ScreenId::DspLog),
-            "DSPPOLICY" | "DSPAUD" => ScreenResult::goto(ScreenId::PolicyAudit),
+            "DSPPOLICY" => ScreenResult::goto(ScreenId::DspPolicy),
+            "DSPAUD" => ScreenResult::goto(ScreenId::PolicyAudit),
             "DSPOBJD" => ScreenResult::with_data(ScreenId::ObjectDetail, command),
             "DSPOBJAUT" => ScreenResult::with_data(ScreenId::ObjectAuthority, command),
             _ => ScreenResult::with_data(ScreenId::CommandLine, command),
@@ -500,11 +501,11 @@ mod tests {
     }
 
     #[test]
-    fn option_twelve_opens_policy_audit_without_demo_stub() {
+    fn option_twelve_opens_policy_screen_without_demo_stub() {
         let mut menu = MainMenu::new();
         assert_eq!(menu.handle_key(key(KeyCode::Char('1'))).next, None);
         let result = menu.handle_key(key(KeyCode::Char('2')));
-        assert_eq!(result.next, Some(ScreenId::PolicyAudit));
+        assert_eq!(result.next, Some(ScreenId::DspPolicy));
     }
 
     #[test]

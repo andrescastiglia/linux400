@@ -422,10 +422,10 @@ desde la TUI.
 
 ### 8.5 DSPPOLICY mejorado
 
-- [ ] Mostrar estado de enforcement por tipo de objeto.
-- [ ] Mostrar versión de política eBPF vs runtime.
-- [ ] Indicador de brechas conocidas.
-- [ ] Filtros: auth denied, user changes, object changes, all.
+- [x] Mostrar estado de enforcement por tipo de objeto.
+- [x] Mostrar versión de política eBPF vs runtime.
+- [x] Indicador de brechas conocidas.
+- [x] Filtros: auth denied, user changes, object changes, all.
 
 Criterio de cierre:
 
