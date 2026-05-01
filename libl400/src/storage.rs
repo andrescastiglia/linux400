@@ -1,6 +1,8 @@
+use sha2::Digest;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
@@ -121,13 +123,21 @@ pub fn read_u32_attr(path: &Path, attr: &str) -> Result<Option<u32>, StorageErro
 }
 
 pub fn file_checksum(path: &Path) -> Result<String, StorageError> {
-    let bytes = fs::read(path)?;
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in bytes {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x100000001b3);
+    let mut file = fs::File::open(path)?;
+    let mut hasher = sha2::Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        sha2::Digest::update(&mut hasher, &buffer[..read]);
     }
-    Ok(format!("{hash:016x}"))
+    let digest = sha2::Digest::finalize(hasher);
+    Ok(digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>())
 }
 
 pub fn build_toolchain_manifest(

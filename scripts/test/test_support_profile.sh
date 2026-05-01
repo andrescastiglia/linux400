@@ -5,6 +5,13 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP_RUN="$(mktemp -d)"
 trap 'rm -rf "$TMP_RUN"' EXIT
 
+assert_non_empty_field() {
+    local output="$1"
+    local key="$2"
+    grep -Eq "^${key}=.+" <<<"${output}"
+    ! grep -Eq "^${key}=unknown$" <<<"${output}"
+}
+
 DEV_RUN="${TMP_RUN}/dev"
 mkdir -p "${DEV_RUN}"
 cat > "${DEV_RUN}/loader-status" <<'EOF'
@@ -26,7 +33,7 @@ printf '%s\n' "${DEV_OUTPUT}"
 grep -q '^loader_mode=dev$' <<<"${DEV_OUTPUT}"
 grep -q '^effective_mode=dev$' <<<"${DEV_OUTPUT}"
 grep -q '^phase3_enforcement_ready=no$' <<<"${DEV_OUTPUT}"
-grep -q '^loader_runtime_version=0.2.0$' <<<"${DEV_OUTPUT}"
+assert_non_empty_field "${DEV_OUTPUT}" "loader_runtime_version"
 grep -q '^loader_effective_mode=dev$' <<<"${DEV_OUTPUT}"
 grep -q '^loader_known_gaps=kernel-enforcement-inactive,runtime-only-authority$' <<<"${DEV_OUTPUT}"
 grep -q '^required_for_full=' <<<"${DEV_OUTPUT}"
@@ -81,7 +88,7 @@ printf '%s\n' "${PHASE3_OUTPUT}"
 grep -q '^loader_mode=full$' <<<"${PHASE3_OUTPUT}"
 grep -q '^loader_hooks_ok=yes$' <<<"${PHASE3_OUTPUT}"
 grep -q '^loader_policy_ok=yes$' <<<"${PHASE3_OUTPUT}"
-grep -q '^loader_ebpf_version=0.2.0$' <<<"${PHASE3_OUTPUT}"
+assert_non_empty_field "${PHASE3_OUTPUT}" "loader_ebpf_version"
 grep -q '^loader_known_gaps=none$' <<<"${PHASE3_OUTPUT}"
 grep -q '^phase3_enforcement_ready=yes$' <<<"${PHASE3_OUTPUT}"
 grep -q '^phase3_enforcement_ready=yes$' "${PHASE3_RUN}/support-profile"

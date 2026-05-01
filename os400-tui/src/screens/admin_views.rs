@@ -515,7 +515,7 @@ impl AdminCommandView {
         );
     }
 
-    fn render_body(&self, frame: &mut Frame, area: Rect) {
+    fn render_body(&mut self, frame: &mut Frame, area: Rect) {
         if self.kind == AdminViewKind::SpoolOutq && !self.spool_files.is_empty() {
             self.render_spool_table(frame, area);
             return;
@@ -537,7 +537,7 @@ impl AdminCommandView {
         frame.render_widget(Paragraph::new(text).style(STYLE_NORMAL), inner);
     }
 
-    fn render_spool_table(&self, frame: &mut Frame, area: Rect) {
+    fn render_spool_table(&mut self, frame: &mut Frame, area: Rect) {
         let rows = self.spool_files.iter().map(|spool| {
             Row::new(vec![
                 " ".to_string(),
@@ -571,8 +571,7 @@ impl AdminCommandView {
         )
         .style(STYLE_NORMAL)
         .row_highlight_style(STYLE_SELECTION);
-        let mut state = self.spool_state;
-        frame.render_stateful_widget(table, area, &mut state);
+        frame.render_stateful_widget(table, area, &mut self.spool_state);
     }
 
     fn render_status(&self, frame: &mut Frame, area: Rect) {
