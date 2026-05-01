@@ -7,13 +7,16 @@ use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
-    widgets::{Block, Borders, Paragraph, Row, Table, TableState},
+    widgets::{Block, Borders, Paragraph},
 };
+use std::time::{Duration, Instant};
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::style::*;
 use crate::widgets::help_bar::{HelpAction, HelpBar};
+use crate::widgets::subfile_table::SubfileTable;
 
+#[derive(Clone, Debug)]
 pub struct JobInfo {
     pub name: String,
     pub user: String,
@@ -27,9 +30,13 @@ pub struct JobInfo {
 
 pub struct WorkManagement {
     jobs: Vec<JobInfo>,
-    state: TableState,
-    scroll_offset: usize,
+    filtered_indices: Vec<usize>,
+    table: SubfileTable,
     subsystem_filter: Option<String>,
+    user_filter: Option<String>,
+    status_filter: Option<String>,
+    auto_refresh: bool,
+    last_refresh: Instant,
     detail: Option<String>,
     pending_action: Option<PendingJobAction>,
 }
@@ -42,19 +49,24 @@ enum PendingJobAction {
 
 impl WorkManagement {
     pub fn new() -> Self {
-        let jobs = Self::load_filtered_jobs(None);
-        let mut state = TableState::default();
-        if !jobs.is_empty() {
-            state.select(Some(0));
-        }
-        Self {
-            jobs,
-            state,
-            scroll_offset: 0,
+        let mut screen = Self {
+            jobs: Vec::new(),
+            filtered_indices: Vec::new(),
+            table: SubfileTable::new(
+                vec!["Opt", "Job", "User", "Type", "Status", "Subsystem", "PID"],
+                vec![3, 14, 12, 10, 14, 12, 8],
+            )
+            .with_title("Active jobs"),
             subsystem_filter: None,
+            user_filter: None,
+            status_filter: None,
+            auto_refresh: true,
+            last_refresh: Instant::now(),
             detail: None,
             pending_action: None,
-        }
+        };
+        screen.refresh();
+        screen
     }
 
     fn map_job(job: WorkloadJob) -> JobInfo {
@@ -76,32 +88,65 @@ impl WorkManagement {
         }
     }
 
-    fn load_filtered_jobs(filter: Option<&str>) -> Vec<JobInfo> {
-        if let Ok(jobs) = list_jobs() {
-            return jobs
-                .into_iter()
-                .filter(|job| {
-                    filter
-                        .map(|value| job.subsystem.eq_ignore_ascii_case(value))
-                        .unwrap_or(true)
-                })
-                .map(Self::map_job)
-                .collect();
-        }
-        Vec::new()
+    fn load_jobs() -> Vec<JobInfo> {
+        list_jobs()
+            .map(|jobs| jobs.into_iter().map(Self::map_job).collect())
+            .unwrap_or_default()
     }
 
     fn refresh(&mut self) {
-        self.jobs = Self::load_filtered_jobs(self.subsystem_filter.as_deref());
-        if self.jobs.is_empty() {
-            self.state.select(None);
-        } else if self.state.selected().is_none() {
-            self.state.select(Some(0));
-        }
+        self.jobs = Self::load_jobs();
+        self.apply_filters();
+        self.last_refresh = Instant::now();
+    }
+
+    fn apply_filters(&mut self) {
+        self.filtered_indices = self
+            .jobs
+            .iter()
+            .enumerate()
+            .filter(|(_, job)| {
+                self.subsystem_filter
+                    .as_deref()
+                    .map(|value| job.subsystem.eq_ignore_ascii_case(value))
+                    .unwrap_or(true)
+                    && self
+                        .user_filter
+                        .as_deref()
+                        .map(|value| job.user.eq_ignore_ascii_case(value))
+                        .unwrap_or(true)
+                    && self
+                        .status_filter
+                        .as_deref()
+                        .map(|value| job.status.eq_ignore_ascii_case(value))
+                        .unwrap_or(true)
+            })
+            .map(|(index, _)| index)
+            .collect();
+
+        let rows = self
+            .filtered_indices
+            .iter()
+            .filter_map(|index| self.jobs.get(*index))
+            .map(|job| {
+                vec![
+                    " ".to_string(),
+                    job.name.clone(),
+                    job.user.clone(),
+                    job.type_.clone(),
+                    job.status.clone(),
+                    job.subsystem.clone(),
+                    job.pid.to_string(),
+                ]
+            })
+            .collect::<Vec<_>>();
+        self.table.set_rows(rows);
     }
 
     fn selected_job(&self) -> Option<&JobInfo> {
-        self.state.selected().and_then(|index| self.jobs.get(index))
+        let visible_index = self.table.selected()?;
+        let job_index = *self.filtered_indices.get(visible_index)?;
+        self.jobs.get(job_index)
     }
 
     fn cycle_subsystem_filter(&mut self) {
@@ -110,7 +155,24 @@ impl WorkManagement {
             Some("QINTER") => Some("QBATCH".to_string()),
             _ => None,
         };
-        self.refresh();
+        self.apply_filters();
+    }
+
+    fn cycle_status_filter(&mut self) {
+        self.status_filter = match self.status_filter.as_deref() {
+            None => Some("ACTIVE".to_string()),
+            Some("ACTIVE") => Some("HELD".to_string()),
+            _ => None,
+        };
+        self.apply_filters();
+    }
+
+    fn cycle_user_filter(&mut self) {
+        self.user_filter = match self.user_filter.as_deref() {
+            None => Some(l400::current_l400_user()),
+            Some(_) => None,
+        };
+        self.apply_filters();
     }
 
     fn show_detail(&mut self) {
@@ -120,29 +182,9 @@ impl WorkManagement {
                 job.name, job.pid, job.user, job.status, job.subsystem, job.command, job.log_path
             )
         });
-    }
-
-    fn show_selected_log(&mut self) {
-        self.detail = self.selected_job().map(|job| {
-            if job.log_path == "-" {
-                return format!("Job {} no tiene log persistido.", job.name);
-            }
-            match std::fs::read_to_string(&job.log_path) {
-                Ok(content) => {
-                    let tail = content
-                        .lines()
-                        .rev()
-                        .take(3)
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .rev()
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    format!("Log: {}\n{}", job.log_path, tail)
-                }
-                Err(error) => format!("No se pudo leer log {}: {}", job.log_path, error),
-            }
-        });
+        if self.detail.is_none() {
+            self.detail = Some("No job selected.".to_string());
+        }
     }
 
     fn hold_selected_job(&mut self) {
@@ -152,10 +194,10 @@ impl WorkManagement {
         };
         let pid = job.pid;
         let name = job.name.clone();
-        match hold_job(pid) {
-            Ok(_) => self.detail = Some(format!("Job {} PID={} held.", name, pid)),
-            Err(error) => self.detail = Some(format!("Error holding job {}: {}", name, error)),
-        }
+        self.detail = match hold_job(pid) {
+            Ok(_) => Some(format!("Job {name} PID={pid} held.")),
+            Err(error) => Some(format!("Error holding job {name}: {error}")),
+        };
         self.refresh();
     }
 
@@ -166,10 +208,10 @@ impl WorkManagement {
         };
         let pid = job.pid;
         let name = job.name.clone();
-        match release_job(pid) {
-            Ok(_) => self.detail = Some(format!("Job {} PID={} released.", name, pid)),
-            Err(error) => self.detail = Some(format!("Error releasing job {}: {}", name, error)),
-        }
+        self.detail = match release_job(pid) {
+            Ok(_) => Some(format!("Job {name} PID={pid} released.")),
+            Err(error) => Some(format!("Error releasing job {name}: {error}")),
+        };
         self.refresh();
     }
 
@@ -190,7 +232,7 @@ impl WorkManagement {
             PendingJobAction::EndControlled(pid)
         });
         self.detail = Some(format!(
-            "Confirm {} end for job {} PID={}. Press Enter to confirm or F12 to cancel.",
+            "Confirm {} end for job {} PID={}. Enter=Confirm F12=Cancel.",
             if immediate { "*IMMED" } else { "*CNTRLD" },
             name,
             pid
@@ -214,16 +256,20 @@ impl WorkManagement {
             PendingJobAction::EndControlled(_) => end_job(pid),
             PendingJobAction::EndImmediate(_) => kill_job(pid),
         };
-        match result {
-            Ok(_) => self.detail = Some(format!("Job {} PID={} ended.", name, pid)),
-            Err(error) => self.detail = Some(format!("Error ending job {}: {}", name, error)),
-        }
+        self.detail = match result {
+            Ok(_) => Some(format!("Job {name} PID={pid} ended.")),
+            Err(error) => Some(format!("Error ending job {name}: {error}")),
+        };
         self.refresh();
     }
 }
 
 impl Screen for WorkManagement {
     fn render(&mut self, frame: &mut Frame) {
+        if self.auto_refresh && self.last_refresh.elapsed() >= Duration::from_secs(5) {
+            self.refresh();
+        }
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -240,46 +286,37 @@ impl Screen for WorkManagement {
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
         if self.pending_action.is_some() {
-            match key.code {
+            return match key.code {
                 KeyCode::Enter => {
                     self.confirm_end_job();
-                    return ScreenResult::none();
+                    ScreenResult::none()
                 }
                 KeyCode::F(12) | KeyCode::Esc => {
                     self.pending_action = None;
                     self.detail = Some("End job cancelled.".to_string());
-                    return ScreenResult::none();
+                    ScreenResult::none()
                 }
-                _ => return ScreenResult::none(),
-            }
+                _ => ScreenResult::none(),
+            };
         }
+
         match key.code {
-            KeyCode::F(3) => ScreenResult::goto(ScreenId::MainMenu),
+            KeyCode::F(3) | KeyCode::F(12) => ScreenResult::back(),
             KeyCode::F(4) => ScreenResult::goto(ScreenId::CommandLine),
-            KeyCode::F(12) | KeyCode::Char('q')
-                if key
-                    .modifiers
-                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
-            {
-                ScreenResult::goto(ScreenId::MainMenu)
-            }
             KeyCode::Up => {
-                self.state
-                    .select(Some(self.state.selected().unwrap_or(0).saturating_sub(1)));
+                self.table.select_prev();
                 ScreenResult::none()
             }
             KeyCode::Down => {
-                let max = self.jobs.len().saturating_sub(1);
-                let current = self.state.selected().unwrap_or(0);
-                self.state.select(Some(current.saturating_add(1).min(max)));
+                self.table.select_next();
                 ScreenResult::none()
             }
             KeyCode::PageUp => {
-                self.scroll_offset = self.scroll_offset.saturating_sub(10);
+                self.table.page_up();
                 ScreenResult::none()
             }
             KeyCode::PageDown => {
-                self.scroll_offset += 10;
+                self.table.page_down();
                 ScreenResult::none()
             }
             KeyCode::F(5) => {
@@ -290,16 +327,35 @@ impl Screen for WorkManagement {
                 self.cycle_subsystem_filter();
                 ScreenResult::none()
             }
-            KeyCode::Enter | KeyCode::F(11) => {
-                self.show_detail();
+            KeyCode::F(7) => {
+                self.cycle_status_filter();
                 ScreenResult::none()
             }
-            KeyCode::Char('5') => {
-                self.show_detail();
+            KeyCode::F(8) => {
+                self.cycle_user_filter();
                 ScreenResult::none()
             }
-            KeyCode::Char('9') => {
-                self.show_selected_log();
+            KeyCode::F(21) => {
+                self.auto_refresh = !self.auto_refresh;
+                self.detail = Some(format!(
+                    "Auto-refresh {}.",
+                    if self.auto_refresh {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                ));
+                ScreenResult::none()
+            }
+            KeyCode::Char('8') => self
+                .selected_job()
+                .map(|job| ScreenResult::with_data(ScreenId::WrkJob, job.pid.to_string()))
+                .unwrap_or_else(|| {
+                    self.detail = Some("No job selected.".to_string());
+                    ScreenResult::none()
+                }),
+            KeyCode::Enter | KeyCode::F(11) | KeyCode::Char('5') => {
+                self.show_detail();
                 ScreenResult::none()
             }
             KeyCode::F(10) => {
@@ -325,75 +381,46 @@ impl Screen for WorkManagement {
 
 impl WorkManagement {
     fn render_header(&self, frame: &mut Frame, area: Rect) {
-        let title = Line::from(vec![" Work Management ".into()]);
-
         let block = Block::default()
-            .title(title)
+            .title(" Work Management ")
             .style(STYLE_HEADER)
             .borders(Borders::ALL)
             .border_style(STYLE_BORDER);
-
         frame.render_widget(block, area);
 
         let source = if is_cgroup_v2_available() {
             "Runtime workloads"
         } else {
-            "Runtime workloads (degraded: cgroups unavailable)"
+            "Runtime workloads (degraded)"
         };
-        let filter = self.subsystem_filter.as_deref().unwrap_or("*ALL");
-        let lines: Vec<Line> = vec![
-            Line::from(vec![
-                format!(
-                    "Source: {}. Filter SBS({}). Type options, press Enter.",
-                    source, filter
-                )
-                .into(),
-            ]),
-            Line::from(vec![
-                format!("{}   {}", subsystem_summary(), cgroup_summary()).into(),
-            ]),
+        let active = self
+            .jobs
+            .iter()
+            .filter(|job| job.status == "ACTIVE")
+            .count();
+        let lines = vec![
+            Line::from(format!(
+                "{source}. Active/Total: {}/{} Auto-refresh:{}",
+                active,
+                self.jobs.len(),
+                if self.auto_refresh { "ON" } else { "OFF" }
+            )),
+            Line::from(format!(
+                "Filters SBS({}) USER({}) STATUS({})   {}   {}",
+                self.subsystem_filter.as_deref().unwrap_or("*ALL"),
+                self.user_filter.as_deref().unwrap_or("*ALL"),
+                self.status_filter.as_deref().unwrap_or("*ALL"),
+                subsystem_summary(),
+                cgroup_summary()
+            )),
         ];
         let text = ratatui::text::Text::from(lines);
-
-        let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 2);
+        let inner = Rect::new(area.x + 1, area.y + 1, area.width.saturating_sub(2), 2);
         frame.render_widget(Paragraph::new(text).style(STYLE_NORMAL), inner);
     }
 
     fn render_jobs(&mut self, frame: &mut Frame, area: Rect) {
-        let header = ["Opt", "Job", "User", "Type", "Status", "Subsystem", "PID"];
-        let widths = [3u16, 14, 12, 10, 14, 12, 8];
-
-        let rows: Vec<Row> = self
-            .jobs
-            .iter()
-            .map(|job| {
-                Row::new(vec![
-                    " ".to_string(),
-                    job.name.clone(),
-                    job.user.clone(),
-                    job.type_.clone(),
-                    job.status.clone(),
-                    job.subsystem.clone(),
-                    job.pid.to_string(),
-                ])
-            })
-            .collect();
-
-        let table = Table::new(rows, widths.iter().map(|w| Constraint::Length(*w)))
-            .header(
-                Row::new(header.to_vec())
-                    .style(STYLE_TABLE_HEADER)
-                    .height(1),
-            )
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(STYLE_BORDER),
-            )
-            .style(STYLE_NORMAL)
-            .row_highlight_style(STYLE_SELECTION);
-
-        frame.render_stateful_widget(table, area, &mut self.state);
+        self.table.render(frame, area);
 
         if let Some(detail) = &self.detail {
             let popup = Rect::new(
@@ -416,13 +443,12 @@ impl WorkManagement {
         HelpBar::new()
             .command("WRKACTJOB")
             .actions(vec![
-                HelpAction::new("F3", "Exit"),
-                HelpAction::new("F4", "Prompt"),
+                HelpAction::new("F3", "Back"),
                 HelpAction::new("F5", "Refresh"),
-                HelpAction::new("F6", "Filter"),
-                HelpAction::new("3/4/5/6/9", "Options"),
+                HelpAction::new("F6/F7/F8", "Filters"),
+                HelpAction::new("F21", "Auto"),
+                HelpAction::new("3/4/5/6/8", "Options"),
                 HelpAction::new("F10", "End immed"),
-                HelpAction::new("F11/Enter", "Detail"),
                 HelpAction::new("F12", "Cancel"),
             ])
             .render(frame, area);
@@ -463,12 +489,20 @@ mod tests {
     fn job_options_without_selection_show_operator_message() {
         let mut screen = WorkManagement::new();
         screen.jobs.clear();
-        screen.state.select(None);
+        screen.apply_filters();
 
         screen.handle_key(KeyEvent::from(KeyCode::Char('3')));
         assert_eq!(screen.detail.as_deref(), Some("No job selected."));
 
         screen.handle_key(KeyEvent::from(KeyCode::Char('6')));
         assert_eq!(screen.detail.as_deref(), Some("No job selected."));
+    }
+
+    #[test]
+    fn auto_refresh_toggle_changes_state() {
+        let mut screen = WorkManagement::new();
+        assert!(screen.auto_refresh);
+        screen.handle_key(KeyEvent::from(KeyCode::F(21)));
+        assert!(!screen.auto_refresh);
     }
 }

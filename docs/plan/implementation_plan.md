@@ -341,34 +341,34 @@ Criterio de cierre:
 
 ## Fase 7: work management y spool de producto
 
-Estado: **pendiente**.
+Estado: **en progreso para 0.3-pre**.
 
 Objetivo: que jobs y spool sean gestionables de forma completa desde la TUI.
 
 ### 7.1 WRKACTJOB mejorado
 
-- [ ] Migrar a `SubfileTable`.
-- [ ] Auto-refresh configurable (F21 para toggle, default 5s).
-- [ ] Indicador visual de jobs activos vs totales.
-- [ ] Filtro combinado por subsistema + usuario + estado.
-- [ ] Opción 8=WRKJOB (detalle extendido del job seleccionado).
+- [x] Migrar a `SubfileTable`.
+- [x] Auto-refresh configurable (F21 para toggle, default 5s).
+- [x] Indicador visual de jobs activos vs totales.
+- [x] Filtro combinado por subsistema + usuario + estado.
+- [x] Opción 8=WRKJOB (detalle extendido del job seleccionado).
 
 ### 7.2 WRKJOB dedicado
 
-- [ ] Nueva pantalla con tabs: Detail, Log, Spool, Call stack.
-- [ ] Tab Detail: campos con name, user, PID, status, subsystem, command,
+- [x] Nueva pantalla con tabs: Detail, Log, Spool, Call stack.
+- [x] Tab Detail: campos con name, user, PID, status, subsystem, command,
   timestamps, cgroup path.
-- [ ] Tab Log: tail del log con scroll y F5=Refresh.
-- [ ] Tab Spool: spools generados por este job.
-- [ ] Navegación entre tabs con F11/F12.
+- [x] Tab Log: tail del log con scroll y F5=Refresh.
+- [x] Tab Spool: spools generados por este job.
+- [x] Navegación entre tabs con F11/F12.
 
 ### 7.3 SBMJOB desde TUI
 
-- [ ] Agregar comando `SBMJOB` como opción de menú principal (o desde
+- [x] Agregar comando `SBMJOB` como opción de menú principal (o desde
   command line).
-- [ ] Prompt con campos: CMD, JOB, JOBQ, USER.
-- [ ] Feedback inmediato: "Job JOBNAME submitted to QBATCH".
-- [ ] Redirección a WRKACTJOB mostrando el job recién enviado.
+- [x] Prompt con campos: CMD, JOB, JOBQ, USER.
+- [x] Feedback inmediato: "Job JOBNAME submitted to QBATCH".
+- [x] Redirección a WRKACTJOB mostrando el job recién enviado.
 
 ### 7.4 WRKSPLF/WRKOUTQ mejorado
 
@@ -379,8 +379,8 @@ Objetivo: que jobs y spool sean gestionables de forma completa desde la TUI.
 
 Criterio de cierre:
 
-- [ ] Auto-refresh de WRKACTJOB funciona y se puede desactivar.
-- [ ] WRKJOB muestra log en tiempo real.
+- [x] Auto-refresh de WRKACTJOB funciona y se puede desactivar.
+- [x] WRKJOB muestra log en tiempo real.
 - [ ] WRKSPLF permite visualizar spool con scroll completo.
 
 ---

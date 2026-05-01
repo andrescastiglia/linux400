@@ -16,8 +16,10 @@ use crate::screens::power_down::PowerDownSystem;
 use crate::screens::sign_on::SignOnScreen;
 use crate::screens::str_seu::StrSeu;
 use crate::screens::str_sql::StrSql;
+use crate::screens::submit_job::SubmitJob;
 use crate::screens::system_panel::SystemPanel;
 use crate::screens::work_mgmt::WorkManagement;
+use crate::screens::wrk_job::WrkJob;
 use crate::screens::wrk_lib::WrkLib;
 use crate::screens::wrk_mbr_pdm::WrkMbrPdm;
 use crate::screens::{Screen, ScreenId};
@@ -177,6 +179,11 @@ impl App {
             )),
             ScreenId::PowerDown => Box::new(PowerDownSystem::new(self.session.clone())),
             ScreenId::WorkManagement => Box::new(WorkManagement::new()),
+            ScreenId::WrkJob => Box::new(WrkJob::new(
+                data.as_deref()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .unwrap_or_default(),
+            )),
             ScreenId::WrkLib => Box::new(WrkLib::new(self.session.clone())),
             ScreenId::ObjectBrowser => {
                 if let Some(library) = data {
@@ -229,6 +236,7 @@ impl App {
                     self.session.clone(),
                 ))
             }
+            ScreenId::SubmitJob => Box::new(SubmitJob::new(self.session.clone())),
             ScreenId::ObjectDetail => {
                 Box::new(ObjectDetail::new(data.as_deref(), self.session.clone()))
             }

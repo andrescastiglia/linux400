@@ -74,6 +74,7 @@ impl MainMenu {
                 ("11", "Spool files . . . . . . . . . . . .", "WRKSPLF"),
                 ("12", "Policy and audit  . . . . . . . . .", "DSPPOLICY"),
                 ("13", "Command groups  . . . . . . . . . . . .", "GO CMDOBJ"),
+                ("14", "Submit batch job . . . . . . . . . .", "SBMJOB"),
                 ("90", "Power down system . . . . . . . . .", "PWRDWNSYS"),
             ],
             MenuKind::CmdObj => vec![
@@ -197,6 +198,7 @@ impl MainMenu {
             "WRKACTJOB" => ScreenResult::goto(ScreenId::WorkManagement),
             "DSPDTAQ" => ScreenResult::goto(ScreenId::DataQueueViewer),
             "CMD" => ScreenResult::goto(ScreenId::CommandLine),
+            "SBMJOB" => ScreenResult::goto(ScreenId::SubmitJob),
             "STRPDM" => ScreenResult::goto(ScreenId::PdmBrowser),
             "STRSQL" | "SHOW TABLES" | "DESCRIBE TABLE" => ScreenResult::goto(ScreenId::StrSql),
             "PWRDWNSYS" => ScreenResult::goto(ScreenId::PowerDown),

@@ -403,6 +403,7 @@ impl CommandLine {
             "SIGNOFF" => Some(ScreenResult::goto(ScreenId::SignOn)),
             "STRPDM" => Some(ScreenResult::goto(ScreenId::PdmBrowser)),
             "STRSQL" => Some(ScreenResult::goto(ScreenId::StrSql)),
+            "SBMJOB" if tokens.len() == 1 => Some(ScreenResult::goto(ScreenId::SubmitJob)),
             "PWRDWNSYS" => Some(ScreenResult::goto(ScreenId::PowerDown)),
             "WRKACTJOB" => Some(ScreenResult::goto(ScreenId::WorkManagement)),
             "WRKLIB" => Some(ScreenResult::goto(ScreenId::WrkLib)),

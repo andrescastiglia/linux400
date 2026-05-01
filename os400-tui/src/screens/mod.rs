@@ -9,8 +9,10 @@ pub mod power_down;
 pub mod sign_on;
 pub mod str_seu;
 pub mod str_sql;
+pub mod submit_job;
 pub mod system_panel;
 pub mod work_mgmt;
+pub mod wrk_job;
 pub mod wrk_lib;
 pub mod wrk_mbr_pdm;
 
@@ -24,6 +26,7 @@ pub enum ScreenId {
     CommandMenu,
     PowerDown,
     WorkManagement,
+    WrkJob,
     WrkLib,
     ObjectBrowser,
     DataQueueViewer,
@@ -32,6 +35,7 @@ pub enum ScreenId {
     WrkMbrPdm,
     StrSeu,
     StrSql,
+    SubmitJob,
     ObjectDetail,
     UserProfiles,
     PolicyAudit,
