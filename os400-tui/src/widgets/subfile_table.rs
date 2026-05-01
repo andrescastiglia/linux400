@@ -5,6 +5,7 @@ use ratatui::{
 };
 
 use crate::style::*;
+use crate::widgets::ellipsize;
 
 /// A reusable paginated table widget that replaces the duplicated
 /// `Table`+`TableState` pattern found in ObjectBrowser, WorkManagement,
@@ -106,7 +107,23 @@ impl SubfileTable {
 
     /// Render the subfile table into the given area.
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
-        let ratatui_rows: Vec<Row> = self.rows.iter().map(|row| Row::new(row.clone())).collect();
+        let ratatui_rows: Vec<Row> = self
+            .rows
+            .iter()
+            .map(|row| {
+                Row::new(
+                    row.iter()
+                        .enumerate()
+                        .map(|(index, value)| {
+                            ellipsize(
+                                value,
+                                self.widths.get(index).copied().unwrap_or(12) as usize,
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect();
 
         let constraints: Vec<Constraint> =
             self.widths.iter().map(|w| Constraint::Length(*w)).collect();
@@ -121,9 +138,20 @@ impl SubfileTable {
 
         let table = Table::new(ratatui_rows, constraints)
             .header(
-                Row::new(self.headers.clone())
-                    .style(STYLE_TABLE_HEADER)
-                    .height(1),
+                Row::new(
+                    self.headers
+                        .iter()
+                        .enumerate()
+                        .map(|(index, value)| {
+                            ellipsize(
+                                value,
+                                self.widths.get(index).copied().unwrap_or(12) as usize,
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .style(STYLE_TABLE_HEADER)
+                .height(1),
             )
             .block(block)
             .style(STYLE_NORMAL)
@@ -199,5 +227,10 @@ mod tests {
 
         table.set_rows(vec![vec!["a".to_string()]]); // shrink
         assert_eq!(table.selected(), Some(0)); // clamped
+    }
+
+    #[test]
+    fn table_cells_are_ellipsized_to_column_width() {
+        assert_eq!(ellipsize("ABCDEFGHIJK", 8), "ABCDE...");
     }
 }

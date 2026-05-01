@@ -346,16 +346,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn navigation_stack_pops_through_four_levels() {
+    fn navigation_stack_pops_through_five_levels() {
         let mut app = App::new();
 
         app.switch_screen(ScreenId::MainMenu, None);
         app.switch_screen(ScreenId::CommandMenu, Some("CMDOBJ".to_string()));
         app.switch_screen(ScreenId::CommandLine, None);
         app.switch_screen(ScreenId::ObjectBrowser, None);
+        app.switch_screen(
+            ScreenId::ObjectDetail,
+            Some("DSPOBJD OBJ(QGPL/HELLO)".to_string()),
+        );
 
-        assert_eq!(app.nav_depth(), 4);
+        assert_eq!(app.nav_depth(), 5);
 
+        app.navigate_back();
+        assert_eq!(app.current_screen_id, ScreenId::ObjectBrowser);
         app.navigate_back();
         assert_eq!(app.current_screen_id, ScreenId::CommandLine);
         app.navigate_back();
@@ -364,6 +370,13 @@ mod tests {
         assert_eq!(app.current_screen_id, ScreenId::MainMenu);
         app.navigate_back();
         assert_eq!(app.current_screen_id, ScreenId::SignOn);
+    }
+
+    #[test]
+    fn startup_constructs_under_500ms() {
+        let start = std::time::Instant::now();
+        let _app = App::new();
+        assert!(start.elapsed() < std::time::Duration::from_millis(500));
     }
 
     #[test]

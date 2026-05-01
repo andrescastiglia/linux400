@@ -1,11 +1,13 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Widget},
 };
+use std::collections::HashSet;
+use std::sync::{Mutex, OnceLock};
 
 use crate::style::*;
+use crate::widgets::{ellipsize, sanitize_runtime_message};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HelpAction {
@@ -49,22 +51,25 @@ impl HelpBar {
             .border_style(STYLE_BORDER);
         let inner = block.inner(area);
         frame.render_widget(block, area);
-        frame.render_widget(Paragraph::new(self.line()).style(STYLE_HELP), inner);
+        frame.render_widget(
+            Paragraph::new(ellipsize(self.line_string(), inner.width as usize)).style(STYLE_HELP),
+            inner,
+        );
     }
 
-    fn line(&self) -> Line<'static> {
-        let mut spans = Vec::new();
+    fn line_string(&self) -> String {
+        let mut text = String::new();
         for action in &self.actions {
-            spans.push(Span::raw(format!("{}={}   ", action.key, action.label)));
+            text.push_str(&format!("{}={}   ", action.key, action.label));
         }
 
         if let Some(command) = self.command.as_deref()
             && let Some(metadata) = l400::command_metadata(command)
         {
-            spans.push(Span::raw(format!("{}: {}", metadata.name, metadata.text)));
+            text.push_str(&format!("{}: {}", metadata.name, metadata.text));
         }
 
-        Line::from(spans)
+        text
     }
 }
 
@@ -89,17 +94,21 @@ pub struct CpfMessage {
 
 impl CpfMessage {
     pub fn info(id: &'static str, text: impl Into<String>) -> Self {
+        let text = text.into();
+        log_cpf_once(id, &text);
         Self {
             id,
-            text: text.into(),
+            text,
             error: false,
         }
     }
 
     pub fn error(id: &'static str, text: impl Into<String>) -> Self {
+        let text = text.into();
+        log_cpf_once(id, &text);
         Self {
             id,
-            text: text.into(),
+            text,
             error: true,
         }
     }
@@ -116,10 +125,41 @@ impl CpfMessage {
             STYLE_NORMAL
         };
         frame.render_widget(
-            Paragraph::new(format!("{} {}", self.id, self.text))
-                .style(style)
-                .wrap(ratatui::widgets::Wrap { trim: true }),
+            Paragraph::new(ellipsize(
+                format!("{} {}", self.id, sanitize_runtime_message(&self.text)),
+                inner.width as usize,
+            ))
+            .style(style)
+            .wrap(ratatui::widgets::Wrap { trim: true }),
             inner,
         );
+    }
+}
+
+fn log_cpf_once(id: &str, text: &str) {
+    static SEEN: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let key = format!("{id}:{}", sanitize_runtime_message(text));
+    let seen = SEEN.get_or_init(|| Mutex::new(HashSet::new()));
+    if let Ok(mut seen) = seen.lock()
+        && seen.insert(key)
+    {
+        let _ = l400::audit_event("TUI_CPF", "TUI", "os400-tui", &format!("{id} {text}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn help_bar_line_has_predictable_order() {
+        let line = HelpBar::new()
+            .command("WRKOBJ")
+            .actions(vec![
+                HelpAction::new("F3", "Back"),
+                HelpAction::new("F5", "Refresh"),
+            ])
+            .line_string();
+        assert!(line.starts_with("F3=Back   F5=Refresh"));
     }
 }

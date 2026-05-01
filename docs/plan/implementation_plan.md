@@ -471,36 +471,36 @@ Criterio de cierre:
 
 ## Fase 10: polish, accesibilidad y testing
 
-Estado: **pendiente**.
+Estado: **finalizado para 0.3-pre**.
 
 Objetivo: que la TUI sea robusta, accesible y verificable.
 
 ### 10.1 Accesibilidad
 
-- [ ] Soporte para terminales de 80, 132 y anchos intermedios.
-- [ ] Truncamiento inteligente de columnas con "..." en lugar de overflow.
-- [ ] Tab order predecible en todas las pantallas.
-- [ ] Indicador visual de foco (campo activo siempre distinguible).
+- [x] Soporte para terminales de 80, 132 y anchos intermedios.
+- [x] Truncamiento inteligente de columnas con "..." en lugar de overflow.
+- [x] Tab order predecible en todas las pantallas.
+- [x] Indicador visual de foco (campo activo siempre distinguible).
 
 ### 10.2 Mensajería CPF consistente
 
-- [ ] Toda acción destructiva emite CPF en la status bar.
-- [ ] Toda acción exitosa emite CPF informativo.
-- [ ] Errores de runtime muestran CPF + texto descriptivo, nunca stack traces.
-- [ ] Los mensajes se loguean en `QHST` si el runtime está disponible.
+- [x] Toda acción destructiva emite CPF en la status bar.
+- [x] Toda acción exitosa emite CPF informativo.
+- [x] Errores de runtime muestran CPF + texto descriptivo, nunca stack traces.
+- [x] Los mensajes se loguean en `QHST` si el runtime está disponible.
 
 ### 10.3 Testing comprehensivo
 
-- [ ] Ampliar `phase6_tui_smoke.rs` con:
+- [x] Ampliar `phase6_tui_smoke.rs` con:
   - Flujo WRKLIB → crear library → ObjectBrowser en esa library.
   - Flujo STRSEU → F14 compile → ver resultado.
   - Flujo SBMJOB → WRKSPLF → visualizar spool.
   - Flujo WRKUSRPRF → crear perfil → DSPOBJAUT → grant.
-- [ ] Tests de regresión de layout: snapshot de render a 80×24 comparado
+- [x] Tests de regresión de layout: snapshot de render a 80×24 comparado
   con golden files.
-- [ ] Test de navigation stack: 5 niveles de profundidad, F12 back x5 vuelve
+- [x] Test de navigation stack: 5 niveles de profundidad, F12 back x5 vuelve
   al origen.
-- [ ] Benchmark de startup: la TUI debe arrancar en <500ms sin runtime.
+- [x] Benchmark de startup: la TUI debe arrancar en <500ms sin runtime.
 
 ### 10.4 PWRDWNSYS desde TUI
 
@@ -511,8 +511,8 @@ Objetivo: que la TUI sea robusta, accesible y verificable.
 
 Criterio de cierre:
 
-- [ ] Todos los tests de smoke pasan.
-- [ ] Render a 80×24 no tiene overflow visual.
+- [x] Todos los tests de smoke pasan.
+- [x] Render a 80×24 no tiene overflow visual.
 - [x] PWRDWNSYS funciona con dry-run desde TUI.
 
 ---
