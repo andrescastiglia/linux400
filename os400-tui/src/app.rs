@@ -24,6 +24,7 @@ use crate::screens::work_mgmt::WorkManagement;
 use crate::screens::wrk_job::WrkJob;
 use crate::screens::wrk_lib::WrkLib;
 use crate::screens::wrk_mbr_pdm::WrkMbrPdm;
+use crate::screens::wrk_sysval::WrkSysVal;
 use crate::screens::wrk_usrprf::WrkUsrPrf;
 use crate::screens::{Screen, ScreenId};
 use crate::session::SessionContext;
@@ -248,6 +249,7 @@ impl App {
                 Box::new(ObjectAuthority::new(data.as_deref(), self.session.clone()))
             }
             ScreenId::UserProfiles => Box::new(WrkUsrPrf::new()),
+            ScreenId::WrkSysVal => Box::new(WrkSysVal::new()),
             ScreenId::PolicyAudit => Box::new(AdminCommandView::policy_audit(
                 data.as_deref(),
                 self.session.clone(),

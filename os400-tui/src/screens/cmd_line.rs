@@ -413,9 +413,8 @@ impl CommandLine {
             "DSPPOLICY" | "DSPAUD" => Some(ScreenResult::with_data(ScreenId::PolicyAudit, command)),
             "DSPCMD" | "WRKCMD" => Some(ScreenResult::with_data(ScreenId::SystemPanel, command)),
             "WRKSPLF" | "WRKOUTQ" => Some(ScreenResult::with_data(ScreenId::SpoolOutq, command)),
-            "WRKSYSSTS" | "WRKSYSVAL" => {
-                Some(ScreenResult::with_data(ScreenId::SystemPanel, command))
-            }
+            "WRKSYSVAL" => Some(ScreenResult::goto(ScreenId::WrkSysVal)),
+            "WRKSYSSTS" => Some(ScreenResult::with_data(ScreenId::SystemPanel, command)),
             "DSPOBJD" => Some(ScreenResult::with_data(ScreenId::ObjectDetail, command)),
             "DSPOBJAUT" => Some(ScreenResult::with_data(ScreenId::ObjectAuthority, command)),
             "WRKMBRPDM" => {

@@ -17,6 +17,7 @@ pub mod work_mgmt;
 pub mod wrk_job;
 pub mod wrk_lib;
 pub mod wrk_mbr_pdm;
+pub mod wrk_sysval;
 pub mod wrk_usrprf;
 
 use crossterm::event::KeyEvent;
@@ -43,6 +44,7 @@ pub enum ScreenId {
     ObjectDetail,
     ObjectAuthority,
     UserProfiles,
+    WrkSysVal,
     PolicyAudit,
     SpoolOutq,
     SystemPanel,

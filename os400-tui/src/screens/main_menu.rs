@@ -202,7 +202,8 @@ impl MainMenu {
             "STRPDM" => ScreenResult::goto(ScreenId::PdmBrowser),
             "STRSQL" | "SHOW TABLES" | "DESCRIBE TABLE" => ScreenResult::goto(ScreenId::StrSql),
             "PWRDWNSYS" => ScreenResult::goto(ScreenId::PowerDown),
-            "WRKSYSSTS" | "WRKSYSVAL" | "DSPCMD" | "WRKCMD" => {
+            "WRKSYSVAL" => ScreenResult::goto(ScreenId::WrkSysVal),
+            "WRKSYSSTS" | "DSPCMD" | "WRKCMD" => {
                 ScreenResult::with_data(ScreenId::SystemPanel, command)
             }
             "WRKUSRPRF" => ScreenResult::goto(ScreenId::UserProfiles),

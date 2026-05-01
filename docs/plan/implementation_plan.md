@@ -409,9 +409,9 @@ desde la TUI.
 
 ### 8.3 WRKSYSVAL editable
 
-- [ ] Nueva pantalla que lista system values.
-- [ ] Opción 2=Change para valores editables.
-- [ ] Opción 5=Display para ver valor actual y descripción.
+- [x] Nueva pantalla que lista system values.
+- [x] Opción 2=Change para valores editables.
+- [x] Opción 5=Display para ver valor actual y descripción.
 
 ### 8.4 DSPLOG visual
 
