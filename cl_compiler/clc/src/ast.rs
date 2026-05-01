@@ -38,6 +38,11 @@ pub enum Statement {
         msgid: String,
         exec: Option<Command>,
     },
+    While {
+        condition: Condition,
+        body: Vec<Statement>,
+        until: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

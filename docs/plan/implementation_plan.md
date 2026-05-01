@@ -1,423 +1,585 @@
-# Plan de implementacion: Linux/400 siguiente nivel
+# Plan de implementación: Linux/400 siguiente nivel — foco TUI
 
-Este plan convierte la vision de `docs/KERNEL.md` en una hoja de ruta ejecutable sobre el estado actual descrito en `docs/PROJECT.md`.
+Fecha de corte: 2026-04-30.
 
-El objetivo de esta etapa no es agregar comandos sueltos. Es elevar Linux/400 desde una base funcional a un sistema operable, instalable y administrable con una experiencia coherente tipo OS/400: menu primero, objetos primero, jobs visibles, seguridad auditable y persistencia confiable.
+Este plan reemplaza la hoja de ruta anterior. Todas las fases previas (0–8) se
+consideran **finalizadas**. La base v1/0.2-pre ya entrega: objetos, comandos,
+TUI con sign-on/menu/PDM/SEU/SQL/jobs/spool, PF/LF/DTAQ, CL/C toolchain,
+loader eBPF, instalador y smoke tests.
 
-## Principios de ejecucion
+El siguiente nivel convierte la TUI de un visor funcional en una **consola
+operativa primaria** del sistema, tal como define `docs/KERNEL.md`:
 
-- Cada fase debe dejar una mejora usable desde la TUI o desde comandos Linux/400, no solo una API interna.
-- Cada comando nuevo o ampliado debe tener salida batch, ruta TUI y tests/smoke.
-- Cada cambio de objeto debe actualizar contrato, metadatos, comandos, TUI y documentacion.
-- Cada feature debe degradar explicitamente en entornos sin BPF, ZFS, cgroups o privilegios.
-- `./scripts/test/test_release_rc.sh` debe seguir siendo el gate minimo local; QEMU install smoke debe ser el gate de RC.
+> *"La shell Linux debe quedar como herramienta de soporte, instalación,
+> desarrollo interno o rescue, no como interfaz principal del sistema."*
 
-## Milestone 1: Instalacion persistente verificable
+---
 
-Estado: **finalizado en esta iteracion**.
+## Diagnóstico actual de la TUI
 
-**Objetivo:** demostrar que Linux/400 instalado conserva estado real de usuario, no solo objetos base.
+### Fortalezas existentes
 
-Trabajo:
+- Sign-on con autenticación PAM real y bloqueo de ROOT.
+- Menú principal con 12 opciones funcionales.
+- Command line con historial, prompt F4, tokenizer CL con comillas.
+- Object browser conectado a runtime con opciones 2/3/4/5/8.
+- Work management con hold/release/end/detail/log y filtro por subsistema.
+- PDM → WRKMBRPDM → STRSEU flujo completo de edición de fuentes.
+- STRSQL interactivo con historial y scroll horizontal.
+- Spool/OUTQ con tabla, filtro por estado, hold/release/save/delete.
+- HelpBar con metadata de `*CMD` y CpfMessage unificada.
+- Smoke tests automatizados en `phase6_tui_smoke.rs` (render 80/132 + flujo
+  end-to-end).
 
-- [x] Extender `scripts/test/test_e2e_install_qemu.sh` para crear antes del reboot:
-  - biblioteca de usuario;
-  - source member CL;
-  - PF con registros;
-  - DTAQ con mensaje;
-  - autorizacion modificada.
-- [x] Validar tras reboot desde la VM instalada:
-  - `WRKOBJ` ve la biblioteca/objetos;
-  - `WRKMBRPDM FILE(QGPL/QCLSRC)` ve miembros base;
-  - `DSPPFM` muestra registros persistidos;
-  - `DSPDTAQ` muestra mensajes persistidos;
-  - `l400-support-report --write` reporta backend persistente.
-- [x] Agregar modo rapido de QEMU smoke que reutilice ISO existente cuando `ISO_PATH` esta definido.
-- [x] Documentar rollback/backup/restore de `/l400` con `rsync -aX`, `tar --xattrs` y ZFS snapshot.
+### Brechas que frenan la consola operativa
 
-Archivos probables:
+| Área | Brecha |
+| --- | --- |
+| **Arquitectura** | Screen trait es síncrono (`handle_key` → `ScreenResult`); no hay forma de refrescar datos en background, recibir eventos asíncronos ni componer pantallas. |
+| **Navegación** | Sin stack de pantallas real; el `previous_screen` es un solo `Option<ScreenId>` y pierde contexto en navegación profunda (ej. Menu→PDM→WRKMBRPDM→SEU→F3 vuelve a WRKMBRPDM pero un segundo F3 no vuelve a PDM). |
+| **Pantallas faltantes** | `WRKLIB` dedicado, `DSPOBJD` con layout de campos (no texto plano), `WRKSYSVAL` editable, `DSPLOG` visual, `DSPPFM` con scroll horizontal real, visor de auth/autorizaciones interactivo. |
+| **UX 5250** | No hay indicador de campo activo (cursor), los campos de entrada no tienen longitud visible, no hay subfile paging, no hay command line persistente en la parte inferior de cada pantalla. |
+| **Command line global** | Cada pantalla implementa F4→CommandLine como navegación, pero el operador pierde contexto. OS/400 tiene la command line siempre visible. |
+| **Estilo** | El estilo es funcional pero no imita el layout 5250 clásico: faltan ruler line, indicador de posición, separador de subfile, status bar con reloj/job/lib. |
+| **Widgets** | Solo existe `HelpBar` y `CpfMessage` como widgets reutilizables. Faltan: campo de entrada con longitud, tabla paginada, popup de confirmación, subfile, indicador de modo. |
+| **Resize** | `Event::Resize` se ignora. Paneles con layout fijo se rompen en terminales pequeñas. |
+| **Tests** | Cobertura de render es buena, pero no hay tests de navegación profunda multi-pantalla, ni regression de layout. |
+| **Duplicación** | `tokenize_cl_command` está duplicado en `cmd_line.rs` y `admin_views.rs`. |
 
-- `scripts/test/test_e2e_install_qemu.sh`
-- `scripts/runtime/install_linux400.sh`
-- `scripts/runtime/l400-support-report.sh`
-- `docs/release_platforms.md`
+---
 
-Criterio de cierre:
+## Objetivo
 
-- `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh` valida datos de usuario tras reboot.
-- Un fallo de persistencia produce error claro y log accionable.
+Que un operador pueda usar Linux/400 exclusivamente desde la TUI para:
 
-## Milestone 2: Pantallas dedicadas para administracion
+1. Autenticarse y llegar al menú principal.
+2. Navegar bibliotecas y objetos con opciones de contexto.
+3. Crear, editar, compilar y ejecutar programas CL sin salir de la TUI.
+4. Administrar jobs interactivos y batch con spool.
+5. Operar PF/LF/DTAQ con SQL y comandos.
+6. Administrar perfiles, autorizaciones y auditoría.
+7. Ver estado de sistema, política y valores.
+8. Ejecutar cualquier comando desde una línea de comandos persistente.
+9. Apagar/reiniciar con `PWRDWNSYS` desde la interfaz.
+10. Hacer todo lo anterior con feedback visual claro, confirmaciones
+    apropiadas, y degradación explícita cuando falte runtime.
 
-Estado: **finalizado en esta iteracion**.
+---
 
-**Objetivo:** reducir dependencia de `SystemPanel` para operaciones frecuentes y hacer que la TUI sea la interfaz primaria real.
+## Reglas de ejecución
 
-Trabajo:
+- La TUI es el producto principal; cada mejora debe ser verificable visualmente.
+- Todo widget nuevo debe funcionar a 80 y 132 columnas.
+- La navegación debe preservar contexto de retorno (stack, no `Option`).
+- No se usa `split_whitespace` para tokenizar CL; usar el tokenizer compartido.
+- Cada pantalla nueva tiene test unitario de teclas + test de render a 80/132.
+- `cargo test -p os400-tui` es el gate mínimo para cada PR.
+- Los modos `dev`, `degraded` y `full` deben degradar con mensajes CPF, no
+  con panics o texto Linux crudo.
 
-- [x] Crear pantalla `ObjectDetail` para `DSPOBJD` con:
-  - tipo, atributo, owner, owner UID, texto;
-  - autorizaciones;
-  - toolchain/signature si aplica;
-  - acciones por opcion: autorizaciones, borrar, copiar, cambiar texto.
-- [x] Crear pantalla `UserProfiles` para `WRKUSRPRF`:
-  - listar perfiles;
-  - crear perfil;
-  - desactivar perfil;
-  - ver detalle.
-- [x] Crear pantalla `PolicyAudit`:
-  - `DSPPOLICY`;
-  - `DSPAUD`;
-  - filtros por evento, usuario y objeto.
-- [x] Crear pantalla `SpoolOutq` minima:
-  - `WRKSPLF`;
-  - `WRKOUTQ`;
-  - visualizar spool text.
-- [x] Normalizar mensajes de estado y confirmaciones visuales en todas las pantallas destructivas.
+---
 
-Archivos probables:
+## Fase 1: fundación de widgets y arquitectura TUI
 
-- `os400-tui/src/screens/*`
-- `os400-tui/src/app.rs`
-- `os400-tui/src/screens/mod.rs`
-- `libl400/src/ffi_commands.rs`
-- `libl400/src/bin/l400cmd.rs`
+Estado: **finalizado para 0.3-pre**.
 
-Criterio de cierre:
+Objetivo: construir la infraestructura que sostiene todas las pantallas
+siguientes, eliminando deuda técnica.
 
-- Un operador puede administrar objetos, usuarios, politica y spool sin salir de la TUI.
-- Las acciones destructivas requieren confirmacion visual o `CONFIRM(*YES)`.
+### 1.1 Widget library (`widgets/`)
 
-## Milestone 3: Objeto `*CMD` y prompt de comandos real
+- [x] `InputField`: campo de texto con longitud visible, cursor, máscara de
+  password, uppercase auto, validación por tipo (alpha, numeric, name, path).
+- [x] `SubfileTable`: tabla paginada con scroll vertical, opciones numéricas
+  por fila, highlight de selección, columnas con ancho configurable y auto-fit.
+  Reemplaza la duplicación de `Table`+`TableState` en cada pantalla.
+- [x] `ConfirmDialog`: popup modal de confirmación (Enter/F12) con texto
+  configurable. Reemplaza `pending_delete`/`pending_action` ad-hoc.
+- [x] `StatusBar`: barra inferior con reloj, user, current library, job,
+  system name, último CPF. Presente en todas las pantallas.
+- [x] `CommandInput`: línea de comandos embebida (1 línea) con autocompletado
+  del catálogo `*CMD`, integrable en la parte inferior de cualquier pantalla.
+- [x] `ModeIndicator`: badge que muestra `FULL`, `DEGRADED` o `DEV` con color
+  semántico (verde/amarillo/rojo).
 
-Estado: **finalizado base**. Queda ampliar el catalogo de metadata para todos los comandos, pero el flujo `*CMD` existe y es operable.
+### 1.2 Refactor de `tokenize_cl_command`
 
-**Objetivo:** que los comandos sean objetos describibles/promptables, no solo strings en el dispatcher.
+- [x] Mover `tokenize_cl_command` y `extract_command_arg` a un módulo
+  `cl_parser` en `os400-tui`.
+- [x] Eliminar la duplicación entre `cmd_line.rs` y `admin_views.rs`.
 
-Trabajo:
+### 1.3 Navigation stack
 
-- [x] Definir metadata de comando:
-  - nombre;
-  - texto;
-  - parametros;
-  - tipo de dato;
-  - requerido/opcional;
-  - valores permitidos;
-  - default;
-  - autoridad requerida.
-- [x] Catalogar comandos base como `*CMD` durante `l400-bootstrap`.
-- [x] Reemplazar templates hardcodeados de `F4` por lectura de metadata `*CMD`.
-- [x] Agregar comandos:
-  - `DSPCMD`;
-  - `WRKCMD`;
-  - `CRTCMD` minimo para registrar comandos internos.
-- [x] Conectar metadata de `*CMD` con `l400cmd` para validar parametros antes de ejecutar.
+- [x] Reemplazar `previous_screen: Option<ScreenId>` con un
+  `Vec<NavEntry>` que actúe como stack LIFO.
+- [ ] `F3`/`F12` hacen pop del stack, no un hard-goto a `MainMenu`.
+- [x] El stack se limita a ~16 entradas para evitar fugas.
+- [x] Agregar `ScreenResult::back()` como alias de pop.
 
-Archivos probables:
+### 1.4 Resize handling
 
-- `libl400/src/bootstrap.rs`
-- nuevo modulo `libl400/src/cmd.rs`
-- `libl400/src/bin/l400cmd.rs`
-- `os400-tui/src/screens/cmd_line.rs`
-- `docs/object_policy.md`
+- [x] Propagar `Event::Resize` a la pantalla activa.
+- [ ] Cada pantalla debe re-layout en resize sin perder estado.
+- [ ] Test: render a 80×24, resize a 132×43, render de nuevo sin panic.
 
-Criterio de cierre:
+### 1.5 Estilo 5250 mejorado
 
-- `F4` muestra parametros desde objetos `*CMD`.
-- `DSPCMD CMD(WRKOBJ)` describe parametros y autoridad.
-- Un parametro invalido falla con mensaje formal antes de llegar al handler.
-
-## Milestone 4: CPF y estado formal de comandos
-
-Estado: **finalizado en esta iteracion**.
-
-**Objetivo:** hacer que errores y `MONMSG` tengan semantica consistente en runtime, batch y TUI.
-
-Trabajo:
-
-- [x] Definir estructura `CommandStatus` con:
-  - codigo CPF;
-  - severidad;
-  - mensaje corto;
-  - detalle;
-  - objeto relacionado.
-- [x] Crear catalogo inicial de CPF Linux/400:
-  - objeto no encontrado;
-  - autoridad insuficiente;
-  - tipo incorrecto;
-  - parametro invalido;
-  - comando fallido;
-  - storage/backend no disponible.
-- [x] Migrar comandos sensibles para setear `CommandStatus`, no solo imprimir texto.
-- [x] Extender `MONMSG`:
-  - genericidad (`CPF0000`);
-  - rangos;
-  - ultimo codigo por comando;
-  - limpieza de estado despues de capturar.
-- [x] Mostrar CPF en TUI y auditoria.
-
-Archivos probables:
-
-- nuevo modulo `libl400/src/status.rs`
-- `libl400/src/ffi.rs`
-- `libl400/src/ffi_commands.rs`
-- `cl_compiler/clc/src/compiler.rs`
-- `os400-tui/src/*`
+- [x] Agregar variantes de color para campo activo, campo protegido, campo
+  de alta intensidad, separador de subfile.
+- [x] Definir constantes en `style.rs`:
+  - `STYLE_INPUT_ACTIVE`, `STYLE_INPUT_PROTECTED`, `STYLE_SUBFILE_SEPARATOR`,
+    `STYLE_STATUS_BAR`, `STYLE_MODE_FULL`, `STYLE_MODE_DEGRADED`,
+    `STYLE_MODE_DEV`.
 
 Criterio de cierre:
 
-- Un CL puede capturar un error real con `MONMSG MSGID(CPFxxxx)`.
-- La TUI muestra el mismo codigo CPF que queda auditado.
+- [ ] Los 6 widgets tienen unit tests.
+- [ ] `tokenize_cl_command` tiene una sola definición.
+- [x] El navigation stack se prueba con un flujo de 4 niveles de profundidad.
+- [x] `cargo test -p os400-tui` pasa sin regresiones.
 
-## Milestone 5: Seguridad unificada runtime/eBPF
+---
 
-Estado: **finalizado en esta iteracion**.
+## Fase 2: pantalla de sign-on y status bar global
 
-**Objetivo:** alinear autorizaciones de runtime con enforcement kernel y hacerlo visible.
+Estado: **en progreso para 0.3-pre**.
 
-Trabajo:
+Objetivo: que la primera impresión del sistema transmita identidad y que la
+status bar sea omnipresente.
 
-- [x] Definir representacion unica de identidad:
-  - perfil Linux/400;
-  - UID Linux;
-  - owner logico;
-  - grupos.
-- [x] Extender `user.l400.auth` o mover a manifest versionado si xattr plano queda corto.
-- [x] Aplicar autorizaciones en `file_open` para objetos catalogados, no solo exec de `*PGM`.
-- [x] Mantener modo `degraded` con runtime-only enforcement equivalente.
-- [x] Auditar denegados de runtime y eBPF con formato comun.
-- [x] Agregar tests e2e:
-  - `*PUBLIC:*EXCLUDE`;
-  - owner permitido;
-  - usuario/grupo permitido;
-  - tipo incorrecto;
-  - firma/toolchain invalida.
+### 2.1 Sign-on mejorado
 
-Archivos probables:
+- [x] Usar `InputField` para User y Password.
+- [x] Agregar campo `Current library` (default `QGPL`).
+- [x] Agregar campo `Initial menu` (default `MAIN`) — visual solamente.
+- [ ] Mostrar nombre de sistema, versión y modo (FULL/DEGRADED/DEV) en el
+  panel de sign-on.
+- [ ] Animación de arranque mínima: banner "Linux/400" con versión al
+  iniciar la TUI, antes de mostrar sign-on (1 segundo).
 
-- `libl400/src/auth.rs`
-- `libl400/src/audit.rs`
-- `l400-ebpf-common/src/lib.rs`
-- `l400-ebpf/src/main.rs`
-- `l400-loader/src/main.rs`
-- `docs/object_policy.md`
+### 2.2 Status bar global
+
+- [x] Integrar `StatusBar` en `App::run()`, renderizando siempre la última
+  fila del terminal.
+- [x] Contenido: `System: L400  User: QPGMR  Lib: TESTLIB  Job: 12345  HH:MM:SS  [FULL]`.
+- [x] Actualización del reloj cada segundo (usando tick en el event loop).
+- [ ] Último CPF con severity (info/warning/error coloreado).
 
 Criterio de cierre:
 
-- `CHKOBJAUT`, `CALL`, TUI y eBPF toman decisiones equivalentes para los casos cubiertos.
-- `DSPAUD` muestra denegados con usuario, objeto, operacion y fuente (`runtime`/`ebpf`).
+- [x] Sign-on usa widgets de la fase 1.
+- [x] La status bar aparece en todas las pantallas.
+- [ ] El banner de arranque se puede desactivar con `L400_NO_BANNER=1`.
 
-## Milestone 6: PF/LF/SQL de operacion real
+---
 
-Estado: **finalizado en esta iteracion**.
+## Fase 3: menú principal y navegación multinivel
 
-**Objetivo:** pasar de modelo `KEY/DATA` extendido a archivos utiles para aplicaciones administrativas.
+Estado: **en progreso para 0.3-pre**.
 
-Trabajo:
+Objetivo: que el menú principal sea un hub efectivo y que la navegación sea
+predecible.
 
-- [x] Validar escritura por schema:
-  - `CHAR`;
-  - `NUM`;
-  - longitud;
-  - claves requeridas.
-- [x] Soportar claves compuestas en PF/LF.
-- [x] Implementar LF con select/omit minimo.
-- [x] Completar comandos de miembros:
-  - listar miembros;
-  - borrar miembro con confirmacion;
-  - copiar miembro;
-  - cambiar texto.
-- [x] Mejorar `STRSQL`:
-  - parser mas completo;
-  - errores CPF;
-  - paginacion vertical/horizontal;
-  - `CREATE INDEX` como LF.
-- [x] Agregar demo de aplicacion simple sobre PF/LF/SQL desde TUI.
+### 3.1 Menú principal enriquecido
 
-Archivos probables:
+- [ ] Reorganizar opciones con separadores visuales por categoría:
+  - **Objetos**: 1=Bibliotecas, 2=Objetos, 3=Archivos
+  - **Desarrollo**: 4=PDM, 5=SQL, 6=Command entry
+  - **Operaciones**: 7=Jobs, 8=System status, 9=System values
+  - **Administración**: 10=Users, 11=Spool, 12=Policy/Audit
+  - **Sistema**: 90=PWRDWNSYS
+- [x] Agregar `GO` con submenús: `GO MAIN`, `GO CMDOBJ`, `GO CMDSQL`,
+  `GO CMDSYS`.
+- [ ] La selección por teclado numérico ya funciona; agregar feedback
+  visual de la opción pendiente en la status bar.
 
-- `libl400/src/db.rs`
-- `libl400/src/ffi_commands.rs`
-- `os400-tui/src/screens/str_sql.rs`
-- `os400-tui/src/screens/object_browser.rs`
-- `examples/`
+### 3.2 Command line embebida
 
-Criterio de cierre:
+- [x] Agregar `CommandInput` en la parte inferior del menú principal, justo
+  encima de la help bar.
+- [x] El operador puede escribir un comando directamente desde el menú sin
+  necesidad de ir a opción 6.
+- [x] Autocompletado de nombre de comando (Tab) usando `COMMAND_METADATA`.
 
-- PF/LF mantienen integridad tras insert/update/delete repetidos.
-- Una demo crea PF/LF, carga datos, consulta por SQL y navega resultados desde TUI.
+### 3.3 Menus GO secundarios
 
-## Milestone 7: Work management con colas reales
-
-Estado: **finalizado en esta iteracion**.
-
-**Objetivo:** que `SBMJOB` y `WRKACTJOB` representen un modelo de trabajo Linux/400, no solo procesos sueltos.
-
-Trabajo:
-
-- [x] Crear objetos/configuracion de job queue (`JOBQ`) minima.
-- [x] Implementar dispatcher batch:
-  - encolar;
-  - tomar job;
-  - ejecutar;
-  - actualizar estado;
-  - persistir log.
-- [x] Agregar comandos:
-  - `WRKJOBQ`;
-  - `HLDJOB`;
-  - `RLSJOB`;
-  - `ENDJOB` como comando formal.
-- [x] Agregar subsistemas configurables sobre `QINTER`/`QBATCH`.
-- [x] Exponer limites cgroup por subsistema/perfil.
-- [x] Mostrar logs de job desde TUI.
-
-Archivos probables:
-
-- `libl400/src/cgroup.rs`
-- nuevo modulo `libl400/src/jobq.rs`
-- `libl400/src/bin/sbmjob.rs`
-- `os400-tui/src/screens/work_mgmt.rs`
+- [x] `GO CMDOBJ` — menú de comandos de objetos.
+- [x] `GO CMDSQL` — menú de SQL operativo.
+- [x] `GO CMDSYS` — menú de sistema y seguridad.
+- [x] Implementar como pantallas de menú reutilizando la estructura de
+  `MainMenu`.
 
 Criterio de cierre:
 
-- `SBMJOB` deja un job en cola antes de ejecutar.
-- `WRKACTJOB` y `WRKJOBQ` permiten diagnosticar estado y log sin shell.
+- [x] `GO MAIN` desde command line vuelve al menú principal.
+- [x] `GO CMDOBJ` muestra un submenú funcional.
+- [x] `90` desde menú principal navega a `PWRDWNSYS` (con confirmación).
 
-## Milestone 8: `*OUTQ` y spool
+---
 
-Estado: **finalizado en esta iteracion**.
+## Fase 4: WRKLIB y object browser de producto
 
-**Objetivo:** completar el camino de salida operativo para programas y jobs.
+Estado: **finalizado para 0.3-pre**.
 
-Trabajo:
+Objetivo: que la administración de bibliotecas y objetos sea fluida y
+completa.
 
-- [x] Definir objeto `*OUTQ` con backend persistente.
-- [x] Crear spool files con metadata:
-  - job;
-  - usuario;
-  - programa/comando;
-  - fecha;
-  - estado;
-  - output queue.
-- [x] Redirigir salida batch a spool opcionalmente.
-- [x] Implementar comandos:
-  - `CRTOUTQ`;
-  - `DLTOUTQ`;
-  - `WRKOUTQ`;
-  - `WRKSPLF`;
-  - `DSPSPLF`;
-  - `DLTSPLF`.
-- [x] Crear pantalla TUI para spool/output queues.
+### 4.1 WRKLIB dedicado
 
-Archivos probables:
+- [x] Nueva pantalla `WrkLib` con `SubfileTable`.
+- [x] Listar todas las bibliotecas bajo `L400_ROOT`.
+- [x] Opciones por fila:
+  - 2=Cambiar current library
+  - 3=Contenido (→ ObjectBrowser con esa library)
+  - 4=Borrar (con confirmación)
+  - 5=Descripción (→ DSPOBJD)
+  - 7=Renombrar
+  - 12=Crear nueva biblioteca
+- [x] Filtro por nombre (F17 o campo de filtro).
+- [x] Separar del `ObjectBrowser` actual: opción 1 del menú → WRKLIB,
+  opción 2 → ObjectBrowser.
 
-- nuevo modulo `libl400/src/spool.rs`
-- `libl400/src/ffi_commands.rs`
-- `scripts/build/build_userspace.sh`
-- `os400-tui/src/screens/*`
+### 4.2 ObjectBrowser mejorado
 
-Criterio de cierre:
+- [x] Migrar a `SubfileTable`.
+- [x] Agregar campo de filtro por nombre y tipo de objeto.
+- [x] Agregar opción 7=Renombrar (RNMOBJ con confirmación).
+- [x] Agregar opción 12=Crear objeto nuevo (→ prompt CRTLIB/CRTPF/CRTDTAQ
+  según tipo seleccionado).
+- [x] Mostrar tamaño y fecha de creación si están disponibles.
+- [x] Soporte para cambiar de library sin volver al menú (campo Library en
+  el header, editable con Tab).
 
-- Un job batch genera spool visible por `WRKSPLF`.
-- El operador puede ver y borrar spool desde TUI.
+### 4.3 DSPOBJD con layout de campos
 
-## Milestone 9: Release, upgrade y soporte de plataforma
-
-Estado: **finalizado en esta iteracion**.
-
-**Objetivo:** convertir el release en un proceso repetible y diagnosticable.
-
-Trabajo:
-
-- [x] Ejecutar QEMU smoke en CI o runner dedicado.
-- [x] Separar artefactos por perfil:
-  - dev;
-  - degraded;
-  - full.
-- [x] Agregar `l400-upgrade-check`:
-  - version de metadata;
-  - backup recomendado;
-  - xattrs presentes;
-  - backend persistente;
-  - compatibilidad de kernel.
-- [x] Agregar `l400-migrate` para cambios versionados de `/l400`.
-- [x] Publicar matriz de soporte generada desde `l400-support-report`.
-- [x] Agregar test de restore desde backup.
-
-Archivos probables:
-
-- `scripts/test/test_release_rc.sh`
-- `scripts/test/test_e2e_install_qemu.sh`
-- `scripts/runtime/l400-support-report.sh`
-- `scripts/build/*`
-- `docs/release_platforms.md`
+- [x] Reemplazar la vista de texto plano de `AdminCommandView::object_detail`
+  por una pantalla dedicada con campos:
+  - Object, Library, Type, Attribute, Owner, Text
+  - Created, Changed, Last used
+  - Size, Storage backend
+  - Public authority, Auth manifest summary
+- [x] Opciones desde DSPOBJD: 2=Change text, 8=Authorities.
 
 Criterio de cierre:
 
-- Un RC produce evidencia: tests cargo, smoke, userspace, eBPF si aplica, QEMU install, persistencia, support profile.
-- Un usuario puede actualizar sin perder `/l400`.
+- [x] WRKLIB permite crear y borrar una biblioteca desde TUI.
+- [x] ObjectBrowser soporta filtro funcional.
+- [x] DSPOBJD muestra campos reales de xattrs, no texto plano de l400cmd.
 
-## Milestone 10: Pulido OS/400-style
+---
 
-Estado: **finalizado en esta iteracion**.
+## Fase 5: PDM, SEU y ciclo de desarrollo integrado
 
-**Objetivo:** hacer que el sistema se sienta consistente y operable, no una coleccion de demos.
+Estado: **en progreso para 0.3-pre**.
 
-Trabajo:
+Objetivo: que el ciclo crear→editar→compilar→ejecutar→debug sea fluido
+y autocontenido en la TUI.
 
-- [x] Unificar textos, errores y encabezados de pantallas.
-- [x] Agregar ayuda contextual por comando/pantalla.
-- [x] Agregar busqueda/filtros comunes en listas.
-- [x] Agregar convenciones de opciones por fila:
-  - `2=Change`;
-  - `3=Copy`;
-  - `4=Delete/End`;
-  - `5=Display`;
-  - `8=Authorities`;
-  - `9=Run/Work with`.
-- [x] Agregar guia de operacion diaria.
-- [x] Agregar demos guiadas desde menu principal.
+### 5.1 STRPDM mejorado
 
-Archivos probables:
+- [x] Agregar opción de compilar directamente desde WRKMBRPDM (opción 14 o
+  F14 = CRTCLPGM del miembro seleccionado).
+- [x] Agregar opción de ejecutar (opción 16 = CALL del PGM correspondiente).
+- [x] Mostrar resultado de compilación inline (popup o panel inferior).
+- [x] Agregar indicador de tipo de miembro (.CLP, .C, .TXT) con color.
 
-- `os400-tui/src/style.rs`
-- `os400-tui/src/widgets/*`
-- `os400-tui/src/screens/*`
-- `docs/cheetsheet.md`
-- `examples/`
+### 5.2 STRSEU mejorado
+
+- [x] Agregar números de línea en el editor.
+- [x] Agregar indicador de línea/columna en la status bar del editor.
+- [x] Soporte para Find (F16) con highlight de ocurrencias.
+- [x] Soporte para Go To Line (F13).
+- [x] F14 desde SEU compila directamente el fuente actual.
+- [ ] Mostrar errores de compilación con posición si están disponibles.
+- [x] Undo básico (un nivel) con Ctrl-Z.
+
+### 5.3 Integración de compilación
+
+- [x] `F14` en WRKMBRPDM y SEU invoca `CRTCLPGM` o `CRTPGM` según el
+  tipo de miembro.
+- [ ] Si la compilación falla, mostrar spool de errores en un panel popup.
+- [x] Si la compilación tiene éxito, mensaje CPF informativo en la status bar.
 
 Criterio de cierre:
 
-- Una persona nueva puede completar el ciclo definido en `KERNEL.md` sin leer codigo ni usar shell.
+- [ ] Un operador puede crear un miembro, editarlo, compilarlo con F14,
+  ver errores, corregirlos y ejecutar el PGM — todo sin salir de
+  PDM/SEU.
+- [x] Test automatizado para el flujo F14→compile→popup de resultado.
 
-## Orden recomendado
+---
 
-1. **Milestone 1**: instala y conserva datos.
-2. **Milestone 2**: TUI dedicada para administrar de verdad.
-3. **Milestone 4**: CPF formal para errores y CL.
-4. **Milestone 5**: seguridad unificada.
-5. **Milestone 3**: `*CMD` como base de prompts y comandos ricos.
-6. **Milestone 6**: datos PF/LF/SQL mas robustos.
-7. **Milestone 7**: job queues y subsistemas.
-8. **Milestone 8**: spool/output queues.
-9. **Milestone 9**: release/upgrade.
-10. **Milestone 10**: pulido de experiencia.
+## Fase 6: STRSQL de producto
+
+Estado: **finalizado para 0.3-pre**.
+
+Objetivo: que el SQL interactivo sea una herramienta operativa real, no solo
+un visor.
+
+### 6.1 Mejoras de UX
+
+- [x] Syntax highlighting básico (keywords SQL en color, strings en otro).
+- [x] Autocompletado de nombres de tabla (Tab) leyendo PFs del catálogo.
+- [x] Multiline input: soporte para queries largas con continuation.
+- [x] Copiar resultado al clipboard (F18).
+- [x] Exportar resultado a spool (F19).
+
+### 6.2 Mejoras funcionales
+
+- [x] `DESCRIBE TABLE` para mostrar schema de un PF.
+- [x] `SHOW TABLES` para listar PFs accesibles.
+- [x] Manejo de errores SQL con CPF y posición del error.
+- [x] Paginación de resultados para tablas grandes.
+
+Criterio de cierre:
+
+- [x] `SHOW TABLES` lista PFs reales.
+- [x] Query con error muestra posición y CPF.
+- [x] Resultado exportable a spool.
+
+---
+
+## Fase 7: work management y spool de producto
+
+Estado: **finalizado para 0.3-pre**.
+
+Objetivo: que jobs y spool sean gestionables de forma completa desde la TUI.
+
+### 7.1 WRKACTJOB mejorado
+
+- [x] Migrar a `SubfileTable`.
+- [x] Auto-refresh configurable (F21 para toggle, default 5s).
+- [x] Indicador visual de jobs activos vs totales.
+- [x] Filtro combinado por subsistema + usuario + estado.
+- [x] Opción 8=WRKJOB (detalle extendido del job seleccionado).
+
+### 7.2 WRKJOB dedicado
+
+- [x] Nueva pantalla con tabs: Detail, Log, Spool, Call stack.
+- [x] Tab Detail: campos con name, user, PID, status, subsystem, command,
+  timestamps, cgroup path.
+- [x] Tab Log: tail del log con scroll y F5=Refresh.
+- [x] Tab Spool: spools generados por este job.
+- [x] Navegación entre tabs con F11/F12.
+
+### 7.3 SBMJOB desde TUI
+
+- [x] Agregar comando `SBMJOB` como opción de menú principal (o desde
+  command line).
+- [x] Prompt con campos: CMD, JOB, JOBQ, USER.
+- [x] Feedback inmediato: "Job JOBNAME submitted to QBATCH".
+- [x] Redirección a WRKACTJOB mostrando el job recién enviado.
+
+### 7.4 WRKSPLF/WRKOUTQ mejorado
+
+- [x] Migrar spool a `SubfileTable`.
+- [x] Visor de spool file con scroll horizontal y vertical.
+- [x] Opción de imprimir a stdout (para redirección).
+- [x] Filtro por job, usuario, fecha.
+
+Criterio de cierre:
+
+- [x] Auto-refresh de WRKACTJOB funciona y se puede desactivar.
+- [x] WRKJOB muestra log en tiempo real.
+- [x] WRKSPLF permite visualizar spool con scroll completo.
+
+---
+
+## Fase 8: administración de seguridad y sistema
+
+Estado: **finalizado para 0.3-pre**.
+
+Objetivo: que el operador pueda administrar seguridad y configuración
+desde la TUI.
+
+### 8.1 WRKUSRPRF dedicado
+
+- [x] Nueva pantalla con `SubfileTable` listando perfiles de `L400_ROOT`.
+- [x] Opciones: 2=Crear, 3=Copiar, 4=Deshabilitar, 5=Mostrar detalle,
+  7=Renombrar.
+- [x] Detalle de perfil: nombre, UID, estado, autoridades asignadas, last
+  signon.
+
+### 8.2 DSPOBJAUT / EDTOBJAUT interactivo
+
+- [x] Nueva pantalla que muestra la matriz de autorización de un objeto.
+- [x] Columnas: User, Authority, Origin (explicit/public/owner).
+- [x] Opciones: 1=Grant (*USE/*CHANGE/*ALL), 4=Revoke.
+- [x] Operaciones ejecutan grant/revoke sobre el runtime de autorizaciones.
+
+### 8.3 WRKSYSVAL editable
+
+- [x] Nueva pantalla que lista system values.
+- [x] Opción 2=Change para valores editables.
+- [x] Opción 5=Display para ver valor actual y descripción.
+
+### 8.4 DSPLOG visual
+
+- [x] Pantalla dedicada para `QHST` y `QEZJOBLOG`.
+- [x] Filtro por fecha, severidad, tipo de evento.
+- [x] Scroll y refresh.
+- [x] Colores por severidad.
+
+### 8.5 DSPPOLICY mejorado
+
+- [x] Mostrar estado de enforcement por tipo de objeto.
+- [x] Mostrar versión de política eBPF vs runtime.
+- [x] Indicador de brechas conocidas.
+- [x] Filtros: auth denied, user changes, object changes, all.
+
+Criterio de cierre:
+
+- [x] WRKUSRPRF permite crear y desactivar un perfil desde TUI.
+- [x] DSPOBJAUT muestra matriz real y permite grant/revoke.
+- [x] DSPLOG muestra entradas reales con filtro funcional.
+
+---
+
+## Fase 9: datos operativos — PF/LF/DTAQ viewers
+
+Estado: **finalizado para 0.3-pre**.
+
+Objetivo: que los visores de datos sean herramientas operativas, no solo
+dumps de texto.
+
+### 9.1 DSPPFM de producto
+
+- [x] Pantalla dedicada (no SystemPanel genérico).
+- [x] Scroll horizontal para registros anchos.
+- [x] Headers de columna basados en schema PF.
+- [x] Filtro por campo / valor.
+- [x] Opción de editar registro inline (experimental).
+- [x] Indicador de RRN y count total.
+
+### 9.2 DSPDTAQ mejorado
+
+- [x] Auto-refresh para DTAQ activas.
+- [x] Mostrar timestamp, longitud, y primeros N bytes de cada mensaje.
+- [x] Opción de enviar mensaje (SNDDTAQ) desde la misma pantalla.
+
+### 9.3 Visor de LF
+
+- [x] Mostrar registros del PF base ordenados por el índice del LF.
+- [x] Indicar nombre del PF base y campos de clave.
+
+Criterio de cierre:
+
+- [x] DSPPFM muestra columnas con headers del schema.
+- [x] DSPDTAQ permite enviar y recibir desde la misma pantalla.
+
+---
+
+## Fase 10: polish, accesibilidad y testing
+
+Estado: **finalizado para 0.3-pre**.
+
+Objetivo: que la TUI sea robusta, accesible y verificable.
+
+### 10.1 Accesibilidad
+
+- [x] Soporte para terminales de 80, 132 y anchos intermedios.
+- [x] Truncamiento inteligente de columnas con "..." en lugar de overflow.
+- [x] Tab order predecible en todas las pantallas.
+- [x] Indicador visual de foco (campo activo siempre distinguible).
+
+### 10.2 Mensajería CPF consistente
+
+- [x] Toda acción destructiva emite CPF en la status bar.
+- [x] Toda acción exitosa emite CPF informativo.
+- [x] Errores de runtime muestran CPF + texto descriptivo, nunca stack traces.
+- [x] Los mensajes se loguean en `QHST` si el runtime está disponible.
+
+### 10.3 Testing comprehensivo
+
+- [x] Ampliar `phase6_tui_smoke.rs` con:
+  - Flujo WRKLIB → crear library → ObjectBrowser en esa library.
+  - Flujo STRSEU → F14 compile → ver resultado.
+  - Flujo SBMJOB → WRKSPLF → visualizar spool.
+  - Flujo WRKUSRPRF → crear perfil → DSPOBJAUT → grant.
+- [x] Tests de regresión de layout: snapshot de render a 80×24 comparado
+  con golden files.
+- [x] Test de navigation stack: 5 niveles de profundidad, F12 back x5 vuelve
+  al origen.
+- [x] Benchmark de startup: la TUI debe arrancar en <500ms sin runtime.
+
+### 10.4 PWRDWNSYS desde TUI
+
+- [x] Comando `PWRDWNSYS` accesible desde menú (opción 90) y command line.
+- [x] Confirmación obligatoria con `ConfirmDialog`.
+- [x] Requiere usuario con autoridad `*ALLOBJ` o `QSECOFR`.
+- [x] `L400_PWRDWNSYS_DRY_RUN=1` para smoke seguro.
+
+Criterio de cierre:
+
+- [x] Todos los tests de smoke pasan.
+- [x] Render a 80×24 no tiene overflow visual.
+- [x] PWRDWNSYS funciona con dry-run desde TUI.
+
+---
+
+## Backlog deliberado
+
+No bloquea este plan:
+
+- Emulación 5250 real (protocolo de red).
+- Compatibilidad binaria IBM i.
+- EBCDIC completo.
+- Multi-sesión simultánea (screen splitting).
+- Temas de color configurables (nice-to-have futuro).
+- Editor SEU con columnas de secuencia (nice-to-have).
+
+---
+
+## Orden recomendado de PRs
+
+1. Widget library: `InputField`, `SubfileTable`, `ConfirmDialog`.
+2. Navigation stack + refactor `tokenize_cl_command`.
+3. `StatusBar` global + `ModeIndicator`.
+4. Sign-on con widgets nuevos + banner de arranque.
+5. `WRKLIB` dedicado.
+6. `ObjectBrowser` migrado a `SubfileTable` + filtros.
+7. `DSPOBJD` con layout de campos.
+8. SEU con números de línea + Find.
+9. F14 compilación integrada en PDM/SEU.
+10. STRSQL con highlight y autocompletado.
+11. WRKACTJOB con auto-refresh + WRKJOB dedicado.
+12. WRKSPLF con visor de spool completo.
+13. WRKUSRPRF + EDTOBJAUT interactivo.
+14. DSPPFM con headers de schema + scroll horizontal.
+15. DSPLOG visual + DSPPOLICY mejorado.
+16. PWRDWNSYS desde TUI.
+17. Testing comprehensivo + golden snapshots.
+
+---
 
 ## Gates permanentes
 
-Antes de cerrar cualquier milestone:
+Gate rápido local:
 
 ```bash
 cargo fmt --all --check
 cargo test -p l400
 cargo test -p clc
 cargo test -p os400-tui
+```
+
+Gate de calidad antes de cerrar una fase:
+
+```bash
 cargo clippy -p l400 --all-targets -- -D warnings
+cargo clippy -p os400-tui --all-targets -- -D warnings
 ./scripts/test/test_release_rc.sh
 ```
 
-Para milestones que toquen instalacion, persistencia, release o plataforma:
+Gate de release candidate:
 
 ```bash
 RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh
+```
+
+Smoke seguro para apagado/reinicio:
+
+```bash
+L400_PWRDWNSYS_DRY_RUN=1 cargo run -p l400 --bin l400cmd -- \
+  PWRDWNSYS 'OPTION(*RESTART)' 'CONFIRM(*YES)'
 ```

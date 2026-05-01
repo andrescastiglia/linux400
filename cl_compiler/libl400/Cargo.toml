@@ -1,12 +1,12 @@
 [package]
 name = "libl400"
-version = "0.1.0"
-edition = "2021"
+version = "0.2.0"
+edition = "2024"
 description = "Linux/400 Runtime Library"
 
 [lib]
 name = "l400"
-crate-type = ["cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 libc = "0.2"

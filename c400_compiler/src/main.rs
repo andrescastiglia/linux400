@@ -1,5 +1,5 @@
 use clap::Parser;
-use l400::catalog_object;
+use l400::{catalog_object, write_toolchain_manifest};
 use std::path::Path;
 use std::process::Command;
 
@@ -96,6 +96,15 @@ fn main() {
         Some("C/400 compiled program"),
     ) {
         Ok(_) => {
+            if let Err(error) = write_toolchain_manifest(
+                output_path,
+                "c400c",
+                env!("CARGO_PKG_VERSION"),
+                Some(&args.input),
+            ) {
+                eprintln!("   [ERROR] Falló el manifest de toolchain: {}", error);
+                std::process::exit(1);
+            }
             println!("   [OK] Tipificación ZFS completada (*PGM asignado).");
         }
         Err(e) => {

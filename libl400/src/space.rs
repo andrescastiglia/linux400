@@ -1,5 +1,5 @@
 use crate::lam::{tag_for_objtype, tag_pointer, untag_pointer_mut};
-use crate::object::{describe_object, ObjectError};
+use crate::object::{ObjectError, describe_object};
 use std::fs::OpenOptions;
 use std::os::unix::io::AsRawFd;
 use std::path::Path;

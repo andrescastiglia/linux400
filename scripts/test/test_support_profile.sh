@@ -5,6 +5,13 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP_RUN="$(mktemp -d)"
 trap 'rm -rf "$TMP_RUN"' EXIT
 
+assert_non_empty_field() {
+    local output="$1"
+    local key="$2"
+    grep -Eq "^${key}=.+" <<<"${output}" &&
+        ! grep -Eq "^${key}=unknown$" <<<"${output}"
+}
+
 DEV_RUN="${TMP_RUN}/dev"
 mkdir -p "${DEV_RUN}"
 cat > "${DEV_RUN}/loader-status" <<'EOF'
@@ -13,6 +20,10 @@ protection_active=0
 phase=fallback
 attached_hooks=
 policy_version=
+runtime_version=0.2.0
+ebpf_version=0.2.0
+effective_mode=dev
+known_gaps=kernel-enforcement-inactive,runtime-only-authority
 last_error=test-dev
 EOF
 printf 'live\n' > "${DEV_RUN}/boot-mode"
@@ -22,6 +33,9 @@ printf '%s\n' "${DEV_OUTPUT}"
 grep -q '^loader_mode=dev$' <<<"${DEV_OUTPUT}"
 grep -q '^effective_mode=dev$' <<<"${DEV_OUTPUT}"
 grep -q '^phase3_enforcement_ready=no$' <<<"${DEV_OUTPUT}"
+assert_non_empty_field "${DEV_OUTPUT}" "loader_runtime_version"
+grep -q '^loader_effective_mode=dev$' <<<"${DEV_OUTPUT}"
+grep -q '^loader_known_gaps=kernel-enforcement-inactive,runtime-only-authority$' <<<"${DEV_OUTPUT}"
 grep -q '^required_for_full=' <<<"${DEV_OUTPUT}"
 grep -q '^l400_root_backend=' <<<"${DEV_OUTPUT}"
 grep -q '^l400_root_persistent=' <<<"${DEV_OUTPUT}"
@@ -35,6 +49,10 @@ protection_active=0
 phase=fallback
 attached_hooks=
 policy_version=
+runtime_version=0.2.0
+ebpf_version=0.2.0
+effective_mode=degraded
+known_gaps=kernel-enforcement-inactive,runtime-only-authority
 last_error=test-degraded
 EOF
 printf 'installed\n' > "${DEGRADED_RUN}/boot-mode"
@@ -44,6 +62,7 @@ printf '%s\n' "${DEGRADED_OUTPUT}"
 grep -q '^loader_mode=degraded$' <<<"${DEGRADED_OUTPUT}"
 grep -q '^effective_mode=degraded$' <<<"${DEGRADED_OUTPUT}"
 grep -q '^phase3_enforcement_ready=no$' <<<"${DEGRADED_OUTPUT}"
+grep -q '^loader_effective_mode=degraded$' <<<"${DEGRADED_OUTPUT}"
 grep -q '^cgroup_v2=' <<<"${DEGRADED_OUTPUT}"
 grep -q '^btf_vmlinux=' <<<"${DEGRADED_OUTPUT}"
 grep -q '^l400_root=' <<<"${DEGRADED_OUTPUT}"
@@ -57,6 +76,10 @@ protection_active=1
 phase=active
 attached_hooks=file_open,bprm_creds_from_file,bprm_check_security
 policy_version=phase3-v1
+runtime_version=0.2.0
+ebpf_version=0.2.0
+effective_mode=full
+known_gaps=none
 last_error=none
 EOF
 
@@ -65,5 +88,7 @@ printf '%s\n' "${PHASE3_OUTPUT}"
 grep -q '^loader_mode=full$' <<<"${PHASE3_OUTPUT}"
 grep -q '^loader_hooks_ok=yes$' <<<"${PHASE3_OUTPUT}"
 grep -q '^loader_policy_ok=yes$' <<<"${PHASE3_OUTPUT}"
+assert_non_empty_field "${PHASE3_OUTPUT}" "loader_ebpf_version"
+grep -q '^loader_known_gaps=none$' <<<"${PHASE3_OUTPUT}"
 grep -q '^phase3_enforcement_ready=yes$' <<<"${PHASE3_OUTPUT}"
 grep -q '^phase3_enforcement_ready=yes$' "${PHASE3_RUN}/support-profile"

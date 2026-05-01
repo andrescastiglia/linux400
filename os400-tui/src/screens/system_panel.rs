@@ -1,12 +1,13 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 use std::process::Command;
 
+use crate::cl_parser::tokenize_cl_command;
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::session::SessionContext;
 use crate::style::*;
@@ -38,7 +39,7 @@ impl SystemPanel {
     fn refresh(&mut self) {
         let state = self.session.snapshot();
         match Command::new("l400cmd")
-            .args(self.command.split_whitespace())
+            .args(tokenize_cl_command(&self.command))
             .env("L400_USER", &state.user_profile)
             .env("L400_CURLIB", &state.current_library)
             .env("L400_LIBLIST", state.library_list.join(":"))
@@ -79,7 +80,7 @@ impl Screen for SystemPanel {
                 Constraint::Length(3),
                 Constraint::Length(3),
             ])
-            .split(frame.area());
+            .split(crate::screens::screen_area(frame));
 
         self.render_header(frame, chunks[0]);
         self.render_body(frame, chunks[1]);
@@ -186,9 +187,8 @@ impl SystemPanel {
 }
 
 fn command_title(command: &str) -> String {
-    command
-        .split_whitespace()
-        .next()
-        .unwrap_or("DISPLAY")
-        .to_string()
+    tokenize_cl_command(command)
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "DISPLAY".to_string())
 }

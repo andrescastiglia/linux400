@@ -1,13 +1,14 @@
 use clap::Parser;
 use l400::cgroup::{
-    assign_to_workload, job_log_path, register_job, update_job_status, JobStatus, WorkloadType,
+    JobStatus, WorkloadType, assign_to_workload, job_log_path, register_job, update_job_status,
 };
 use std::env;
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::thread;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Submit Job (SBMJOB) - Linux/400", long_about = None)]
@@ -17,7 +18,7 @@ struct Args {
     cmd: String,
 
     /// Argumentos para el comando
-    #[arg(trailing_var_arg = true)]
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     args: Vec<String>,
 
     /// Ejecutar como daemon/hijo (uso interno)
@@ -58,6 +59,57 @@ fn chrono_like_timestamp() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs().to_string())
         .unwrap_or_else(|_| "0".to_string())
+}
+
+fn append_line(path: &PathBuf, line: &str) {
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+fn stream_to_spool_and_log<R>(
+    mut reader: R,
+    label: &'static str,
+    spool_path: PathBuf,
+    log_path: PathBuf,
+) -> thread::JoinHandle<()>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut spool = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&spool_path)
+            .ok();
+        let mut log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok();
+
+        if let Some(file) = spool.as_mut() {
+            let _ = writeln!(file, "--- {label} ---");
+        }
+        if let Some(file) = log.as_mut() {
+            let _ = writeln!(file, "--- {label} ---");
+        }
+
+        let mut buffer = [0_u8; 8192];
+        while let Ok(read) = reader.read(&mut buffer) {
+            if read == 0 {
+                break;
+            }
+            if let Some(file) = spool.as_mut() {
+                let _ = file.write_all(&buffer[..read]);
+                let _ = file.flush();
+            }
+            if let Some(file) = log.as_mut() {
+                let _ = file.write_all(&buffer[..read]);
+                let _ = file.flush();
+            }
+        }
+    })
 }
 
 fn main() {
@@ -102,12 +154,7 @@ fn main() {
         if let Some(parent) = log_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let log_stdout = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .ok();
-        let log_stderr = OpenOptions::new()
+        let mut log = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&log_path)
@@ -124,48 +171,100 @@ fn main() {
         if let Some(file) = spool.as_mut() {
             let _ = writeln!(
                 file,
-                "job={} user={} command={} status=*RUN",
-                args.job, user, cmd_str
+                "spool_version=1\njob={} pid={} user={} jobq={} command={} status=RUN submitted_at={}",
+                args.job,
+                pid,
+                user,
+                jobq,
+                cmd_str,
+                chrono_like_timestamp()
             );
         }
-        let status = Command::new(&args.cmd)
-            .args(&args.args)
-            .stdout(
-                spool
-                    .as_ref()
-                    .and_then(|file| file.try_clone().ok())
-                    .or(log_stdout)
-                    .map(Stdio::from)
-                    .unwrap_or_else(Stdio::null),
-            )
-            .stderr(
-                spool
-                    .as_ref()
-                    .and_then(|file| file.try_clone().ok())
-                    .or(log_stderr)
-                    .map(Stdio::from)
-                    .unwrap_or_else(Stdio::null),
-            )
-            .status();
+        if let Some(file) = log.as_mut() {
+            let _ = writeln!(
+                file,
+                "job={} pid={} user={} jobq={} command={} status=RUN",
+                args.job, pid, user, jobq, cmd_str
+            );
+        }
 
-        let final_status = match status {
-            Ok(s) if s.success() => JobStatus::Completed,
-            _ => JobStatus::Failed,
+        drop(spool);
+        drop(log);
+
+        let child = Command::new(&args.cmd)
+            .args(&args.args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn();
+
+        let final_status = match child {
+            Ok(mut child) => {
+                let stdout_handle = child.stdout.take().map(|stdout| {
+                    stream_to_spool_and_log(stdout, "stdout", spool_path.clone(), log_path.clone())
+                });
+                let stderr_handle = child.stderr.take().map(|stderr| {
+                    stream_to_spool_and_log(stderr, "stderr", spool_path.clone(), log_path.clone())
+                });
+
+                let status = child.wait();
+                if let Some(handle) = stdout_handle {
+                    let _ = handle.join();
+                }
+                if let Some(handle) = stderr_handle {
+                    let _ = handle.join();
+                }
+
+                match status {
+                    Ok(status) if status.success() => {
+                        append_line(&spool_path, &format!("exit_status={status}"));
+                        append_line(&log_path, &format!("exit_status={status}"));
+                        JobStatus::Completed
+                    }
+                    Ok(status) => {
+                        append_line(&spool_path, &format!("exit_status={status}"));
+                        append_line(&log_path, &format!("exit_status={status}"));
+                        JobStatus::Failed
+                    }
+                    Err(error) => {
+                        append_line(&spool_path, &format!("wait_error={error}"));
+                        append_line(&log_path, &format!("wait_error={error}"));
+                        JobStatus::Failed
+                    }
+                }
+            }
+            Err(error) => {
+                append_line(&spool_path, &format!("spawn_error={error}"));
+                append_line(&log_path, &format!("spawn_error={error}"));
+                JobStatus::Failed
+            }
         };
 
         // 4. Actualizar el estado final
         let _ = update_job_status(pid, final_status);
-        if let Some(mut file) = spool {
-            let _ = writeln!(file, "job={} status={}", args.job, final_status);
-        }
+        append_line(
+            &spool_path,
+            &format!(
+                "job={} status={} ended_at={}",
+                args.job,
+                final_status,
+                chrono_like_timestamp()
+            ),
+        );
+        append_line(
+            &log_path,
+            &format!(
+                "job={} status={} ended_at={}",
+                args.job,
+                final_status,
+                chrono_like_timestamp()
+            ),
+        );
     } else {
         // Somos el SBMJOB original que invoca el usuario.
         // Hacemos fork/spawn de nosotros mismos con --daemon.
 
         #[allow(clippy::zombie_processes)]
         let child = Command::new(env::current_exe().unwrap())
-            .arg(&args.cmd)
-            .args(&args.args)
             .arg("--daemon")
             .arg("--job")
             .arg(&args.job)
@@ -173,6 +272,8 @@ fn main() {
             .arg(&jobq)
             .arg("--user")
             .arg(&user)
+            .arg(&args.cmd)
+            .args(&args.args)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .stdin(Stdio::null())

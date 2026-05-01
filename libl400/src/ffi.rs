@@ -23,7 +23,7 @@ pub fn clear_last_cpf() {
 ///
 /// # Safety
 /// `msg` debe ser un puntero válido a una cadena C terminada en NUL durante toda la llamada.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn l400_sndpgmmsg(msg: *const c_char) {
     if msg.is_null() {
         return;
@@ -34,17 +34,17 @@ pub unsafe extern "C" fn l400_sndpgmmsg(msg: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_last_cpf_code() -> u32 {
     LAST_CPF_CODE.load(Ordering::SeqCst)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_clear_status() {
     clear_last_cpf();
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// Sets the last CPF status code from a C string.
 ///
 /// # Safety

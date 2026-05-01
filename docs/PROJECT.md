@@ -41,7 +41,9 @@ Los objetos viven bajo `L400_ROOT` (`/l400` por defecto) y se catalogan con xatt
 | `*FILE SRC` | Source file con miembros como archivos planos. |
 | `*DTAQ` | Cola persistente FIFO con mensajes de longitud variable. |
 | `*USRPRF` | Perfil administrable por comandos runtime. |
-| `*CMD`, `*SRVPGM`, `*OUTQ` | Tipos reconocidos; funcionalidad parcial segun comando/pantalla. |
+| `*CMD` | Comando promptable/documentable catalogado en QSYS. |
+| `*OUTQ` | Output queue y spool basico para salida operativa. |
+| `*SRVPGM` | Tipo reconocido; contrato de carga/linking pendiente. |
 
 Metadatos principales actuales:
 
@@ -89,17 +91,19 @@ Capacidades actuales:
 El dispatcher `l400cmd` y los symlinks empaquetados cubren:
 
 ```text
-WRKSYSSTS WRKACTJOB WRKSYSVAL DSPLOG WRKUSRPRF WRKSPLF PWRDWNSYS
+WRKSYSSTS WRKACTJOB WRKJOB WRKJOBQ HLDJOB RLSJOB ENDJOB WRKSYSVAL DSPLOG
+DSPCMD WRKCMD CRTCMD WRKUSRPRF WRKSPLF WRKOUTQ CRTOUTQ DLTOUTQ
+DSPSPLF DLTSPLF PWRDWNSYS
 WRKOBJ CRTLIB DLTLIB ADDLIBLE CHGCURLIB RNMOBJ DLTOBJ CPYOBJ
 DSPOBJD CHGOBJD DSPOBJAUT CHKOBJAUT GRTOBJAUT RVKOBJAUT
-DSPPOLICY DSPAUD
+CHKOBJINT DSPPOLICY DSPAUD
 CRTPGM CRTCLPGM CALL SBMJOB
-STRPDM STRSEU STRSQL WRKMBRPDM GO SIGNOFF
+STRPDM STRSEU STRSQL WRKMBRPDM DLTMBR CPYMBR CHGMBRD GO SIGNOFF
 CRTPF CRTLF DSPPFM CLRPFM ADDPFM WRTPFM
 CRTDTAQ SNDDTAQ RCVDTAQ DSPDTAQ
 ```
 
-`PWRDWNSYS` exige confirmacion explicita y root para ejecutar la accion real.
+`PWRDWNSYS` exige confirmacion explicita y root para ejecutar la accion real; `L400_PWRDWNSYS_DRY_RUN=1` permite smoke seguro.
 
 ## Work management
 
@@ -107,7 +111,7 @@ Estado actual:
 
 - subsistemas base `QINTER` y `QBATCH`;
 - registro de jobs en `L400_RUN_DIR/jobs`;
-- estados `JOBQ`, `ACTIVE`, `COMPLETED`, `FAILED`;
+- estados `JOBQ`, `HELD`, `ACTIVE`, `ENDING`, `ENDED`, `COMPLETED`, `FAILED`, `KILLED`;
 - salida/log por job batch;
 - cgroups v2 best-effort;
 - modo degradado si cgroups no estan disponibles;
@@ -156,6 +160,7 @@ Estado actual:
 - auditoria en `QSYS/QHST` y, si existe, `QUSRSYS/QEZJOBLOG`;
 - `DSPPOLICY`, `DSPAUD`, `DSPOBJAUT`, `CHKOBJAUT`, `GRTOBJAUT`, `RVKOBJAUT`;
 - eBPF valida tipo, formato de `*PGM`, `*PUBLIC:*EXCLUDE`, owner UID y autoridad explicita `UID:<uid>`.
+- `GRTOBJAUT` conserva grants por perfil (`QPGMR:*USE`) y agrega entradas espejo `UID:<uid>:*USE` cuando puede resolver el `*USRPRF`, para mantener paridad runtime/eBPF.
 
 ## Plataforma y release
 
@@ -184,7 +189,7 @@ RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh
 Estas limitaciones no son el plan; son la foto actual del sistema:
 
 - la compatibilidad IBM i es semantica y parcial, no binaria;
-- `*SRVPGM` y `*OUTQ` estan reconocidos pero no tienen profundidad completa;
+- `*SRVPGM` esta reconocido pero aun no tiene contrato de carga/linking;
 - las marcas de toolchain son simples y no equivalen a firma criptografica;
 - el enforcement eBPF de autoridad cubre ejecucion, pero no todo `file_open` por perfil/grupo;
 - los tests interactivos de TUI son mayormente unitarios/smoke, no una suite 5250 completa;

@@ -2,7 +2,10 @@
 
 ## Project
 
-Linux/400 is an OS/400-style object model on Linux backed by ZFS xattrs, an eBPF LSM, and a `sled`-based runtime for `*FILE` and `*DTAQ` flows.
+Linux/400 is an OS/400-style object model on Linux backed by ZFS xattrs, an eBPF LSM, and a `sled`-based runtime for `*FILE` and `*DTAQ` flows. Refer to:
+- `docs/KERNEL.md` for the project vision and target experience
+- `docs/PROJECT.md` for current implementation status
+- `docs/plan/implementation_plan.md` for the roadmap and gap analysis
 
 ## Workspace
 
@@ -19,25 +22,19 @@ Linux/400 is an OS/400-style object model on Linux backed by ZFS xattrs, an eBPF
 Use targeted Cargo commands from the repository root. Plain `cargo build` pulls in `l400-ebpf` and may fail without the BPF toolchain.
 
 ```bash
-# Safe user-space builds that currently compile cleanly
-cargo build -p c400c
-cargo build -p clc
-cargo build -p l400-loader
-
-# Core library tests/build coverage
-cargo test -p l400
-
 # eBPF (requires BPF toolchain)
 cd l400-ebpf && cargo build --target bpfel-unknown-none --release
 ```
 
-`os400-tui` is a workspace member, but do not assume it is part of the current known-clean build subset.
+`os400-tui` is now part of validated test gates; include in `cargo test -p os400-tui` runs.
 
 ## Test Commands
 
 ```bash
-# Core library
+# Core library and toolchain
 cargo test -p l400
+cargo test -p clc
+cargo test -p os400-tui
 cargo test -p l400 test_pf
 cargo test -p l400 db::tests::test_name -- --exact
 
@@ -57,7 +54,7 @@ cargo fmt --all --check
 cargo clippy -p l400 --all-targets -- -D warnings
 ```
 
-`cargo fmt --all --check` and `cargo clippy -p l400 --all-targets -- -D warnings` are useful checks, but the tree is not always baseline-clean outside the code you are touching.
+These are part of the rapid local gate. The full quality gate also includes `./scripts/test/test_release_rc.sh` and (for release candidates) `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh`. The tree is not always baseline-clean outside the code you are touching.
 
 ## Environment-Dependent Flows
 
@@ -76,6 +73,13 @@ sudo ./test_e2e_zfs.sh
 - Kernel >= 6.11 for the eBPF LSM flow
 - ZFS with `xattr=sa`
 - Root privileges for loader and end-to-end flows
+
+### Platform Profiles (from `docs/KERNEL.md`)
+| Profile | Objective |
+| --- | --- |
+| `dev` | Local development without BPF/ZFS/root; all user-space components testable. |
+| `degraded` | Installable system without full kernel enforcement; TUI/reports explicitly indicate degraded mode. |
+| `full` | Active BPF LSM, BTF available, cgroups v2, `/l400` persistent with xattrs (preferably ZFS `xattr=sa`). |
 
 ## High-Level Architecture
 
@@ -110,6 +114,9 @@ pub const VALID_OBJ_TYPES: &[L400ObjType] = &[
 - PF members: `"PF_MEMBER"`
 - LF secondary indexes: `"LF_IDX_<name>"`
 - Data queues: `"DTAQ"`
+
+### Auth Manifest
+`user.l400.auth.manifest` stores structured authorization data with fields: profile, UID, authority, origin (`explicit`, `public`, `owner`), and version. `GRTOBJAUT`/`RVKOBJAUT` maintain both the manifest and flat format entries for runtime/eBPF compatibility.
 
 ### Workspace Notes
 

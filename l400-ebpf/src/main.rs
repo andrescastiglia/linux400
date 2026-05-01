@@ -14,7 +14,8 @@ use l400_ebpf_common::{
     STAT_EXEC_ALLOWED_OWNER, STAT_EXEC_ALLOWED_PGM, STAT_EXEC_ALLOWED_USER_AUTH,
     STAT_EXEC_CHECK_ALLOWED, STAT_EXEC_CHECK_DENIED, STAT_EXEC_DECISION_MISSING,
     STAT_EXEC_DENIED_EXCLUDE, STAT_EXEC_DENIED_INVALID_FORMAT, STAT_EXEC_DENIED_WRONG_TYPE,
-    STAT_OBJTYPE_BASE, STAT_OPEN_ALLOWED, VALID_OBJ_TYPES,
+    STAT_OBJTYPE_BASE, STAT_OPEN_ALLOWED, STAT_OPEN_ALLOWED_OWNER, STAT_OPEN_ALLOWED_USER_AUTH,
+    STAT_OPEN_DENIED_EXCLUDE, VALID_OBJ_TYPES,
 };
 
 #[map(name = "L400_STATS")]
@@ -37,7 +38,7 @@ pub struct bpf_dynptr {
     val: [u64; 2],
 }
 
-extern "C" {
+unsafe extern "C" {
     pub fn bpf_dynptr_from_mem(
         data: *mut c_void,
         size: u32,
@@ -210,7 +211,7 @@ fn lookup_file_owner_uid_matches(file: *mut c_void, uid: u32) -> bool {
     let mut i = 0usize;
     while i < err as usize {
         let ch = attr_value[i];
-        if ch < b'0' || ch > b'9' {
+        if !ch.is_ascii_digit() {
             return false;
         }
         parsed = parsed.saturating_mul(10).saturating_add((ch - b'0') as u32);
@@ -269,7 +270,7 @@ fn lookup_file_uid_auth_allows(file: *mut c_void, uid: u32) -> bool {
         if i + 4 + digits + 5 <= len && &attr_value[i..i + 4] == b"UID:" {
             let uid_start = i + 4;
             let auth_start = uid_start + digits;
-            if &attr_value[uid_start..auth_start] == &uid_buf[..digits]
+            if attr_value[uid_start..auth_start] == uid_buf[..digits]
                 && attr_value[auth_start] == b':'
             {
                 let remaining = len - auth_start - 1;
@@ -313,6 +314,21 @@ fn try_file_open(ctx: LsmContext) -> Result<i32, i32> {
         ObjTypeLookup::Untagged => Ok(0),
         ObjTypeLookup::Known(_, index) => {
             inc_stat(STAT_OBJTYPE_BASE + index as u32);
+            if lookup_file_public_auth_exclude(file) {
+                let uid = (bpf_get_current_uid_gid() & 0xffff_ffff) as u32;
+                if lookup_file_owner_uid_matches(file, uid) {
+                    inc_stat(STAT_OPEN_ALLOWED_OWNER);
+                } else if lookup_file_uid_auth_allows(file, uid) {
+                    inc_stat(STAT_OPEN_ALLOWED_USER_AUTH);
+                } else {
+                    inc_stat(STAT_OPEN_DENIED_EXCLUDE);
+                    warn!(
+                        &ctx,
+                        "Policy {}: file_open denegado por *PUBLIC:*EXCLUDE", L400_POLICY_VERSION
+                    );
+                    return Err(EACCES);
+                }
+            }
             inc_stat(STAT_OPEN_ALLOWED);
             info!(
                 &ctx,
@@ -474,6 +490,7 @@ pub fn bprm_check_security(ctx: LsmContext) -> i32 {
     }
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unsafe { core::hint::unreachable_unchecked() }

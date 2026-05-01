@@ -76,6 +76,7 @@ En la linea de comandos, `F4` abre prompt por campos; `Tab`/`Shift-Tab` cambia p
 | --- | --- | --- |
 | `DSPOBJAUT` | Muestra autorizaciones de un objeto. | `DSPOBJAUT OBJ(QGPL/MYPGM) OBJTYPE(*PGM)` |
 | `CHKOBJAUT` | Verifica una autorizacion efectiva para usuario/comando. | `CHKOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR) AUT(*USE)` |
+| `CHKOBJINT` | Verifica metadatos minimos e integridad basica de un objeto. | `CHKOBJINT OBJ(QGPL/MYFILE)` |
 | `GRTOBJAUT` | Otorga autorizacion sobre un objeto. | `GRTOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR) AUT(*USE)` |
 | `RVKOBJAUT` | Revoca autorizacion sobre un objeto. | `RVKOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR)` |
 | `DSPPOLICY` | Muestra la matriz runtime/eBPF de politica de seguridad. | `DSPPOLICY` |

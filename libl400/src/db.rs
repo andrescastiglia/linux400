@@ -1,12 +1,12 @@
 use crate::bdb_native::{BdbError, BdbHandle};
-use crate::object::{catalog_object, ObjectError};
+use crate::object::{ObjectError, catalog_object};
 use crate::storage::{
-    default_storage_backend, open_sled_db, read_storage_backend, read_string_attr, read_u32_attr,
-    write_storage_backend, write_string_attr, write_u32_attr, StorageBackend, StorageError,
-    L400_BASE_PF_ATTR, L400_FIELD_SCHEMA_ATTR, L400_KEY_FIELDS_ATTR, L400_PF_MEMBERS_ATTR,
-    L400_RECORD_LEN_ATTR,
+    L400_BASE_PF_ATTR, L400_DATA_FORMAT_VERSION, L400_DATA_FORMAT_VERSION_ATTR,
+    L400_FIELD_SCHEMA_ATTR, L400_KEY_FIELDS_ATTR, L400_PF_MEMBERS_ATTR, L400_RECORD_LEN_ATTR,
+    StorageBackend, StorageError, default_storage_backend, open_sled_db, read_storage_backend,
+    read_string_attr, read_u32_attr, write_storage_backend, write_string_attr, write_u32_attr,
 };
-use crate::zfs::{get_objtype, validate_objtype, ZfsError};
+use crate::zfs::{ZfsError, get_objtype, validate_objtype};
 use sled::{Db, Tree};
 use std::path::Path;
 use thiserror::Error;
@@ -138,6 +138,11 @@ pub fn create_pf(lib_path: &Path, name: &str, record_len: usize) -> Result<Physi
     catalog_object(&target, "*FILE", Some("PF"), Some("Physical file"))?;
     write_storage_backend(&target, backend)?;
     write_u32_attr(&target, L400_RECORD_LEN_ATTR, record_len as u32)?;
+    write_u32_attr(
+        &target,
+        L400_DATA_FORMAT_VERSION_ATTR,
+        L400_DATA_FORMAT_VERSION,
+    )?;
     write_string_attr(&target, L400_KEY_FIELDS_ATTR, "KEY")?;
     write_string_attr(&target, L400_PF_MEMBERS_ATTR, DEFAULT_PF_MEMBER)?;
 
@@ -152,6 +157,11 @@ pub fn create_pf(lib_path: &Path, name: &str, record_len: usize) -> Result<Physi
 
 pub fn write_pf_schema(path: &Path, schema: &PfSchema) -> Result<(), DbError> {
     write_u32_attr(path, L400_RECORD_LEN_ATTR, schema.record_len)?;
+    write_u32_attr(
+        path,
+        L400_DATA_FORMAT_VERSION_ATTR,
+        L400_DATA_FORMAT_VERSION,
+    )?;
     let fields = schema
         .fields
         .iter()
@@ -434,10 +444,10 @@ fn dependent_lfs_for_pf(pf_path: &Path) -> Result<Vec<std::path::PathBuf>, DbErr
         if path == pf_path {
             continue;
         }
-        if let Ok(Some(base)) = read_string_attr(&path, L400_BASE_PF_ATTR) {
-            if base == pf {
-                result.push(path);
-            }
+        if let Ok(Some(base)) = read_string_attr(&path, L400_BASE_PF_ATTR)
+            && base == pf
+        {
+            result.push(path);
         }
     }
     Ok(result)
@@ -550,11 +560,16 @@ pub fn create_lf_filtered(
         _ => {
             return Err(DbError::Storage(StorageError::InvalidBackend(
                 "physical file storage/backend mismatch".to_string(),
-            )))
+            )));
         }
     };
 
     write_string_attr(&lf_path, L400_BASE_PF_ATTR, &over_pf.path.to_string_lossy())?;
+    write_u32_attr(
+        &lf_path,
+        L400_DATA_FORMAT_VERSION_ATTR,
+        L400_DATA_FORMAT_VERSION,
+    )?;
     if let Some(value) = select_value {
         write_string_attr(&lf_path, "user.l400.lf.select", value)?;
     }
@@ -1153,7 +1168,7 @@ fn run_insert_statement(
             other => {
                 return Err(DbError::InvalidQuery(format!(
                     "INSERT does not support column {other}"
-                )))
+                )));
             }
         }
     }
@@ -1439,6 +1454,23 @@ mod tests {
     }
 
     #[test]
+    fn create_pf_and_lf_write_data_format_version() {
+        let root = tmp_lib();
+        let lib_path = l400_library(&root, "QGPL");
+        let pf = create_pf(&lib_path, "CUSTOMERS", 80).unwrap();
+        assert_eq!(
+            read_u32_attr(&pf.path, L400_DATA_FORMAT_VERSION_ATTR).unwrap(),
+            Some(L400_DATA_FORMAT_VERSION)
+        );
+
+        let lf = create_lf(&lib_path, "CUSTLF", &pf).unwrap();
+        assert_eq!(
+            read_u32_attr(&lib_path.join(&lf.name), L400_DATA_FORMAT_VERSION_ATTR).unwrap(),
+            Some(L400_DATA_FORMAT_VERSION)
+        );
+    }
+
+    #[test]
     fn test_pf_not_found() {
         let lib = tmp_lib();
         let lib_path = l400_library(&lib, "QGPL");
@@ -1507,9 +1539,11 @@ mod tests {
         );
 
         add_pf_member(&pf.path, "JAN2026").expect("add_pf_member falló");
-        assert!(list_pf_members(&pf.path)
-            .expect("list_pf_members falló")
-            .contains(&"JAN2026".to_string()));
+        assert!(
+            list_pf_members(&pf.path)
+                .expect("list_pf_members falló")
+                .contains(&"JAN2026".to_string())
+        );
 
         let lf = create_lf(&lib_path, "CUSTBYNAME", &pf).expect("create_lf falló");
         pf.write_rcd(b"C001", b"ALICE").expect("write_rcd falló");

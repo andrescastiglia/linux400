@@ -32,14 +32,16 @@ static LAM_ENABLED: OnceLock<bool> = OnceLock::new();
 #[inline]
 unsafe fn arch_prctl_call(code: u32, addr: u64) -> i32 {
     let ret: i32;
-    core::arch::asm!(
-        "syscall",
-        in("rax") code as u64,
-        in("rdi") addr,
-        out("rcx") _,
-        out("r11") _,
-        lateout("rax") ret
-    );
+    unsafe {
+        core::arch::asm!(
+            "syscall",
+            in("rax") code as u64,
+            in("rdi") addr,
+            out("rcx") _,
+            out("r11") _,
+            lateout("rax") ret
+        );
+    }
     ret
 }
 

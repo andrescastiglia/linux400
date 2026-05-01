@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use aya::{programs::Lsm, Ebpf};
+use aya::{Ebpf, programs::Lsm};
 use clap::{Parser, ValueEnum};
-use l400::{write_loader_status, LoaderStatus};
+use l400::{LoaderStatus, write_loader_status};
 use log::{info, warn};
 use std::fs;
 use std::path::PathBuf;
@@ -51,6 +51,23 @@ fn persist_status(runtime: &LoaderRuntime, phase: &str, last_error: Option<&str>
         status.attached_hooks = Some(runtime.attached_hooks.to_string());
         status.policy_version = Some(l400_ebpf_common::L400_POLICY_VERSION.to_string());
     }
+    status.runtime_version = Some(l400::runtime_version().to_string());
+    status.ebpf_version = Some(env!("CARGO_PKG_VERSION").to_string());
+    status.effective_mode = Some(
+        if runtime.protection_active {
+            runtime.mode.as_str()
+        } else if matches!(runtime.mode, LoaderMode::Dev) {
+            "dev"
+        } else {
+            "degraded"
+        }
+        .to_string(),
+    );
+    status.known_gaps = Some(if runtime.protection_active {
+        "none".to_string()
+    } else {
+        "kernel-enforcement-inactive,runtime-only-authority".to_string()
+    });
     status.last_error = last_error.map(|err| err.to_string());
     if let Err(err) = write_loader_status(&status) {
         warn!("No se pudo persistir loader-status: {}", err);
@@ -175,7 +192,7 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
                 mode,
                 "No se pudo leer el bytecode eBPF",
                 anyhow::Error::new(err),
-            )
+            );
         }
     };
 
@@ -200,7 +217,7 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
                 mode,
                 "No existe el programa file_open",
                 anyhow::anyhow!("missing file_open"),
-            )
+            );
         }
     };
     if let Err(err) = file_open
@@ -219,7 +236,7 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
                 mode,
                 "No existe el programa bprm_creds_from_file",
                 anyhow::anyhow!("missing bprm_creds_from_file"),
-            )
+            );
         }
     };
     if let Err(err) = bprm_creds_from_file
@@ -238,7 +255,7 @@ fn init_loader(mode: LoaderMode) -> Result<LoaderRuntime> {
                 mode,
                 "No existe el programa bprm_check_security",
                 anyhow::anyhow!("missing bprm_check_security"),
-            )
+            );
         }
     };
     if let Err(err) = bprm_check_security
@@ -300,6 +317,15 @@ fn log_stats(runtime: &mut LoaderRuntime) -> Result<()> {
     let exec_check_denied = stats_map
         .get(&l400_ebpf_common::STAT_EXEC_CHECK_DENIED, 0)
         .unwrap_or(0);
+    let open_denied_exclude = stats_map
+        .get(&l400_ebpf_common::STAT_OPEN_DENIED_EXCLUDE, 0)
+        .unwrap_or(0);
+    let open_allowed_owner = stats_map
+        .get(&l400_ebpf_common::STAT_OPEN_ALLOWED_OWNER, 0)
+        .unwrap_or(0);
+    let open_allowed_uid = stats_map
+        .get(&l400_ebpf_common::STAT_OPEN_ALLOWED_USER_AUTH, 0)
+        .unwrap_or(0);
 
     info!("--- Estadísticas de L400 ---");
     info!("Accesos Permitidos        : {}", allowed);
@@ -310,6 +336,9 @@ fn log_stats(runtime: &mut LoaderRuntime) -> Result<()> {
     info!("Exec sin decisión previa  : {}", exec_missing);
     info!("Exec confirmados en bprm  : {}", exec_check_allowed);
     info!("Exec denegados en bprm    : {}", exec_check_denied);
+    info!("Open permitidos por owner : {}", open_allowed_owner);
+    info!("Open permitidos por UID   : {}", open_allowed_uid);
+    info!("Open denegados *EXCLUDE   : {}", open_denied_exclude);
 
     for (i, obj) in l400_ebpf_common::VALID_OBJ_TYPES.iter().enumerate() {
         let count = stats_map

@@ -1,6 +1,6 @@
 use l400::{
-    assign_to_workload, cgroup::JobStatus, create_l400_slices, list_jobs, register_current_job,
-    register_job, remove_job, update_job_status, WorkloadType,
+    WorkloadType, assign_to_workload, cgroup::JobStatus, create_l400_slices, list_jobs,
+    register_current_job, register_job, remove_job, update_job_status,
 };
 use std::process::{Command, Stdio};
 use std::thread;

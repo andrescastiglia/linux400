@@ -1,6 +1,6 @@
 use crate::zfs::{
-    create_dataset, get_objtype, set_objtype, validate_objtype, zfs_command_available,
-    zfs_dataset_for_path, ZfsError,
+    ZfsError, create_dataset, get_objtype, set_objtype, validate_objtype, zfs_command_available,
+    zfs_dataset_for_path,
 };
 use std::env;
 use std::fs;
@@ -356,10 +356,10 @@ pub fn list_libraries(root_path: &Path) -> Result<Vec<String>, ObjectError> {
     for entry in fs::read_dir(root_path)? {
         let entry = entry?;
         let path = entry.path();
-        if let Ok(object) = describe_object(&path) {
-            if object.objtype == "*LIB" {
-                libraries.push(object.name);
-            }
+        if let Ok(object) = describe_object(&path)
+            && object.objtype == "*LIB"
+        {
+            libraries.push(object.name);
         }
     }
 

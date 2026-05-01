@@ -93,18 +93,19 @@ impl std::str::FromStr for L400Authority {
 pub const L400_AUTH_ATTR: &str = "user.l400.auth";
 pub const L400_AUTH_VERSION_ATTR: &str = "user.l400.auth.version";
 pub const L400_AUTH_MANIFEST_ATTR: &str = "user.l400.auth.manifest";
+pub const L400_AUTH_MANIFEST_VERSION: u32 = 2;
 
 /// Lee las autorizaciones de un objeto (formato "USER:PERM,PUBLIC:PERM")
 pub fn get_object_authorities(path: &Path) -> Result<HashMap<String, L400Authority>, AuthError> {
     let mut auths = HashMap::new();
-    if let Some(raw) = xattr::get(path, L400_AUTH_ATTR)? {
-        if let Ok(s) = String::from_utf8(raw) {
-            for part in s.split(',') {
-                if let Some((user, perm)) = part.split_once(':') {
-                    if let Ok(authority) = perm.parse() {
-                        auths.insert(user.to_string(), authority);
-                    }
-                }
+    if let Some(raw) = xattr::get(path, L400_AUTH_ATTR)?
+        && let Ok(s) = String::from_utf8(raw)
+    {
+        for part in s.split(',') {
+            if let Some((user, perm)) = part.split_once(':')
+                && let Ok(authority) = perm.parse()
+            {
+                auths.insert(user.to_string(), authority);
             }
         }
     }
@@ -119,16 +120,75 @@ pub fn set_object_authorities(
     let mut parts = Vec::new();
     for (user, perm) in auths {
         parts.push(format!("{}:{}", user, perm));
+        if let Some(uid) = uid_for_profile(path, user)? {
+            parts.push(format!("UID:{}:{}", uid, perm));
+        }
     }
     let serialized = parts.join(",");
     xattr::set(path, L400_AUTH_ATTR, serialized.as_bytes())?;
-    xattr::set(path, L400_AUTH_VERSION_ATTR, b"1")?;
+    xattr::set(
+        path,
+        L400_AUTH_VERSION_ATTR,
+        L400_AUTH_MANIFEST_VERSION.to_string().as_bytes(),
+    )?;
     xattr::set(
         path,
         L400_AUTH_MANIFEST_ATTR,
-        format!("version=1;entries={serialized}").as_bytes(),
+        build_auth_manifest(path, auths, &serialized)?.as_bytes(),
     )?;
     Ok(())
+}
+
+fn build_auth_manifest(
+    path: &Path,
+    auths: &HashMap<String, L400Authority>,
+    serialized: &str,
+) -> Result<String, AuthError> {
+    let mut entries = Vec::new();
+    for (profile, authority) in auths {
+        let origin = if profile == "*PUBLIC" {
+            "public"
+        } else {
+            "explicit"
+        };
+        let uid = uid_for_profile(path, profile)?.unwrap_or_else(|| "-".to_string());
+        entries.push(format!("{profile}:{uid}:{authority}:{origin}"));
+    }
+    entries.sort();
+    Ok(format!(
+        "version={};entries={};flat={serialized}",
+        L400_AUTH_MANIFEST_VERSION,
+        entries.join(",")
+    ))
+}
+
+fn uid_for_profile(object_path: &Path, profile: &str) -> Result<Option<String>, AuthError> {
+    let profile = profile.trim().to_uppercase();
+    if profile.is_empty() || profile.starts_with('*') || profile.starts_with("UID:") {
+        return Ok(None);
+    }
+
+    let root = object_path
+        .ancestors()
+        .find(|candidate| candidate.join("QSYS").exists())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(crate::object::resolve_l400_root);
+    let profile_path = root.join("QSYS").join(&profile);
+    if !profile_path.exists() {
+        return Ok(None);
+    }
+    let Some(raw) = xattr::get(&profile_path, crate::object::L400_OWNER_UID_ATTR)? else {
+        return Ok(None);
+    };
+    let Ok(uid) = String::from_utf8(raw) else {
+        return Ok(None);
+    };
+    let uid = uid.trim();
+    if uid.chars().all(|ch| ch.is_ascii_digit()) && !uid.is_empty() {
+        Ok(Some(uid.to_string()))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Otorga un permiso específico a un usuario sobre un objeto
@@ -194,6 +254,14 @@ fn check_authority_with_groups(
         }
     }
 
+    // El dueño conserva *ALL implícito antes del fallback público.
+    if let Some(raw) = xattr::get(path, crate::object::L400_OWNER_ATTR)?
+        && let Ok(owner) = String::from_utf8(raw)
+        && owner == user
+    {
+        return Ok(true);
+    }
+
     // Fallback a permiso público (*PUBLIC)
     if let Some(auth) = auths.get("*PUBLIC") {
         if *auth == L400Authority::Exclude {
@@ -203,15 +271,6 @@ fn check_authority_with_groups(
     }
 
     // Por defecto, sin permiso explícito ni público, se deniega (OS/400 strict)
-    // Opcionalmente se puede comprobar si el usuario es el dueño leyendo "user.l400.owner"
-    if let Some(raw) = xattr::get(path, crate::object::L400_OWNER_ATTR)? {
-        if let Ok(owner) = String::from_utf8(raw) {
-            if owner == user {
-                return Ok(true); // El dueño siempre tiene *ALL implícito
-            }
-        }
-    }
-
     Ok(false)
 }
 
@@ -297,7 +356,7 @@ fn auth_level(auth: L400Authority) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::{catalog_object, create_library};
+    use crate::object::{catalog_object, create_library, create_object_with_metadata};
 
     #[test]
     fn public_exclude_denies_call_authority() {
@@ -324,6 +383,33 @@ mod tests {
     }
 
     #[test]
+    fn grant_profile_authority_writes_uid_entry_for_ebpf() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let qsys = root.path().join("QSYS");
+        std::fs::create_dir_all(&qsys).expect("create qsys dir");
+        catalog_object(&qsys, "*LIB", Some("LIB"), Some("System library")).expect("catalog qsys");
+        create_object_with_metadata(&qsys, "QPGMR", "*USRPRF", Some("USRPRF"), Some("profile"))
+            .expect("create profile");
+        let lib = root.path().join("QGPL");
+        std::fs::create_dir_all(&lib).expect("create qgpl dir");
+        catalog_object(&lib, "*LIB", Some("LIB"), Some("General library")).expect("catalog qgpl");
+        let pgm = lib.join("HELLO");
+        std::fs::write(&pgm, "#!/bin/sh\nexit 0\n").expect("write pgm");
+        catalog_object(&pgm, "*PGM", Some("CL"), Some("test")).expect("catalog pgm");
+
+        grant_object_authority(&pgm, "*PUBLIC", L400Authority::Exclude).expect("grant exclude");
+        grant_object_authority(&pgm, "QPGMR", L400Authority::Use).expect("grant use");
+
+        let auth = xattr::get(&pgm, L400_AUTH_ATTR)
+            .expect("auth attr")
+            .expect("auth present");
+        let auth = String::from_utf8(auth).expect("auth utf8");
+        let uid = unsafe { libc::geteuid() };
+        assert!(auth.contains("QPGMR:*USE"));
+        assert!(auth.contains(&format!("UID:{uid}:*USE")));
+    }
+
+    #[test]
     fn group_authority_allows_runtime_operation_and_writes_manifest() {
         let root = tempfile::tempdir().expect("tempdir");
         let lib = create_library(root.path(), "QGPL").expect("create library");
@@ -338,8 +424,14 @@ mod tests {
         let manifest = xattr::get(&file, L400_AUTH_MANIFEST_ATTR)
             .expect("manifest attr")
             .expect("manifest present");
-        assert_eq!(String::from_utf8(version).unwrap(), "1");
-        assert!(String::from_utf8(manifest).unwrap().contains("DEVGRP:*USE"));
+        assert_eq!(
+            String::from_utf8(version).unwrap(),
+            L400_AUTH_MANIFEST_VERSION.to_string()
+        );
+        let manifest = String::from_utf8(manifest).unwrap();
+        assert!(manifest.contains("version=2"));
+        assert!(manifest.contains("DEVGRP:-:*USE:explicit"));
+        assert!(manifest.contains("flat=DEVGRP:*USE"));
 
         let identity = L400Identity {
             profile: "QUSER".to_string(),
@@ -350,6 +442,28 @@ mod tests {
         assert!(
             check_authority_for_identity(&file, &identity, L400Authority::Use)
                 .expect("check group authority")
+        );
+    }
+
+    #[test]
+    fn owner_authority_allows_runtime_operation_when_public_excluded() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let lib = create_library(root.path(), "QGPL").expect("create library");
+        let file = lib.join("OWNED");
+        std::fs::write(&file, "data").expect("write file");
+        catalog_object(&file, "*FILE", Some("PF"), Some("test")).expect("catalog file");
+        xattr::set(&file, crate::object::L400_OWNER_ATTR, b"QOWNER").expect("owner attr");
+        grant_object_authority(&file, "*PUBLIC", L400Authority::Exclude).expect("grant exclude");
+
+        let identity = L400Identity {
+            profile: "QOWNER".to_string(),
+            uid: 1000,
+            owner: "QOWNER".to_string(),
+            groups: Vec::new(),
+        };
+        assert!(
+            check_authority_for_identity(&file, &identity, L400Authority::Change)
+                .expect("check owner authority")
         );
     }
 }

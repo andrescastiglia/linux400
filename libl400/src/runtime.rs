@@ -22,6 +22,10 @@ pub struct LoaderStatus {
     pub bpf_path: Option<String>,
     pub attached_hooks: Option<String>,
     pub policy_version: Option<String>,
+    pub runtime_version: Option<String>,
+    pub ebpf_version: Option<String>,
+    pub effective_mode: Option<String>,
+    pub known_gaps: Option<String>,
     pub last_error: Option<String>,
 }
 
@@ -34,6 +38,10 @@ impl LoaderStatus {
             bpf_path: None,
             attached_hooks: None,
             policy_version: None,
+            runtime_version: None,
+            ebpf_version: None,
+            effective_mode: None,
+            known_gaps: None,
             last_error: None,
         }
     }
@@ -56,6 +64,18 @@ impl LoaderStatus {
         if let Some(version) = &self.policy_version {
             lines.push(format!("policy_version={version}"));
         }
+        if let Some(version) = &self.runtime_version {
+            lines.push(format!("runtime_version={version}"));
+        }
+        if let Some(version) = &self.ebpf_version {
+            lines.push(format!("ebpf_version={version}"));
+        }
+        if let Some(mode) = &self.effective_mode {
+            lines.push(format!("effective_mode={mode}"));
+        }
+        if let Some(gaps) = &self.known_gaps {
+            lines.push(format!("known_gaps={gaps}"));
+        }
         if let Some(err) = &self.last_error {
             lines.push(format!("last_error={err}"));
         }
@@ -74,12 +94,12 @@ impl LoaderStatus {
             Some(value) => {
                 return Err(RuntimeStatusError::InvalidEntry(format!(
                     "invalid protection_active={value}"
-                )))
+                )));
             }
             None => {
                 return Err(RuntimeStatusError::InvalidEntry(
                     "missing protection_active".to_string(),
-                ))
+                ));
             }
         };
         let phase = map
@@ -94,9 +114,17 @@ impl LoaderStatus {
             bpf_path: map.get("bpf_path").cloned(),
             attached_hooks: map.get("attached_hooks").cloned(),
             policy_version: map.get("policy_version").cloned(),
+            runtime_version: map.get("runtime_version").cloned(),
+            ebpf_version: map.get("ebpf_version").cloned(),
+            effective_mode: map.get("effective_mode").cloned(),
+            known_gaps: map.get("known_gaps").cloned(),
             last_error: map.get("last_error").cloned(),
         })
     }
+}
+
+pub fn runtime_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
 }
 
 pub fn l400_run_dir() -> PathBuf {
@@ -135,18 +163,26 @@ mod tests {
     #[test]
     fn loader_status_round_trip() {
         let root = tempdir().unwrap();
-        env::set_var("L400_RUN_DIR", root.path());
+        unsafe {
+            env::set_var("L400_RUN_DIR", root.path());
+        }
 
         let mut status = LoaderStatus::new("degraded", false, "fallback");
         status.bpf_path = Some("/opt/l400/hooks/l400-ebpf".to_string());
         status.attached_hooks = Some("file_open,bprm_creds_from_file,bprm_check_security".into());
         status.policy_version = Some("phase3-v1".into());
+        status.runtime_version = Some(runtime_version().into());
+        status.ebpf_version = Some("0.2.0".into());
+        status.effective_mode = Some("degraded".into());
+        status.known_gaps = Some("test-gap".into());
         status.last_error = Some("missing btf".to_string());
         write_loader_status(&status).unwrap();
 
         let parsed = read_loader_status().unwrap();
         assert_eq!(parsed, status);
 
-        env::remove_var("L400_RUN_DIR");
+        unsafe {
+            env::remove_var("L400_RUN_DIR");
+        }
     }
 }

@@ -37,8 +37,11 @@ impl SessionContext {
             inner: Arc::new(Mutex::new(state)),
             state_path,
         };
-        context.apply_env();
-        let _ = context.save();
+        #[cfg(not(test))]
+        {
+            context.apply_env();
+            let _ = context.save();
+        }
         context
     }
 
@@ -202,9 +205,11 @@ mod tests {
 
         assert_eq!(std::env::var("L400_USER").as_deref(), Ok("QPGMR"));
         assert_eq!(std::env::var("L400_CURLIB").as_deref(), Ok("TESTLIB"));
-        assert!(std::env::var("L400_LIBLIST")
-            .expect("liblist")
-            .contains("MYLIB"));
+        assert!(
+            std::env::var("L400_LIBLIST")
+                .expect("liblist")
+                .contains("MYLIB")
+        );
         assert!(session.state_path().exists());
 
         session.sign_off();

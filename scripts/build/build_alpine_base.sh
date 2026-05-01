@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-ALPINE_VERSION="${ALPINE_VERSION:-3.20}"
+ALPINE_VERSION="${ALPINE_VERSION:-3.23}"
 ARCH="${ARCH:-x86_64}"
 L400_SRC_DIR="${L400_SRC_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 OUTPUT_DIR="${OUTPUT_DIR:-${L400_SRC_DIR}/output}"
@@ -15,6 +15,7 @@ MINIROOT_URL="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/releases/
 COMMAND_BINARIES=(
     WRKSYSSTS
     WRKACTJOB
+    WRKJOB
     WRKJOBQ
     HLDJOB
     RLSJOB
@@ -30,6 +31,7 @@ COMMAND_BINARIES=(
     CRTOUTQ
     DLTOUTQ
     DSPSPLF
+    CHGSPLFA
     DLTSPLF
     PWRDWNSYS
     SBMJOB
@@ -40,6 +42,7 @@ COMMAND_BINARIES=(
     CHGOBJD
     DSPOBJAUT
     CHKOBJAUT
+    CHKOBJINT
     GRTOBJAUT
     RVKOBJAUT
     DSPPOLICY

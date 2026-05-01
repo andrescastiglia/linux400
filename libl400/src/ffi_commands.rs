@@ -3,16 +3,25 @@
 /// Cada función implementa la semántica del comando OS/400 correspondiente
 /// delegando a los módulos internos de `libl400`.
 use std::ffi::CStr;
-use std::io::Read;
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn c_str_to_string(s: *const c_char) -> String {
     if s.is_null() {
         return String::new();
     }
     unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned()
+}
+
+fn now_epoch_string() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs().to_string())
+        .unwrap_or_else(|_| "0".to_string())
 }
 
 fn resolve_file_spec(file_spec: &str) -> (String, String) {
@@ -180,13 +189,92 @@ fn emit_status(code: &str, object: Option<&Path>, detail: &str) {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PowerDownAction {
+    ControlledPowerOff,
+    ImmediatePowerOff,
+    Restart,
+}
+
+impl PowerDownAction {
+    fn from_option(option: &str) -> Option<Self> {
+        match option.trim().to_uppercase().as_str() {
+            "" | "*CNTRLD" | "CNTRLD" | "*CONTROLLED" | "CONTROLLED" => {
+                Some(Self::ControlledPowerOff)
+            }
+            "*IMMED" | "IMMED" | "*IMMEDIATE" | "IMMEDIATE" => Some(Self::ImmediatePowerOff),
+            "*RESTART" | "RESTART" | "*REBOOT" | "REBOOT" => Some(Self::Restart),
+            _ => None,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::ControlledPowerOff => "*CNTRLD",
+            Self::ImmediatePowerOff => "*IMMED",
+            Self::Restart => "*RESTART",
+        }
+    }
+
+    fn command_plan(self) -> &'static [(&'static str, &'static [&'static str])] {
+        match self {
+            Self::ControlledPowerOff => &[
+                ("shutdown", &["-h", "now"]),
+                ("poweroff", &[]),
+                ("halt", &[]),
+            ],
+            Self::ImmediatePowerOff => &[
+                ("poweroff", &["-f"]),
+                ("halt", &["-f"]),
+                ("shutdown", &["-h", "now"]),
+            ],
+            Self::Restart => &[("reboot", &["-f"]), ("shutdown", &["-r", "now"])],
+        }
+    }
+}
+
+fn confirmed_yes(value: Option<&String>) -> bool {
+    value
+        .map(|value| matches!(value.trim().to_uppercase().as_str(), "*YES" | "YES"))
+        .unwrap_or(false)
+}
+
+fn power_down_dry_run_enabled() -> bool {
+    std::env::var("L400_PWRDWNSYS_DRY_RUN")
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
+fn run_power_down_action(action: PowerDownAction) -> std::io::Result<()> {
+    if power_down_dry_run_enabled() {
+        println!("[PWRDWNSYS] Dry-run activo; no se ejecuta apagado real.");
+        return Ok(());
+    }
+
+    let _ = Command::new("sync").status();
+    let mut last_error = None;
+    for (program, args) in action.command_plan() {
+        match Command::new(program).args(*args).status() {
+            Ok(status) if status.success() => return Ok(()),
+            Ok(status) => {
+                last_error = Some(std::io::Error::other(format!(
+                    "{program} exited with status {status}"
+                )));
+            }
+            Err(error) => last_error = Some(error),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| std::io::Error::other("no power command available")))
+}
+
 // l400_sndpgmmsg está definida en ffi.rs — no se duplica aquí.
 
 // Gestión de sistema
 // ---------------------------------------------------------------------------
 
 /// WRKSYSSTS — Muestra estado del sistema (CPU, jobs, memoria)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrksyssts() {
     println!("=== WRKSYSSTS - Estado del Sistema Linux/400 ===");
 
@@ -249,12 +337,12 @@ pub extern "C" fn l400_wrksyssts() {
 }
 
 /// WRKACTJOB — Lista jobs activos del job registry
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkactjob() {
     l400_wrkactjob_spec(std::ptr::null());
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkactjob_spec(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -366,7 +454,7 @@ pub extern "C" fn l400_wrkactjob_spec(spec: *const c_char) {
     println!("====================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkjobq() {
     println!("=== WRKJOBQ - Job Queues ===");
     println!("  {:10} {:10} {:8} COMMAND", "JOBQ", "STATUS", "PID");
@@ -408,7 +496,72 @@ fn job_pid_from_fields(fields: &std::collections::HashMap<String, String>) -> Op
         })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_wrkjob(spec: *const c_char) {
+    let fields = parse_command_fields(&c_str_to_string(spec));
+    let Some(pid) = job_pid_from_fields(&fields) else {
+        emit_status("CPF0006", None, "WRKJOB requiere JOB o PID");
+        println!("[WRKJOB] Uso: WRKJOB JOB(MYJOB) o WRKJOB PID(123)");
+        return;
+    };
+    match crate::cgroup::list_jobs() {
+        Ok(jobs) => match jobs.into_iter().find(|job| job.pid == pid) {
+            Some(job) => {
+                println!("=== WRKJOB - Job Detail ===");
+                println!("  Job . . . . . . . . . : {}", job.name);
+                println!("  User  . . . . . . . . : {}", job.user);
+                println!("  PID . . . . . . . . . : {}", job.pid);
+                println!("  Status  . . . . . . . : {}", job.status);
+                println!("  Subsystem . . . . . . : {}", job.subsystem);
+                println!("  Command . . . . . . . : {}", job.command);
+                println!(
+                    "  Submitted . . . . . . : {}",
+                    job.submitted_at.as_deref().unwrap_or("-")
+                );
+                println!(
+                    "  Started . . . . . . . : {}",
+                    job.started_at.as_deref().unwrap_or("-")
+                );
+                println!(
+                    "  Ended . . . . . . . . : {}",
+                    job.ended_at.as_deref().unwrap_or("-")
+                );
+                let log_path = job
+                    .log_path
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "-".to_string());
+                println!("  Log . . . . . . . . . : {}", log_path);
+                if let Some(path) = job.log_path.as_ref().filter(|path| path.exists()) {
+                    println!("  Log tail:");
+                    if let Ok(content) = std::fs::read_to_string(path) {
+                        for line in content
+                            .lines()
+                            .rev()
+                            .take(10)
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .rev()
+                        {
+                            println!("    {}", line);
+                        }
+                    }
+                }
+                println!("===========================");
+            }
+            None => {
+                emit_status("CPF9801", None, "WRKJOB no encontro el PID solicitado");
+                println!("[WRKJOB] PID({pid}) no encontrado.");
+            }
+        },
+        Err(error) => {
+            emit_status("CPF0001", None, &error.to_string());
+            println!("[WRKJOB] Error: {}", error);
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_hldjob(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
     match job_pid_from_fields(&fields) {
@@ -423,7 +576,7 @@ pub extern "C" fn l400_hldjob(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_rlsjob(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
     match job_pid_from_fields(&fields) {
@@ -438,9 +591,13 @@ pub extern "C" fn l400_rlsjob(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_endjob(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
+    let immediate = fields
+        .get("OPTION")
+        .map(|value| matches!(value.to_uppercase().as_str(), "*IMMED" | "IMMED"))
+        .unwrap_or(false);
     let confirmed = fields
         .get("CONFIRM")
         .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
@@ -451,8 +608,19 @@ pub extern "C" fn l400_endjob(spec: *const c_char) {
         return;
     }
     match job_pid_from_fields(&fields) {
-        Some(pid) => match crate::cgroup::end_job(pid) {
-            Ok(_) => println!("[ENDJOB] PID({pid}) terminado."),
+        Some(pid) => match if immediate {
+            crate::cgroup::kill_job(pid)
+        } else {
+            crate::cgroup::end_job(pid)
+        } {
+            Ok(_) => println!(
+                "[ENDJOB] PID({pid}) {}.",
+                if immediate {
+                    "terminado inmediato"
+                } else {
+                    "terminado"
+                }
+            ),
             Err(error) => println!("[ENDJOB] Error: {}", error),
         },
         None => {
@@ -463,7 +631,7 @@ pub extern "C" fn l400_endjob(spec: *const c_char) {
 }
 
 /// WRKSYSVAL — Muestra valores de configuración del sistema
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrksysval() {
     println!("=== WRKSYSVAL - Valores del Sistema ===");
     let root = crate::object::resolve_l400_root();
@@ -477,7 +645,7 @@ pub extern "C" fn l400_wrksysval() {
 }
 
 /// DSPLOG — Muestra entradas del log del sistema
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dsplog() {
     println!("=== DSPLOG - Historial del Sistema (QHST) ===");
     // Intentar leer /var/log/syslog o /var/log/messages
@@ -497,7 +665,7 @@ pub extern "C" fn l400_dsplog() {
 }
 
 /// WRKSPLF — Lista spool files si existe un directorio de spool configurado.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrksplf() {
     println!("=== WRKSPLF - Spool Files ===");
     let root = crate::object::resolve_l400_root();
@@ -511,17 +679,20 @@ pub extern "C" fn l400_wrksplf() {
             continue;
         }
         println!("  Directory: {}", dir.display());
-        println!("  {:20} {:>10} MODIFIED", "FILE", "SIZE");
+        println!("  {:20} {:>10} {:8} MODIFIED", "FILE", "SIZE", "STATUS");
         println!("  {}", "-".repeat(56));
         let mut count = 0usize;
         if let Ok(entries) = std::fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 if let Ok(metadata) = entry.metadata() {
                     count += 1;
+                    let status =
+                        spool_file_status(&entry.path()).unwrap_or_else(|| "READY".to_string());
                     println!(
-                        "  {:20} {:>10} {:?}",
+                        "  {:20} {:>10} {:8} {:?}",
                         entry.file_name().to_string_lossy(),
                         metadata.len(),
+                        status,
                         metadata.modified().ok()
                     );
                 }
@@ -538,12 +709,15 @@ pub extern "C" fn l400_wrksplf() {
 }
 
 /// WRKOUTQ — Lista output queues catalogadas como *OUTQ y el spool base.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkoutq() {
     println!("=== WRKOUTQ - Output Queues ===");
     let root = crate::object::resolve_l400_root();
-    println!("  {:10} {:20} {:10} TEXT", "LIB", "OUTQ", "ATRIB");
-    println!("  {}", "-".repeat(58));
+    println!(
+        "  {:10} {:20} {:8} {:8} {:10} TEXT",
+        "LIB", "OUTQ", "STATUS", "RETAIN", "ROUTING"
+    );
+    println!("  {}", "-".repeat(78));
 
     let mut count = 0usize;
     if let Ok(libraries) = crate::object::list_libraries(&root) {
@@ -556,12 +730,30 @@ pub extern "C" fn l400_wrkoutq() {
                 .into_iter()
                 .filter(|object| object.objtype == "*OUTQ")
             {
+                let path = lib_path.join(&object.name);
+                let status =
+                    crate::storage::read_string_attr(&path, crate::L400_OUTQ_DEFAULT_STATUS_ATTR)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| "READY".to_string());
+                let retain =
+                    crate::storage::read_string_attr(&path, crate::L400_OUTQ_RETENTION_DAYS_ATTR)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| "7".to_string());
+                let routing =
+                    crate::storage::read_string_attr(&path, crate::L400_OUTQ_ROUTING_ATTR)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| "QBATCH".to_string());
                 count += 1;
                 println!(
-                    "  {:10} {:20} {:10} {}",
+                    "  {:10} {:20} {:8} {:8} {:10} {}",
                     library,
                     object.name,
-                    object.attribute.unwrap_or_else(|| "OUTQ".to_string()),
+                    status,
+                    retain,
+                    routing,
                     object.text.unwrap_or_default()
                 );
             }
@@ -575,9 +767,11 @@ pub extern "C" fn l400_wrkoutq() {
     if spool_dir.exists() {
         count += 1;
         println!(
-            "  {:10} {:20} {:10} {}",
+            "  {:10} {:20} {:8} {:8} {:10} {}",
             "QUSRSYS",
             "QSPL",
+            "READY",
+            "-",
             "DIR",
             spool_dir.display()
         );
@@ -600,7 +794,25 @@ fn spool_dir() -> PathBuf {
         })
 }
 
-#[no_mangle]
+fn compile_spool_file(program: &str) -> PathBuf {
+    let safe_name = program
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ch.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    spool_dir().join(format!(
+        "CRTCLPGM_{}_{}.splf",
+        safe_name,
+        now_epoch_string()
+    ))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtoutq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -616,6 +828,20 @@ pub extern "C" fn l400_crtoutq(spec: *const c_char) {
         .get("TEXT")
         .map(String::as_str)
         .unwrap_or("Output queue");
+    let retention_days = fields
+        .get("RETAIN")
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(7);
+    let routing = fields
+        .get("ROUTING")
+        .map(|value| value.trim().to_uppercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "QBATCH".to_string());
+    let default_status = fields
+        .get("STATUS")
+        .map(|value| value.trim().trim_start_matches('*').to_uppercase())
+        .filter(|value| matches!(value.as_str(), "READY" | "HELD" | "SAVED"))
+        .unwrap_or_else(|| "READY".to_string());
     match crate::object::create_object_with_metadata(
         &lib_path,
         &name,
@@ -624,8 +850,29 @@ pub extern "C" fn l400_crtoutq(spec: *const c_char) {
         Some(text),
     ) {
         Ok(_) => {
+            let path = lib_path.join(&name);
+            let _ = crate::storage::write_u32_attr(
+                &path,
+                crate::L400_DATA_FORMAT_VERSION_ATTR,
+                crate::L400_DATA_FORMAT_VERSION,
+            );
+            let _ = crate::storage::write_u32_attr(
+                &path,
+                crate::L400_OUTQ_RETENTION_DAYS_ATTR,
+                retention_days,
+            );
+            let _ =
+                crate::storage::write_string_attr(&path, crate::L400_OUTQ_ROUTING_ATTR, &routing);
+            let _ = crate::storage::write_string_attr(
+                &path,
+                crate::L400_OUTQ_DEFAULT_STATUS_ATTR,
+                &default_status,
+            );
             let _ = std::fs::create_dir_all(spool_dir());
-            println!("[CRTOUTQ] {}/{} creado.", library, name);
+            println!(
+                "[CRTOUTQ] {}/{} creado RETAIN({}) ROUTING({}) STATUS(*{}).",
+                library, name, retention_days, routing, default_status
+            );
         }
         Err(error) => {
             emit_status("CPF0001", Some(&lib_path.join(&name)), &error.to_string());
@@ -634,7 +881,7 @@ pub extern "C" fn l400_crtoutq(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dltoutq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -692,7 +939,19 @@ fn first_spool_file() -> Option<PathBuf> {
         .max_by_key(|path| path.metadata().and_then(|m| m.modified()).ok())
 }
 
-#[no_mangle]
+fn spool_file_status(path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    content
+        .lines()
+        .filter_map(|line| {
+            line.split_whitespace()
+                .find_map(|field| field.strip_prefix("status="))
+        })
+        .next_back()
+        .map(|status| status.trim_start_matches('*').to_uppercase())
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dspsplf(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
     let path = resolve_spool_file(&fields);
@@ -711,7 +970,7 @@ pub extern "C" fn l400_dspsplf(spec: *const c_char) {
     println!("==============================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dltsplf(spec: *const c_char) {
     let fields = parse_command_fields(&c_str_to_string(spec));
     let confirmed = fields
@@ -733,13 +992,75 @@ pub extern "C" fn l400_dltsplf(spec: *const c_char) {
     }
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_chgsplfa(spec: *const c_char) {
+    let fields = parse_command_fields(&c_str_to_string(spec));
+    let status = fields
+        .get("STATUS")
+        .or_else(|| fields.get("STATE"))
+        .map(|value| value.trim().trim_start_matches('*').to_uppercase())
+        .unwrap_or_else(|| "READY".to_string());
+    if !matches!(status.as_str(), "READY" | "HELD" | "SAVED") {
+        emit_status(
+            "CPF0006",
+            None,
+            "CHGSPLFA STATUS requiere *READY, *HELD o *SAVED",
+        );
+        println!("[CHGSPLFA] STATUS no soportado: {}", status);
+        return;
+    }
+    let path = resolve_spool_file(&fields);
+    match OpenOptions::new().append(true).open(&path) {
+        Ok(mut file) => {
+            let _ = writeln!(file, "status={} changed_at={}", status, now_epoch_string());
+            clear_status();
+            println!("[CHGSPLFA] {} status={}.", path.display(), status);
+        }
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[CHGSPLFA] Error: {}", error);
+        }
+    }
+}
+
 /// WRKCMD — Lista comandos catalogados como *CMD.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkcmd() {
+    l400_wrkcmd_spec(std::ptr::null());
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_wrkcmd_spec(spec: *const c_char) {
+    let fields = parse_command_fields(&c_str_to_string(spec));
+    let cmd_filter = fields
+        .get("CMD")
+        .map(String::as_str)
+        .unwrap_or("*ALL")
+        .trim()
+        .to_uppercase();
+    let auth_filter = fields
+        .get("AUTH")
+        .map(String::as_str)
+        .unwrap_or("*ALL")
+        .trim()
+        .to_uppercase();
+    let status_filter = fields
+        .get("STATUS")
+        .map(String::as_str)
+        .unwrap_or("*ALL")
+        .trim()
+        .to_lowercase();
     println!("=== WRKCMD - Command Objects ===");
+    println!(
+        "  Filters: CMD={} AUTH={} STATUS={}",
+        cmd_filter, auth_filter, status_filter
+    );
     let root = crate::object::resolve_l400_root();
-    println!("  {:10} {:20} {:10} TEXT", "LIB", "CMD", "AUT");
-    println!("  {}", "-".repeat(64));
+    println!(
+        "  {:10} {:20} {:10} {:14} TEXT",
+        "LIB", "CMD", "AUT", "STATUS"
+    );
+    println!("  {}", "-".repeat(82));
     let mut count = 0usize;
     if let Ok(libraries) = crate::object::list_libraries(&root) {
         for library in libraries {
@@ -751,17 +1072,30 @@ pub extern "C" fn l400_wrkcmd() {
                 .into_iter()
                 .filter(|object| object.objtype == "*CMD")
             {
-                count += 1;
                 let path = lib_path.join(&object.name);
                 let authority = crate::storage::read_string_attr(&path, "user.l400.cmd.authority")
                     .ok()
                     .flatten()
                     .unwrap_or_else(|| "*USE".to_string());
+                let status = crate::command_metadata(&object.name)
+                    .map(|metadata| metadata.status())
+                    .unwrap_or("user");
+                if !matches_pattern(&object.name, &cmd_filter) {
+                    continue;
+                }
+                if auth_filter != "*ALL" && authority.to_uppercase() != auth_filter {
+                    continue;
+                }
+                if status_filter != "*all" && status != status_filter {
+                    continue;
+                }
+                count += 1;
                 println!(
-                    "  {:10} {:20} {:10} {}",
+                    "  {:10} {:20} {:10} {:14} {}",
                     library,
                     object.name,
                     authority,
+                    status,
                     object.text.unwrap_or_default()
                 );
             }
@@ -774,7 +1108,7 @@ pub extern "C" fn l400_wrkcmd() {
 }
 
 /// DSPCMD — Muestra metadata promptable de un objeto *CMD.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dspcmd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -794,8 +1128,13 @@ pub extern "C" fn l400_dspcmd(spec: *const c_char) {
     println!("=== DSPCMD - {} ===", command);
     match crate::object::describe_object(&path) {
         Ok(object) => {
+            let metadata = crate::command_metadata(&command);
             println!("  Command . . . . . . . . : {}", object.name);
             println!("  Type  . . . . . . . . . : {}", object.objtype);
+            println!(
+                "  Metadata schema . . . . : v{}",
+                crate::COMMAND_METADATA_SCHEMA_VERSION
+            );
             println!(
                 "  Text  . . . . . . . . . : {}",
                 object.text.unwrap_or_default()
@@ -805,6 +1144,10 @@ pub extern "C" fn l400_dspcmd(spec: *const c_char) {
                 .flatten()
                 .unwrap_or_else(|| "*USE".to_string());
             println!("  Authority required . . : {}", authority);
+            println!(
+                "  Status  . . . . . . . . : {}",
+                metadata.map(|metadata| metadata.status()).unwrap_or("user")
+            );
             let params = crate::storage::read_string_attr(&path, "user.l400.cmd.params")
                 .ok()
                 .flatten()
@@ -830,6 +1173,15 @@ pub extern "C" fn l400_dspcmd(spec: *const c_char) {
                     );
                 }
             }
+            if let Some(metadata) = metadata {
+                let examples = metadata.examples();
+                if !examples.is_empty() {
+                    println!("  Examples:");
+                    for example in examples {
+                        println!("    {}", example);
+                    }
+                }
+            }
         }
         Err(error) => println!("[DSPCMD] Error: {}", error),
     }
@@ -837,7 +1189,7 @@ pub extern "C" fn l400_dspcmd(spec: *const c_char) {
 }
 
 /// CRTCMD — Registra un comando interno minimo como objeto *CMD.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtcmd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -870,7 +1222,7 @@ pub extern "C" fn l400_crtcmd(spec: *const c_char) {
 }
 
 /// WRKUSRPRF — Gestiona perfiles de usuario
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkusrprf(usrprf: *const c_char) {
     let spec = c_str_to_string(usrprf);
     let fields = parse_command_fields(&spec);
@@ -937,19 +1289,20 @@ pub extern "C" fn l400_wrkusrprf(usrprf: *const c_char) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_uppercase();
                 let path = entry.path();
-                if let Ok(object) = crate::object::describe_object(&path) {
-                    if object.objtype == "*USRPRF" && matches_pattern(&name, &filter) {
-                        let disabled = xattr::get(&path, "user.l400.disabled")
-                            .ok()
-                            .flatten()
-                            .is_some();
-                        println!(
-                            "  {:16} {:8} {}",
-                            name,
-                            if disabled { "*DISABLED" } else { "*ENABLED" },
-                            object.text.as_deref().unwrap_or("")
-                        );
-                    }
+                if let Ok(object) = crate::object::describe_object(&path)
+                    && object.objtype == "*USRPRF"
+                    && matches_pattern(&name, &filter)
+                {
+                    let disabled = xattr::get(&path, "user.l400.disabled")
+                        .ok()
+                        .flatten()
+                        .is_some();
+                    println!(
+                        "  {:16} {:8} {}",
+                        name,
+                        if disabled { "*DISABLED" } else { "*ENABLED" },
+                        object.text.as_deref().unwrap_or("")
+                    );
                 }
             }
         }
@@ -960,42 +1313,63 @@ pub extern "C" fn l400_wrkusrprf(usrprf: *const c_char) {
 }
 
 /// PWRDWNSYS — Apaga o reinicia el sistema
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_pwrdwnsys(option: *const c_char) {
+    clear_status();
     let spec = c_str_to_string(option);
     let fields = parse_command_fields(&spec);
-    let opt = fields
-        .get("OPTION")
-        .cloned()
-        .unwrap_or_else(|| spec.trim().to_string())
-        .to_uppercase();
-    let confirmed = fields
-        .get("CONFIRM")
-        .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
-        .unwrap_or(false);
-    println!(
-        "[PWRDWNSYS] Solicitando parada del sistema (OPTION={})",
-        opt
-    );
+    let opt = power_down_option_from_spec(&spec, &fields);
+    let Some(action) = PowerDownAction::from_option(&opt) else {
+        emit_status(
+            "CPF0006",
+            None,
+            "PWRDWNSYS OPTION debe ser *CNTRLD, *IMMED o *RESTART",
+        );
+        return;
+    };
+
+    println!("[PWRDWNSYS] Solicitud aceptada (OPTION={})", action.label());
+    let confirmed = confirmed_yes(fields.get("CONFIRM"));
     if !confirmed {
-        println!("[PWRDWNSYS] Requiere CONFIRM(*YES) para ejecutar una accion real.");
+        emit_status("CPF0006", None, "PWRDWNSYS requiere CONFIRM(*YES)");
         return;
     }
-    if unsafe { libc::geteuid() } != 0 {
-        println!("[PWRDWNSYS] Accion real requiere root.");
+    if unsafe { libc::geteuid() } != 0 && !power_down_dry_run_enabled() {
+        emit_status("CPF2204", None, "PWRDWNSYS requiere root");
         return;
     }
-    match opt.as_str() {
-        "*IMMED" => {
-            let _ = Command::new("shutdown").arg("-h").arg("now").status();
+
+    audit_runtime(
+        "PWRDWNSYS",
+        Path::new("/"),
+        &format!("option={} confirmed=*YES", action.label()),
+    );
+    match run_power_down_action(action) {
+        Ok(()) => {
+            clear_status();
+            println!("[PWRDWNSYS] Accion de energia enviada.");
         }
-        "*RESTART" => {
-            let _ = Command::new("shutdown").arg("-r").arg("now").status();
-        }
-        _ => {
-            println!("[PWRDWNSYS] OPTION debe ser *IMMED o *RESTART.");
+        Err(error) => {
+            emit_status(
+                "CPF9898",
+                None,
+                &format!("No se pudo ejecutar accion de energia: {error}"),
+            );
         }
     }
+}
+
+fn power_down_option_from_spec(
+    spec: &str,
+    fields: &std::collections::HashMap<String, String>,
+) -> String {
+    if let Some(option) = fields.get("OPTION") {
+        return option.to_uppercase();
+    }
+    if fields.is_empty() && !spec.trim().is_empty() {
+        return spec.trim().to_uppercase();
+    }
+    "*CNTRLD".to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -1003,7 +1377,7 @@ pub extern "C" fn l400_pwrdwnsys(option: *const c_char) {
 // ---------------------------------------------------------------------------
 
 /// WRKOBJ — Busca y lista objetos del catálogo
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkobj(obj_filter: *const c_char) {
     let spec = c_str_to_string(obj_filter);
     let fields = parse_command_fields(&spec);
@@ -1071,7 +1445,7 @@ pub extern "C" fn l400_wrkobj(obj_filter: *const c_char) {
     println!("=====================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dltobj(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1101,7 +1475,7 @@ pub extern "C" fn l400_dltobj(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_cpyobj(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1123,7 +1497,7 @@ pub extern "C" fn l400_cpyobj(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dspobjd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1178,7 +1552,7 @@ pub extern "C" fn l400_dspobjd(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_chgobjd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1214,7 +1588,7 @@ pub extern "C" fn l400_chgobjd(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dspobjaut(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1245,7 +1619,7 @@ pub extern "C" fn l400_dspobjaut(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_grtobjaut(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1280,7 +1654,7 @@ pub extern "C" fn l400_grtobjaut(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_rvkobjaut(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1303,7 +1677,7 @@ pub extern "C" fn l400_rvkobjaut(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_chkobjaut(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1349,7 +1723,315 @@ pub extern "C" fn l400_chkobjaut(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_chkobjint(spec: *const c_char) {
+    let spec = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec);
+    let repair = fields
+        .get("REPAIR")
+        .map(|value| matches!(value.to_uppercase().as_str(), "*YES" | "YES"))
+        .unwrap_or(false);
+    let Some(obj) = fields.get("OBJ") else {
+        emit_status("CPF0006", None, "CHKOBJINT requiere OBJ");
+        println!("[CHKOBJINT] Uso: CHKOBJINT OBJ(QGPL/MYOBJ) REPAIR(*NO)");
+        return;
+    };
+    let root = crate::object::resolve_l400_root();
+    let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    println!("=== CHKOBJINT - Object Integrity ===");
+    println!("  Object path . . . . . : {}", path.display());
+    println!(
+        "  Repair mode . . . . . : {}",
+        if repair { "*YES" } else { "*NO" }
+    );
+    let mut issues = Vec::new();
+    let mut repairs = Vec::new();
+    match crate::object::describe_object(&path) {
+        Ok(object) => {
+            println!("  Object . . . . . . . : {}", object.name);
+            println!("  Type . . . . . . . . : {}", object.objtype);
+            println!(
+                "  Attribute  . . . . . : {}",
+                object.attribute.as_deref().unwrap_or("-")
+            );
+            if object.owner.as_deref().unwrap_or("").is_empty() {
+                issues.push("missing owner metadata".to_string());
+            }
+            if object.objtype == "*FILE" {
+                match object.attribute.as_deref() {
+                    Some("PF") => {
+                        if crate::storage::read_string_attr(
+                            &path,
+                            crate::L400_DATA_FORMAT_VERSION_ATTR,
+                        )
+                        .ok()
+                        .flatten()
+                        .is_none()
+                        {
+                            if repair
+                                && crate::storage::write_u32_attr(
+                                    &path,
+                                    crate::L400_DATA_FORMAT_VERSION_ATTR,
+                                    crate::L400_DATA_FORMAT_VERSION,
+                                )
+                                .is_ok()
+                            {
+                                repairs.push(format!(
+                                    "PF wrote {}={}",
+                                    crate::L400_DATA_FORMAT_VERSION_ATTR,
+                                    crate::L400_DATA_FORMAT_VERSION
+                                ));
+                            } else {
+                                issues.push(format!(
+                                    "PF missing {}",
+                                    crate::L400_DATA_FORMAT_VERSION_ATTR
+                                ));
+                            }
+                        }
+                        if crate::storage::read_string_attr(&path, crate::L400_STORAGE_BACKEND_ATTR)
+                            .ok()
+                            .flatten()
+                            .is_none()
+                        {
+                            if repair
+                                && crate::storage::write_storage_backend(
+                                    &path,
+                                    crate::storage::default_storage_backend(),
+                                )
+                                .is_ok()
+                            {
+                                repairs.push("PF wrote storage backend".to_string());
+                            } else {
+                                issues.push("PF missing user.l400.storage_backend".to_string());
+                            }
+                        }
+                        if crate::storage::read_string_attr(&path, crate::L400_RECORD_LEN_ATTR)
+                            .ok()
+                            .flatten()
+                            .is_none()
+                        {
+                            if repair
+                                && crate::storage::write_u32_attr(
+                                    &path,
+                                    crate::L400_RECORD_LEN_ATTR,
+                                    256,
+                                )
+                                .is_ok()
+                            {
+                                repairs.push("PF wrote default record_len=256".to_string());
+                            } else {
+                                issues.push("PF missing user.l400.record_len".to_string());
+                            }
+                        }
+                        if crate::storage::read_string_attr(&path, crate::L400_KEY_FIELDS_ATTR)
+                            .ok()
+                            .flatten()
+                            .is_none()
+                        {
+                            if repair
+                                && crate::storage::write_string_attr(
+                                    &path,
+                                    crate::L400_KEY_FIELDS_ATTR,
+                                    "KEY",
+                                )
+                                .is_ok()
+                            {
+                                repairs.push("PF wrote default key_fields=KEY".to_string());
+                            } else {
+                                issues.push("PF missing user.l400.key_fields".to_string());
+                            }
+                        }
+                        if crate::storage::read_string_attr(&path, crate::L400_PF_MEMBERS_ATTR)
+                            .ok()
+                            .flatten()
+                            .is_none()
+                        {
+                            if repair
+                                && crate::storage::write_string_attr(
+                                    &path,
+                                    crate::L400_PF_MEMBERS_ATTR,
+                                    crate::db::DEFAULT_PF_MEMBER,
+                                )
+                                .is_ok()
+                            {
+                                repairs.push("PF wrote default member list".to_string());
+                            } else {
+                                issues.push("PF missing user.l400.pf_members".to_string());
+                            }
+                        }
+                    }
+                    Some("LF") => {
+                        let base_pf = crate::storage::read_string_attr(&path, "user.l400.base_pf")
+                            .ok()
+                            .flatten();
+                        if base_pf.as_deref().unwrap_or("").is_empty() {
+                            issues.push("LF missing user.l400.base_pf".to_string());
+                        } else if crate::storage::read_string_attr(
+                            &path,
+                            crate::L400_STORAGE_BACKEND_ATTR,
+                        )
+                        .ok()
+                        .flatten()
+                        .is_none()
+                        {
+                            let repaired = repair
+                                && base_pf
+                                    .as_deref()
+                                    .and_then(|base| {
+                                        crate::storage::read_storage_backend(Path::new(base))
+                                            .ok()
+                                            .flatten()
+                                    })
+                                    .or_else(|| Some(crate::storage::default_storage_backend()))
+                                    .map(|backend| {
+                                        crate::storage::write_storage_backend(&path, backend)
+                                            .is_ok()
+                                    })
+                                    .unwrap_or(false);
+                            if repaired {
+                                repairs.push("LF wrote storage backend from base PF".to_string());
+                            } else {
+                                issues.push("LF missing user.l400.storage_backend".to_string());
+                            }
+                        }
+                        if crate::storage::read_string_attr(
+                            &path,
+                            crate::L400_DATA_FORMAT_VERSION_ATTR,
+                        )
+                        .ok()
+                        .flatten()
+                        .is_none()
+                        {
+                            if repair
+                                && crate::storage::write_u32_attr(
+                                    &path,
+                                    crate::L400_DATA_FORMAT_VERSION_ATTR,
+                                    crate::L400_DATA_FORMAT_VERSION,
+                                )
+                                .is_ok()
+                            {
+                                repairs.push("LF wrote data version".to_string());
+                            } else {
+                                issues.push(format!(
+                                    "LF missing {}",
+                                    crate::L400_DATA_FORMAT_VERSION_ATTR
+                                ));
+                            }
+                        }
+                    }
+                    Some("SRC") => {}
+                    Some(other) => issues.push(format!("unknown *FILE attribute {other}")),
+                    None => issues.push("*FILE missing attribute".to_string()),
+                }
+            } else if object.objtype == "*DTAQ" {
+                if crate::storage::read_string_attr(&path, crate::L400_STORAGE_BACKEND_ATTR)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    if repair
+                        && crate::storage::write_storage_backend(
+                            &path,
+                            crate::storage::default_storage_backend(),
+                        )
+                        .is_ok()
+                    {
+                        repairs.push("DTAQ wrote storage backend".to_string());
+                    } else {
+                        issues.push("DTAQ missing user.l400.storage_backend".to_string());
+                    }
+                }
+                if crate::storage::read_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    if repair
+                        && crate::storage::write_u32_attr(
+                            &path,
+                            crate::L400_DATA_FORMAT_VERSION_ATTR,
+                            crate::L400_DATA_FORMAT_VERSION,
+                        )
+                        .is_ok()
+                    {
+                        repairs.push("DTAQ wrote data version".to_string());
+                    } else {
+                        issues.push(format!(
+                            "DTAQ missing {}",
+                            crate::L400_DATA_FORMAT_VERSION_ATTR
+                        ));
+                    }
+                }
+            } else if object.objtype == "*OUTQ" {
+                for (attr, default_value) in [
+                    (crate::L400_OUTQ_RETENTION_DAYS_ATTR, "7"),
+                    (crate::L400_OUTQ_ROUTING_ATTR, "QBATCH"),
+                    (crate::L400_OUTQ_DEFAULT_STATUS_ATTR, "READY"),
+                ] {
+                    if crate::storage::read_string_attr(&path, attr)
+                        .ok()
+                        .flatten()
+                        .is_none()
+                    {
+                        if repair
+                            && crate::storage::write_string_attr(&path, attr, default_value).is_ok()
+                        {
+                            repairs.push(format!("OUTQ wrote {attr}={default_value}"));
+                        } else {
+                            issues.push(format!("OUTQ missing {attr}"));
+                        }
+                    }
+                }
+                if crate::storage::read_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    if repair
+                        && crate::storage::write_u32_attr(
+                            &path,
+                            crate::L400_DATA_FORMAT_VERSION_ATTR,
+                            crate::L400_DATA_FORMAT_VERSION,
+                        )
+                        .is_ok()
+                    {
+                        repairs.push("OUTQ wrote data version".to_string());
+                    } else {
+                        issues.push(format!(
+                            "OUTQ missing {}",
+                            crate::L400_DATA_FORMAT_VERSION_ATTR
+                        ));
+                    }
+                }
+            }
+        }
+        Err(error) => {
+            emit_status("CPF9801", Some(&path), &error.to_string());
+            println!("[CHKOBJINT] Error: {}", error);
+            return;
+        }
+    }
+
+    if issues.is_empty() {
+        clear_status();
+        println!("  Result . . . . . . . : OK");
+    } else {
+        emit_status("CPF9898", Some(&path), "object integrity issues found");
+        println!("  Result . . . . . . . : CHECK");
+        for issue in issues {
+            println!("  - {}", issue);
+        }
+    }
+    if !repairs.is_empty() {
+        println!("  Repairs . . . . . . : {}", repairs.len());
+        for repair in repairs {
+            println!("  + {}", repair);
+        }
+    }
+    println!("===================================");
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dsppolicy() {
     println!("=== DSPPOLICY - Matriz de autorizaciones Linux/400 ===");
     println!("  {:24} {:10} REQUIRED", "COMMAND", "OPERATION");
@@ -1358,13 +2040,20 @@ pub extern "C" fn l400_dsppolicy() {
         println!("  {:24} {:10} {}", command, operation, authority);
     }
     println!();
+    println!(
+        "  Runtime auth manifest version: v{}",
+        crate::L400_AUTH_MANIFEST_VERSION
+    );
+    println!(
+        "  Runtime auth format: USER:*AUTH plus UID:<uid>:*AUTH mirror when *USRPRF is resolvable."
+    );
     println!("  Identidad runtime: L400_USER -> USER fallback.");
-    println!("  eBPF phase3-v1 recibe identidad parcialmente via xattrs y aplica tipo + *PUBLIC:*EXCLUDE.");
+    println!("  eBPF phase3-v1 recibe identidad via owner_uid y entradas UID:<uid> para exec.");
     println!("  Userspace aplica matriz completa antes de comandos sensibles.");
     println!("================================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dspaudit() {
     println!("=== DSPAUD - Auditoria QHST/Linux400 ===");
     match crate::audit::read_audit_records(50) {
@@ -1387,7 +2076,7 @@ pub extern "C" fn l400_dspaudit() {
     println!("========================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtpf(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1435,7 +2124,7 @@ pub extern "C" fn l400_crtpf(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtlf(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1473,7 +2162,7 @@ pub extern "C" fn l400_crtlf(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dsppfm(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1530,7 +2219,7 @@ pub extern "C" fn l400_dsppfm(spec: *const c_char) {
     println!("======================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_clrpfm(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1559,7 +2248,7 @@ pub extern "C" fn l400_clrpfm(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_addpfm(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1580,7 +2269,7 @@ pub extern "C" fn l400_addpfm(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrtpfm(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1624,7 +2313,7 @@ pub extern "C" fn l400_wrtpfm(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtdtaq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1646,7 +2335,7 @@ pub extern "C" fn l400_crtdtaq(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_snddtaq_cmd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1668,7 +2357,7 @@ pub extern "C" fn l400_snddtaq_cmd(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_rcvdtaq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1693,7 +2382,7 @@ pub extern "C" fn l400_rcvdtaq(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dspdtaq(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -1747,7 +2436,7 @@ fn parse_pf_fields(spec: &str) -> Vec<crate::db::PfField> {
 }
 
 /// CRTLIB — Crea una biblioteca (*LIB)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtlib(lib: *const c_char) {
     let name = c_str_to_string(lib);
     let root = crate::object::resolve_l400_root();
@@ -1758,7 +2447,7 @@ pub extern "C" fn l400_crtlib(lib: *const c_char) {
 }
 
 /// DLTLIB — Elimina una biblioteca
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dltlib(lib: *const c_char) {
     let name = c_str_to_string(lib);
     let root = crate::object::resolve_l400_root();
@@ -1770,7 +2459,7 @@ pub extern "C" fn l400_dltlib(lib: *const c_char) {
 }
 
 /// ADDLIBLE — Añade biblioteca a la library list del proceso (env var)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_addlible(lib: *const c_char) {
     let name = c_str_to_string(lib);
     let current = std::env::var("L400_LIBLIST").unwrap_or_default();
@@ -1787,7 +2476,7 @@ pub extern "C" fn l400_addlible(lib: *const c_char) {
 }
 
 /// CHGCURLIB — Cambia la biblioteca actual de trabajo
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_chgcurlib(lib: *const c_char) {
     let name = c_str_to_string(lib);
     unsafe {
@@ -1797,7 +2486,7 @@ pub extern "C" fn l400_chgcurlib(lib: *const c_char) {
 }
 
 /// RNMOBJ — Renombra un objeto (conservando xattrs)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_rnmobj(obj: *const c_char, newname: *const c_char) {
     let src_name = c_str_to_string(obj);
     let dst_name = c_str_to_string(newname);
@@ -1812,7 +2501,7 @@ pub extern "C" fn l400_rnmobj(obj: *const c_char, newname: *const c_char) {
 }
 
 /// CRTPGM — Registra/cataloga un objeto *PGM
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtpgm(pgm: *const c_char) {
     let name = c_str_to_string(pgm);
     let root = crate::object::resolve_l400_root();
@@ -1854,12 +2543,12 @@ fn resolve_clc_binary() -> PathBuf {
     if let Ok(path) = std::env::var("L400_CLC_PATH") {
         return PathBuf::from(path);
     }
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(dir) = current_exe.parent() {
-            let sibling = dir.join("clc");
-            if sibling.exists() {
-                return sibling;
-            }
+    if let Ok(current_exe) = std::env::current_exe()
+        && let Some(dir) = current_exe.parent()
+    {
+        let sibling = dir.join("clc");
+        if sibling.exists() {
+            return sibling;
         }
     }
     for candidate in ["target/debug/clc", "target/release/clc", "clc"] {
@@ -1872,7 +2561,7 @@ fn resolve_clc_binary() -> PathBuf {
 }
 
 /// CALL — Ejecuta un programa *PGM resolviendo CURLIB/LIBLIST.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_call(pgm: *const c_char) {
     let pgm = c_str_to_string(pgm);
     let root = crate::object::resolve_l400_root();
@@ -1880,7 +2569,7 @@ pub extern "C" fn l400_call(pgm: *const c_char) {
     let user = runtime_user();
     match crate::object::describe_object(&path) {
         Ok(object) if object.objtype != "*PGM" => {
-            set_status("CPF9801");
+            set_status("CPF9802");
             audit_runtime(
                 "ACCESS_DENIED",
                 &path,
@@ -1933,6 +2622,19 @@ pub extern "C" fn l400_call(pgm: *const c_char) {
             return;
         }
     }
+    if let Err(error) = crate::storage::verify_toolchain_manifest(&path) {
+        set_status("CPF9898");
+        audit_runtime(
+            "ACCESS_DENIED",
+            &path,
+            &format!("CALL user={} manifest_error={}", user, error),
+        );
+        println!(
+            "[CALL] Denegado: {} no tiene manifest de toolchain valido ({error}).",
+            path.display()
+        );
+        return;
+    }
     audit_runtime("PGM_EXEC", &path, &format!("CALL user={}", user));
     match std::process::Command::new(&path).status() {
         Ok(status) if status.success() => {
@@ -1951,7 +2653,7 @@ pub extern "C" fn l400_call(pgm: *const c_char) {
 }
 
 /// CRTCLPGM — Compila un miembro CL y cataloga el resultado como *PGM.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcmbr: *const c_char) {
     let pgm = c_str_to_string(pgm);
     let srcfile = c_str_to_string(srcfile);
@@ -1968,6 +2670,7 @@ pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcm
         }
     });
     let Ok(source_path) = source_path else {
+        set_status("CPF9801");
         println!(
             "[CRTCLPGM] No se encontro fuente {}/{} {}.",
             src_library, src_file, srcmbr
@@ -1975,22 +2678,88 @@ pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcm
         return;
     };
 
-    let status = std::process::Command::new(resolve_clc_binary())
+    let spool_path = compile_spool_file(&format!("{pgm_library}_{pgm_name}"));
+    let _ = std::fs::create_dir_all(spool_path.parent().unwrap_or_else(|| Path::new(".")));
+    let output = std::process::Command::new(resolve_clc_binary())
         .arg("--input")
         .arg(&source_path)
         .arg("--output")
         .arg(&output_path)
-        .status();
-    match status {
-        Ok(status) if status.success() => println!(
-            "[CRTCLPGM] {}/{} compilado desde {}.",
-            pgm_library,
-            pgm_name,
-            source_path.display()
-        ),
-        Ok(status) => println!("[CRTCLPGM] clc finalizo con estado {}.", status),
-        Err(error) => println!("[CRTCLPGM] Error ejecutando clc: {}", error),
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            clear_status();
+            let _ = write_compile_spool(&spool_path, "CPF0000", &source_path, &output);
+            println!(
+                "[CRTCLPGM] {}/{} compilado desde {}. Spool: {}",
+                pgm_library,
+                pgm_name,
+                source_path.display(),
+                spool_path.display()
+            );
+        }
+        Ok(output) => {
+            set_status("CPF0006");
+            let _ = write_compile_spool(&spool_path, "CPF0006", &source_path, &output);
+            println!(
+                "[CRTCLPGM] clc finalizo con estado {}. Spool: {}",
+                output.status,
+                spool_path.display()
+            );
+        }
+        Err(error) => {
+            set_status("CPF0001");
+            let _ = std::fs::write(
+                &spool_path,
+                format!(
+                    "spool_version=1 status=FAILED command=CRTCLPGM cpf=CPF0001\nsource={}\nerror={}\n",
+                    source_path.display(),
+                    error
+                ),
+            );
+            println!(
+                "[CRTCLPGM] Error ejecutando clc: {}. Spool: {}",
+                error,
+                spool_path.display()
+            );
+        }
     }
+}
+
+fn write_compile_spool(
+    path: &Path,
+    cpf: &str,
+    source_path: &Path,
+    output: &std::process::Output,
+) -> std::io::Result<()> {
+    let status = if output.status.success() {
+        "READY"
+    } else {
+        "FAILED"
+    };
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(path)?;
+    writeln!(
+        file,
+        "spool_version=1 status={} command=CRTCLPGM cpf={}",
+        status, cpf
+    )?;
+    writeln!(file, "source={}", source_path.display())?;
+    writeln!(file, "exit_status={}", output.status)?;
+    writeln!(file, "--- stdout ---")?;
+    file.write_all(&output.stdout)?;
+    if !output.stdout.ends_with(b"\n") {
+        writeln!(file)?;
+    }
+    writeln!(file, "--- stderr ---")?;
+    file.write_all(&output.stderr)?;
+    if !output.stderr.ends_with(b"\n") {
+        writeln!(file)?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1998,7 +2767,7 @@ pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcm
 // ---------------------------------------------------------------------------
 
 /// GO — Navega a un menú (modo batch: imprime mensaje)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_go(target: *const c_char) {
     let menu = c_str_to_string(target);
     println!(
@@ -2008,14 +2777,14 @@ pub extern "C" fn l400_go(target: *const c_char) {
 }
 
 /// SIGNOFF — Cierra la sesión activa
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_signoff() {
     println!("[SIGNOFF] Cerrando sesión Linux/400.");
     std::process::exit(0);
 }
 
 /// STRPDM — Lista las bibliotecas catalogadas.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_strpdm() {
     println!("=== STRPDM - Programming Development Manager ===");
     let root = crate::object::resolve_l400_root();
@@ -2032,7 +2801,7 @@ pub extern "C" fn l400_strpdm() {
 }
 
 /// WRKMBRPDM — Lista miembros dentro de un archivo fuente.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_wrkmbrpdm(file: *const c_char) {
     let file_spec = c_str_to_string(file);
     let (library, file_name) = resolve_file_spec(&file_spec);
@@ -2053,7 +2822,7 @@ pub extern "C" fn l400_wrkmbrpdm(file: *const c_char) {
     println!("======================================");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_dltmbr(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -2089,7 +2858,7 @@ pub extern "C" fn l400_dltmbr(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_cpymbr(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -2120,7 +2889,7 @@ pub extern "C" fn l400_cpymbr(spec: *const c_char) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_chgmbrd(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
@@ -2153,7 +2922,7 @@ pub extern "C" fn l400_chgmbrd(spec: *const c_char) {
 }
 
 /// STRSEU — Muestra el contenido de un miembro fuente en modo batch.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_strseu(file: *const c_char, mbr: *const c_char) {
     let file_spec = c_str_to_string(file);
     let member = c_str_to_string(mbr).trim().to_uppercase();
@@ -2196,7 +2965,7 @@ fn print_sql_result(result: crate::db::SqlStatementResult) {
 }
 
 /// STRSQL — Ejecuta una sentencia SQL leída desde stdin.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_strsql() {
     let mut statement = String::new();
     if std::io::stdin().read_to_string(&mut statement).is_err() || statement.trim().is_empty() {
@@ -2206,13 +2975,51 @@ pub extern "C" fn l400_strsql() {
 
     match crate::db::run_sql_statement(&statement, None) {
         Ok(result) => print_sql_result(result),
-        Err(error) => println!("SQL9001 [STRSQL] {}", error),
+        Err(error) => {
+            emit_status("CPF0001", None, &format!("STRSQL SQL9001 {error}"));
+            println!("SQL9001 [STRSQL] {}", error);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_command_fields;
+    use super::{
+        PowerDownAction, confirmed_yes, l400_call, parse_command_fields,
+        power_down_option_from_spec, spool_file_status,
+    };
+    use crate::auth::{L400Authority, grant_object_authority};
+    use crate::ffi::{l400_clear_status, l400_last_cpf_code};
+    use crate::object::{catalog_object, ensure_library};
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &std::path::Path) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(previous) = &self.previous {
+                    std::env::set_var(self.key, previous);
+                } else {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
 
     #[test]
     fn parse_command_fields_keeps_values_with_spaces() {
@@ -2221,5 +3028,75 @@ mod tests {
         assert_eq!(fields.get("OBJ").map(String::as_str), Some("QGPL/DEMO"));
         assert_eq!(fields.get("TEXT").map(String::as_str), Some("Demo object"));
         assert_eq!(fields.get("OBJATTR").map(String::as_str), Some("PF"));
+    }
+
+    #[test]
+    fn pwrdwnsys_accepts_supported_options() {
+        assert_eq!(
+            PowerDownAction::from_option("*CNTRLD"),
+            Some(PowerDownAction::ControlledPowerOff)
+        );
+        assert_eq!(
+            PowerDownAction::from_option("*IMMED"),
+            Some(PowerDownAction::ImmediatePowerOff)
+        );
+        assert_eq!(
+            PowerDownAction::from_option("*RESTART"),
+            Some(PowerDownAction::Restart)
+        );
+        assert_eq!(PowerDownAction::from_option("*BAD"), None);
+    }
+
+    #[test]
+    fn pwrdwnsys_defaults_option_when_only_confirm_is_present() {
+        let fields = parse_command_fields("CONFIRM=*YES");
+        assert_eq!(
+            power_down_option_from_spec("CONFIRM=*YES", &fields),
+            "*CNTRLD"
+        );
+
+        let raw_fields = parse_command_fields("*IMMED");
+        assert_eq!(power_down_option_from_spec("*IMMED", &raw_fields), "*IMMED");
+    }
+
+    #[test]
+    fn pwrdwnsys_confirm_requires_yes() {
+        let yes = "*YES".to_string();
+        let no = "*NO".to_string();
+
+        assert!(confirmed_yes(Some(&yes)));
+        assert!(!confirmed_yes(Some(&no)));
+        assert!(!confirmed_yes(None));
+    }
+
+    #[test]
+    fn spool_file_status_uses_latest_status_field() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let path = root.path().join("demo.splf");
+        let mut file = std::fs::File::create(&path).expect("create splf");
+        writeln!(file, "spool_version=1 status=RUN").expect("write run");
+        writeln!(file, "status=HELD changed_at=1").expect("write held");
+
+        assert_eq!(spool_file_status(&path).as_deref(), Some("HELD"));
+    }
+
+    #[test]
+    fn call_rejects_program_without_toolchain_manifest() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let _root = EnvGuard::set("L400_ROOT", root.path());
+        let qgpl = ensure_library(root.path(), "QGPL").expect("library");
+        let pgm = qgpl.join("NOMAN");
+        std::fs::write(&pgm, "#!/usr/bin/env sh\nexit 0\n").expect("write pgm");
+        let mut permissions = std::fs::metadata(&pgm).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&pgm, permissions).expect("chmod");
+        catalog_object(&pgm, "*PGM", Some("CL"), Some("No manifest")).expect("catalog");
+        grant_object_authority(&pgm, "*PUBLIC", L400Authority::Use).expect("grant public use");
+
+        l400_clear_status();
+        let c_pgm = std::ffi::CString::new("QGPL/NOMAN").expect("cstring");
+        l400_call(c_pgm.as_ptr());
+
+        assert_eq!(l400_last_cpf_code(), 9898);
     }
 }

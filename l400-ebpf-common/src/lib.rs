@@ -16,6 +16,9 @@ pub const STAT_EXEC_DENIED_INVALID_FORMAT: u32 = 8;
 pub const STAT_EXEC_DENIED_EXCLUDE: u32 = 9;
 pub const STAT_EXEC_ALLOWED_OWNER: u32 = 10;
 pub const STAT_EXEC_ALLOWED_USER_AUTH: u32 = 11;
+pub const STAT_OPEN_DENIED_EXCLUDE: u32 = 12;
+pub const STAT_OPEN_ALLOWED_OWNER: u32 = 13;
+pub const STAT_OPEN_ALLOWED_USER_AUTH: u32 = 14;
 pub const STAT_OBJTYPE_BASE: u32 = 16;
 
 #[derive(Copy, Clone)]

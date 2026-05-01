@@ -1,22 +1,23 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::Style,
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 
 use crate::{
-    auth::{authenticate_linux_user, DEFAULT_SIGNON_PASSWORD, DEFAULT_SIGNON_USER},
+    auth::{DEFAULT_SIGNON_PASSWORD, DEFAULT_SIGNON_USER, authenticate_linux_user},
     screens::{Screen, ScreenId, ScreenResult},
     style::*,
+    widgets::input_field::InputField,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ActiveField {
     User,
     Password,
+    CurrentLibrary,
+    InitialMenu,
 }
 
 type AuthValidator = fn(&str, &str) -> Result<(), String>;
@@ -24,6 +25,8 @@ type AuthValidator = fn(&str, &str) -> Result<(), String>;
 pub struct SignOnScreen {
     user: String,
     password: String,
+    current_library: String,
+    initial_menu: String,
     active_field: ActiveField,
     message: Option<String>,
     validator: AuthValidator,
@@ -34,6 +37,8 @@ impl SignOnScreen {
         Self {
             user: DEFAULT_SIGNON_USER.to_string(),
             password: DEFAULT_SIGNON_PASSWORD.to_string(),
+            current_library: "QGPL".to_string(),
+            initial_menu: "MAIN".to_string(),
             active_field: ActiveField::User,
             message: None,
             validator: authenticate_linux_user,
@@ -86,7 +91,9 @@ impl SignOnScreen {
     fn move_focus(&mut self) {
         self.active_field = match self.active_field {
             ActiveField::User => ActiveField::Password,
-            ActiveField::Password => ActiveField::User,
+            ActiveField::Password => ActiveField::CurrentLibrary,
+            ActiveField::CurrentLibrary => ActiveField::InitialMenu,
+            ActiveField::InitialMenu => ActiveField::User,
         };
     }
 
@@ -94,33 +101,23 @@ impl SignOnScreen {
         match self.active_field {
             ActiveField::User => &mut self.user,
             ActiveField::Password => &mut self.password,
+            ActiveField::CurrentLibrary => &mut self.current_library,
+            ActiveField::InitialMenu => &mut self.initial_menu,
         }
     }
 
     fn push_char(&mut self, c: char) {
-        if self.active_field == ActiveField::User {
+        if self.active_field != ActiveField::Password {
             self.active_buffer().push(c.to_ascii_uppercase());
         } else {
             self.active_buffer().push(c);
-        }
-    }
-
-    fn masked_password(&self) -> String {
-        "*".repeat(self.password.chars().count())
-    }
-
-    fn prompt_style(&self, field: ActiveField) -> Style {
-        if self.active_field == field {
-            STYLE_SELECTION
-        } else {
-            STYLE_NORMAL
         }
     }
 }
 
 impl Screen for SignOnScreen {
     fn render(&mut self, frame: &mut Frame) {
-        let area = frame.area();
+        let area = crate::screens::screen_area(frame);
         frame.render_widget(Block::default().style(STYLE_HEADER), area);
 
         let overlay = centered_rect(68, 16, area);
@@ -148,6 +145,8 @@ impl Screen for SignOnScreen {
                 Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
                 Constraint::Min(2),
                 Constraint::Length(1),
             ])
@@ -160,33 +159,45 @@ impl Screen for SignOnScreen {
             sections[0],
         );
 
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::raw("User  . . . . . . . . . . :   "),
-                Span::styled(
-                    pad_field(&self.user, 16),
-                    self.prompt_style(ActiveField::User),
-                ),
-            ]))
-            .style(STYLE_NORMAL),
-            sections[1],
-        );
+        let fields = [
+            (
+                ActiveField::User,
+                InputField::new("User  . . . . . . . . . .", 16)
+                    .with_value(&self.user)
+                    .uppercase()
+                    .required(),
+            ),
+            (
+                ActiveField::Password,
+                InputField::new("Password  . . . . . . . .", 16)
+                    .with_value(&self.password)
+                    .masked()
+                    .required(),
+            ),
+            (
+                ActiveField::CurrentLibrary,
+                InputField::new("Current library . . . . .", 16)
+                    .with_value(&self.current_library)
+                    .uppercase()
+                    .required(),
+            ),
+            (
+                ActiveField::InitialMenu,
+                InputField::new("Initial menu . . . . . .", 16)
+                    .with_value(&self.initial_menu)
+                    .uppercase()
+                    .required(),
+            ),
+        ];
+
+        for (offset, (field_id, mut field)) in fields.into_iter().enumerate() {
+            field.active = self.active_field == field_id;
+            field.render(frame, sections[1 + offset]);
+        }
 
         frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::raw("Password  . . . . . . . . :   "),
-                Span::styled(
-                    pad_field(&self.masked_password(), 16),
-                    self.prompt_style(ActiveField::Password),
-                ),
-            ]))
-            .style(STYLE_NORMAL),
-            sections[2],
-        );
-
-        frame.render_widget(
-            Paragraph::new("Program/procedure . . . . . . :   MENU").style(STYLE_DIM),
-            sections[4],
+            Paragraph::new("System mode shown in global status line.").style(STYLE_DIM),
+            sections[5],
         );
 
         let message = self
@@ -198,7 +209,7 @@ impl Screen for SignOnScreen {
         } else {
             STYLE_NORMAL
         };
-        frame.render_widget(Paragraph::new(message).style(message_style), sections[5]);
+        frame.render_widget(Paragraph::new(message).style(message_style), sections[7]);
 
         frame.render_widget(
             Paragraph::new("F3=Exit   Tab=Next field   Enter=Sign on")
@@ -210,7 +221,7 @@ impl Screen for SignOnScreen {
                         .border_style(STYLE_BORDER)
                         .style(STYLE_HELP),
                 ),
-            sections[6],
+            sections[8],
         );
     }
 
@@ -244,15 +255,6 @@ impl Default for SignOnScreen {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn pad_field(value: &str, width: usize) -> String {
-    let mut result = value.chars().take(width).collect::<String>();
-    let current = result.chars().count();
-    if current < width {
-        result.push_str(&" ".repeat(width - current));
-    }
-    result
 }
 
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {

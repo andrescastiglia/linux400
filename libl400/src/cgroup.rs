@@ -31,8 +31,11 @@ pub enum JobStatus {
     JobQ,
     Held,
     Active,
+    Ending,
+    Ended,
     Completed,
     Failed,
+    Killed,
 }
 
 impl std::fmt::Display for JobStatus {
@@ -41,8 +44,11 @@ impl std::fmt::Display for JobStatus {
             JobStatus::JobQ => write!(f, "JOBQ"),
             JobStatus::Held => write!(f, "HELD"),
             JobStatus::Active => write!(f, "ACTIVE"),
+            JobStatus::Ending => write!(f, "ENDING"),
+            JobStatus::Ended => write!(f, "ENDED"),
             JobStatus::Completed => write!(f, "COMPLETED"),
             JobStatus::Failed => write!(f, "FAILED"),
+            JobStatus::Killed => write!(f, "KILLED"),
         }
     }
 }
@@ -55,10 +61,22 @@ impl std::str::FromStr for JobStatus {
             "JOBQ" => Ok(JobStatus::JobQ),
             "HELD" | "HLD" => Ok(JobStatus::Held),
             "ACTIVE" => Ok(JobStatus::Active),
+            "ENDING" => Ok(JobStatus::Ending),
+            "ENDED" => Ok(JobStatus::Ended),
             "COMPLETED" => Ok(JobStatus::Completed),
             "FAILED" => Ok(JobStatus::Failed),
+            "KILLED" => Ok(JobStatus::Killed),
             _ => Err(CgroupError::InvalidJob(format!("invalid status: {}", s))),
         }
+    }
+}
+
+impl JobStatus {
+    fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            JobStatus::Ended | JobStatus::Completed | JobStatus::Failed | JobStatus::Killed
+        )
     }
 }
 
@@ -264,9 +282,7 @@ fn update_job_status_at(base: &Path, pid: u64, status: JobStatus) -> Result<(), 
             updated = true;
         } else if line.starts_with("started_at=") && status == JobStatus::Active {
             lines.push(format!("started_at={}", now_epoch_string()));
-        } else if line.starts_with("ended_at=")
-            && matches!(status, JobStatus::Completed | JobStatus::Failed)
-        {
+        } else if line.starts_with("ended_at=") && status.is_terminal() {
             lines.push(format!("ended_at={}", now_epoch_string()));
         } else {
             lines.push(line.to_string());
@@ -278,9 +294,7 @@ fn update_job_status_at(base: &Path, pid: u64, status: JobStatus) -> Result<(), 
     if status == JobStatus::Active && !lines.iter().any(|line| line.starts_with("started_at=")) {
         lines.push(format!("started_at={}", now_epoch_string()));
     }
-    if matches!(status, JobStatus::Completed | JobStatus::Failed)
-        && !lines.iter().any(|line| line.starts_with("ended_at="))
-    {
+    if status.is_terminal() && !lines.iter().any(|line| line.starts_with("ended_at=")) {
         lines.push(format!("ended_at={}", now_epoch_string()));
     }
     lines.push(String::new());
@@ -351,13 +365,21 @@ pub fn list_jobs_at(base: &Path) -> Result<Vec<WorkloadJob>, CgroupError> {
         }
         let content = std::fs::read_to_string(&path)?;
         let job = parse_job(&content)?;
-        if PathBuf::from(format!("/proc/{}", job.pid)).exists() || job.status != JobStatus::Active {
-            jobs.push(job);
-        } else {
-            let mut failed_job = job.clone();
-            failed_job.status = JobStatus::Failed;
-            let _ = update_job_status_at(base, failed_job.pid, JobStatus::Failed);
-            jobs.push(failed_job);
+        let alive = process_exists(job.pid);
+        match (alive, job.status) {
+            (false, JobStatus::Active) => {
+                let mut failed_job = job.clone();
+                failed_job.status = JobStatus::Failed;
+                let _ = update_job_status_at(base, failed_job.pid, JobStatus::Failed);
+                jobs.push(failed_job);
+            }
+            (false, JobStatus::Ending) => {
+                let mut ended_job = job.clone();
+                ended_job.status = JobStatus::Ended;
+                let _ = update_job_status_at(base, ended_job.pid, JobStatus::Ended);
+                jobs.push(ended_job);
+            }
+            _ => jobs.push(job),
         }
     }
     jobs.sort_by_key(|left| left.pid);
@@ -489,14 +511,77 @@ pub fn release_job(pid: u64) -> Result<(), CgroupError> {
 }
 
 pub fn end_job(pid: u64) -> Result<(), CgroupError> {
+    end_job_with_timeout(pid, std::time::Duration::from_secs(5))
+}
+
+pub fn kill_job(pid: u64) -> Result<(), CgroupError> {
+    kill_job_at(&l400_run_dir(), pid, std::time::Duration::from_secs(2))
+}
+
+pub fn end_job_with_timeout(pid: u64, timeout: std::time::Duration) -> Result<(), CgroupError> {
+    end_job_at(&l400_run_dir(), pid, timeout)
+}
+
+fn end_job_at(base: &Path, pid: u64, timeout: std::time::Duration) -> Result<(), CgroupError> {
     #[cfg(unix)]
     {
         let result = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
         if result != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
+        update_job_status_at(base, pid, JobStatus::Ending)?;
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if !process_exists(pid) {
+                return update_job_status_at(base, pid, JobStatus::Ended);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        Err(CgroupError::InvalidJob(format!(
+            "job {pid} is still running after SIGTERM; status=ENDING"
+        )))
     }
-    update_job_status(pid, JobStatus::Failed)
+    #[cfg(not(unix))]
+    {
+        let _ = timeout;
+        update_job_status_at(base, pid, JobStatus::Ending)
+    }
+}
+
+fn kill_job_at(base: &Path, pid: u64, timeout: std::time::Duration) -> Result<(), CgroupError> {
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if !process_exists(pid) {
+                return update_job_status_at(base, pid, JobStatus::Killed);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        update_job_status_at(base, pid, JobStatus::Killed)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = timeout;
+        update_job_status_at(base, pid, JobStatus::Killed)
+    }
+}
+
+fn process_exists(pid: u64) -> bool {
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+        result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        false
+    }
 }
 
 pub fn remove_job(pid: u64) -> Result<(), CgroupError> {
@@ -707,6 +792,62 @@ mod tests {
         let jobs = list_jobs_at(root.path()).unwrap();
         assert_eq!(jobs[0].status, JobStatus::Completed);
         assert!(jobs[0].ended_at.is_some());
+    }
+
+    #[test]
+    fn end_job_keeps_ending_when_process_ignores_sigterm() {
+        let root = tempdir().unwrap();
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("trap '' TERM; sleep 5")
+            .spawn()
+            .expect("spawn child");
+        let pid = child.id() as u64;
+        write_job_at(
+            root.path(),
+            pid,
+            "IGNORETERM",
+            "l400",
+            WorkloadType::Batch,
+            JobStatus::Active,
+            "sleep",
+        )
+        .unwrap();
+
+        let result = end_job_at(root.path(), pid, std::time::Duration::from_millis(100));
+
+        assert!(result.is_err());
+        let jobs = list_jobs_at(root.path()).unwrap();
+        assert_eq!(jobs[0].status, JobStatus::Ending);
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn kill_job_marks_process_killed() {
+        let root = tempdir().unwrap();
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 5")
+            .spawn()
+            .expect("spawn child");
+        let pid = child.id() as u64;
+        write_job_at(
+            root.path(),
+            pid,
+            "KILLME",
+            "l400",
+            WorkloadType::Batch,
+            JobStatus::Active,
+            "sleep",
+        )
+        .unwrap();
+
+        kill_job_at(root.path(), pid, std::time::Duration::from_secs(1)).unwrap();
+        let _ = child.wait();
+
+        let jobs = list_jobs_at(root.path()).unwrap();
+        assert_eq!(jobs[0].status, JobStatus::Killed);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use std::env;
 use std::ffi::CString;
-use std::io::{stdin, stdout, IsTerminal};
+use std::io::{IsTerminal, stdin, stdout};
 use std::os::raw::c_char;
 use std::path::Path;
 use std::process::Command;
@@ -11,6 +11,7 @@ use l400::ffi_commands;
 const COMMAND_BINARIES: &[&str] = &[
     "WRKSYSSTS",
     "WRKACTJOB",
+    "WRKJOB",
     "WRKJOBQ",
     "HLDJOB",
     "RLSJOB",
@@ -26,6 +27,7 @@ const COMMAND_BINARIES: &[&str] = &[
     "CRTOUTQ",
     "DLTOUTQ",
     "DSPSPLF",
+    "CHGSPLFA",
     "DLTSPLF",
     "PWRDWNSYS",
     "SBMJOB",
@@ -38,6 +40,7 @@ const COMMAND_BINARIES: &[&str] = &[
     "GRTOBJAUT",
     "RVKOBJAUT",
     "CHKOBJAUT",
+    "CHKOBJINT",
     "DSPPOLICY",
     "DSPAUD",
     "CRTLIB",
@@ -121,17 +124,24 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             ExitCode::SUCCESS
         }
         "WRKACTJOB" => dispatch_spec(
+            command,
             args,
             &["SBS", "SUBSYSTEM", "STATUS", "OPTION", "PID", "JOB"],
             ffi_commands::l400_wrkactjob_spec,
         ),
+        "WRKJOB" => dispatch_spec(command, args, &["JOB", "PID"], ffi_commands::l400_wrkjob),
         "WRKJOBQ" => {
             ffi_commands::l400_wrkjobq();
             ExitCode::SUCCESS
         }
-        "HLDJOB" => dispatch_spec(args, &["JOB", "PID"], ffi_commands::l400_hldjob),
-        "RLSJOB" => dispatch_spec(args, &["JOB", "PID"], ffi_commands::l400_rlsjob),
-        "ENDJOB" => dispatch_spec(args, &["JOB", "PID", "CONFIRM"], ffi_commands::l400_endjob),
+        "HLDJOB" => dispatch_spec(command, args, &["JOB", "PID"], ffi_commands::l400_hldjob),
+        "RLSJOB" => dispatch_spec(command, args, &["JOB", "PID"], ffi_commands::l400_rlsjob),
+        "ENDJOB" => dispatch_spec(
+            command,
+            args,
+            &["JOB", "PID", "CONFIRM", "OPTION"],
+            ffi_commands::l400_endjob,
+        ),
         "WRKSYSVAL" => {
             ffi_commands::l400_wrksysval();
             ExitCode::SUCCESS
@@ -140,13 +150,25 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             ffi_commands::l400_dsplog();
             ExitCode::SUCCESS
         }
-        "DSPCMD" => dispatch_spec(args, &["CMD"], ffi_commands::l400_dspcmd),
-        "WRKCMD" => {
-            ffi_commands::l400_wrkcmd();
-            ExitCode::SUCCESS
-        }
-        "CRTCMD" => dispatch_spec(args, &["CMD", "LIB", "TEXT"], ffi_commands::l400_crtcmd),
-        "WRKUSRPRF" => dispatch_spec(args, &["USRPRF", "ACTION"], ffi_commands::l400_wrkusrprf),
+        "DSPCMD" => dispatch_spec(command, args, &["CMD"], ffi_commands::l400_dspcmd),
+        "WRKCMD" => dispatch_spec(
+            command,
+            args,
+            &["CMD", "AUTH", "STATUS"],
+            ffi_commands::l400_wrkcmd_spec,
+        ),
+        "CRTCMD" => dispatch_spec(
+            command,
+            args,
+            &["CMD", "LIB", "TEXT"],
+            ffi_commands::l400_crtcmd,
+        ),
+        "WRKUSRPRF" => dispatch_spec(
+            command,
+            args,
+            &["USRPRF", "ACTION"],
+            ffi_commands::l400_wrkusrprf,
+        ),
         "WRKSPLF" => {
             ffi_commands::l400_wrksplf();
             ExitCode::SUCCESS
@@ -155,59 +177,96 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             ffi_commands::l400_wrkoutq();
             ExitCode::SUCCESS
         }
-        "CRTOUTQ" => dispatch_spec(args, &["OUTQ", "LIB", "TEXT"], ffi_commands::l400_crtoutq),
+        "CRTOUTQ" => dispatch_spec(
+            command,
+            args,
+            &["OUTQ", "LIB", "TEXT", "RETAIN", "ROUTING", "STATUS"],
+            ffi_commands::l400_crtoutq,
+        ),
         "DLTOUTQ" => dispatch_spec(
+            command,
             args,
             &["OUTQ", "LIB", "CONFIRM"],
             ffi_commands::l400_dltoutq,
         ),
-        "DSPSPLF" => dispatch_spec(args, &["SPLF", "FILE"], ffi_commands::l400_dspsplf),
+        "DSPSPLF" => dispatch_spec(command, args, &["SPLF", "FILE"], ffi_commands::l400_dspsplf),
+        "CHGSPLFA" => dispatch_spec(
+            command,
+            args,
+            &["SPLF", "FILE", "STATUS", "STATE"],
+            ffi_commands::l400_chgsplfa,
+        ),
         "DLTSPLF" => dispatch_spec(
+            command,
             args,
             &["SPLF", "FILE", "CONFIRM"],
             ffi_commands::l400_dltsplf,
         ),
-        "PWRDWNSYS" => dispatch_spec(args, &["OPTION", "CONFIRM"], ffi_commands::l400_pwrdwnsys),
+        "PWRDWNSYS" => dispatch_spec(
+            command,
+            args,
+            &["OPTION", "CONFIRM"],
+            ffi_commands::l400_pwrdwnsys,
+        ),
         "WRKOBJ" => dispatch_spec(
+            command,
             args,
             &["OBJ", "FILTER", "OBJTYPE", "LIB"],
             ffi_commands::l400_wrkobj,
         ),
         "DLTOBJ" => dispatch_spec(
+            command,
             args,
             &["OBJ", "OBJTYPE", "LIB", "CONFIRM"],
             ffi_commands::l400_dltobj,
         ),
         "CPYOBJ" => dispatch_spec(
+            command,
             args,
             &["OBJ", "TOOBJ", "LIB", "TOLIB", "OBJTYPE"],
             ffi_commands::l400_cpyobj,
         ),
-        "DSPOBJD" => dispatch_spec(args, &["OBJ", "OBJTYPE", "LIB"], ffi_commands::l400_dspobjd),
+        "DSPOBJD" => dispatch_spec(
+            command,
+            args,
+            &["OBJ", "OBJTYPE", "LIB"],
+            ffi_commands::l400_dspobjd,
+        ),
         "CHGOBJD" => dispatch_spec(
+            command,
             args,
             &["OBJ", "OBJTYPE", "LIB", "TEXT", "OBJATTR"],
             ffi_commands::l400_chgobjd,
         ),
         "DSPOBJAUT" => dispatch_spec(
+            command,
             args,
             &["OBJ", "LIB", "OBJTYPE"],
             ffi_commands::l400_dspobjaut,
         ),
         "GRTOBJAUT" => dispatch_spec(
+            command,
             args,
             &["OBJ", "LIB", "OBJTYPE", "USER", "AUT"],
             ffi_commands::l400_grtobjaut,
         ),
         "RVKOBJAUT" => dispatch_spec(
+            command,
             args,
             &["OBJ", "LIB", "OBJTYPE", "USER"],
             ffi_commands::l400_rvkobjaut,
         ),
         "CHKOBJAUT" => dispatch_spec(
+            command,
             args,
             &["OBJ", "LIB", "OBJTYPE", "USER", "AUT"],
             ffi_commands::l400_chkobjaut,
+        ),
+        "CHKOBJINT" => dispatch_spec(
+            command,
+            args,
+            &["OBJ", "LIB", "OBJTYPE", "REPAIR"],
+            ffi_commands::l400_chkobjint,
         ),
         "DSPPOLICY" => {
             ffi_commands::l400_dsppolicy();
@@ -276,40 +335,80 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
             "WRKMBRPDM FILE(QGPL/QCLSRC)",
             ffi_commands::l400_wrkmbrpdm,
         ),
-        "DLTMBR" => dispatch_spec(args, &["FILE", "MBR", "CONFIRM"], ffi_commands::l400_dltmbr),
-        "CPYMBR" => dispatch_spec(args, &["FILE", "MBR", "TOMBR"], ffi_commands::l400_cpymbr),
-        "CHGMBRD" => dispatch_spec(args, &["FILE", "MBR", "TEXT"], ffi_commands::l400_chgmbrd),
+        "DLTMBR" => dispatch_spec(
+            command,
+            args,
+            &["FILE", "MBR", "CONFIRM"],
+            ffi_commands::l400_dltmbr,
+        ),
+        "CPYMBR" => dispatch_spec(
+            command,
+            args,
+            &["FILE", "MBR", "TOMBR"],
+            ffi_commands::l400_cpymbr,
+        ),
+        "CHGMBRD" => dispatch_spec(
+            command,
+            args,
+            &["FILE", "MBR", "TEXT"],
+            ffi_commands::l400_chgmbrd,
+        ),
         "SBMJOB" => dispatch_sbmjob(args),
         "CRTPF" => dispatch_spec(
+            command,
             args,
             &["FILE", "LIB", "RCDLEN", "FIELDS", "KEY", "TEXT"],
             ffi_commands::l400_crtpf,
         ),
         "CRTLF" => dispatch_spec(
+            command,
             args,
             &["FILE", "LIB", "SRCFILE", "SRCLIB", "KEY", "TEXT"],
             ffi_commands::l400_crtlf,
         ),
-        "DSPPFM" => dispatch_spec(args, &["FILE", "LIB", "MBR"], ffi_commands::l400_dsppfm),
+        "DSPPFM" => dispatch_spec(
+            command,
+            args,
+            &["FILE", "LIB", "MBR"],
+            ffi_commands::l400_dsppfm,
+        ),
         "CLRPFM" => dispatch_spec(
+            command,
             args,
             &["FILE", "LIB", "MBR", "CONFIRM"],
             ffi_commands::l400_clrpfm,
         ),
-        "ADDPFM" => dispatch_spec(args, &["FILE", "LIB", "MBR"], ffi_commands::l400_addpfm),
+        "ADDPFM" => dispatch_spec(
+            command,
+            args,
+            &["FILE", "LIB", "MBR"],
+            ffi_commands::l400_addpfm,
+        ),
         "WRTPFM" => dispatch_spec(
+            command,
             args,
             &["FILE", "LIB", "MBR", "KEY", "DATA"],
             ffi_commands::l400_wrtpfm,
         ),
-        "CRTDTAQ" => dispatch_spec(args, &["DTAQ", "LIB"], ffi_commands::l400_crtdtaq),
+        "CRTDTAQ" => dispatch_spec(command, args, &["DTAQ", "LIB"], ffi_commands::l400_crtdtaq),
         "SNDDTAQ" => dispatch_spec(
+            command,
             args,
             &["DTAQ", "LIB", "MSG"],
             ffi_commands::l400_snddtaq_cmd,
         ),
-        "RCVDTAQ" => dispatch_spec(args, &["DTAQ", "LIB", "WAIT"], ffi_commands::l400_rcvdtaq),
-        "DSPDTAQ" => dispatch_spec(args, &["DTAQ", "OBJ", "LIB"], ffi_commands::l400_dspdtaq),
+        "RCVDTAQ" => dispatch_spec(
+            command,
+            args,
+            &["DTAQ", "LIB", "WAIT"],
+            ffi_commands::l400_rcvdtaq,
+        ),
+        "DSPDTAQ" => dispatch_spec(
+            command,
+            args,
+            &["DTAQ", "OBJ", "LIB"],
+            ffi_commands::l400_dspdtaq,
+        ),
         _ => {
             eprintln!("ERROR: comando Linux/400 no reconocido: {command}");
             print_usage(Some(command));
@@ -319,11 +418,12 @@ fn dispatch(command: &str, args: &[String]) -> ExitCode {
 }
 
 fn dispatch_spec(
+    command: &str,
     args: &[String],
     keys: &[&str],
     callback: extern "C" fn(*const c_char),
 ) -> ExitCode {
-    if let Some(error) = validate_named_args(args, keys) {
+    if let Some(error) = validate_named_args(command, args, keys) {
         eprintln!("CPF0006 [l400cmd] {error}");
         return ExitCode::from(2);
     }
@@ -331,7 +431,10 @@ fn dispatch_spec(
     call_with_cstring(&spec, callback)
 }
 
-fn validate_named_args(args: &[String], keys: &[&str]) -> Option<String> {
+fn validate_named_args(command: &str, args: &[String], keys: &[&str]) -> Option<String> {
+    let metadata_keys = l400::command_metadata(command)
+        .map(|metadata| metadata.parameter_names())
+        .unwrap_or_default();
     for arg in args {
         let key = arg
             .split_once('(')
@@ -340,7 +443,9 @@ fn validate_named_args(args: &[String], keys: &[&str]) -> Option<String> {
         let Some(key) = key else {
             continue;
         };
-        if !keys.iter().any(|allowed| *allowed == key) {
+        let in_metadata = metadata_keys.iter().any(|allowed| *allowed == key);
+        let in_dispatch_aliases = keys.iter().any(|allowed| *allowed == key);
+        if !in_metadata && !in_dispatch_aliases {
             return Some(format!("parametro {} no valido", key));
         }
     }
@@ -384,6 +489,10 @@ fn dispatch_unary_required(
     usage: &str,
     callback: extern "C" fn(*const c_char),
 ) -> ExitCode {
+    if let Some(error) = validate_named_args(command, args, keys) {
+        eprintln!("CPF0006 [l400cmd] {error}");
+        return ExitCode::from(2);
+    }
     let value =
         extract_named_arg(args, keys).or_else(|| positional_args(args, keys).first().cloned());
     match value {
@@ -751,7 +860,9 @@ fn print_usage(bad_command: Option<&str>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{command_spec, parse_named_arg, positional_args};
+    use super::{
+        COMMAND_BINARIES, command_spec, parse_named_arg, positional_args, validate_named_args,
+    };
 
     #[test]
     fn parse_named_arg_supports_parentheses() {
@@ -817,5 +928,25 @@ mod tests {
         let args = vec!["USRPRF(QPGMR)".to_string(), "EXTRA".to_string()];
 
         assert_eq!(command_spec(&args, &["USRPRF", "ACTION"]), "USRPRF=QPGMR");
+    }
+
+    #[test]
+    fn command_binaries_are_backed_by_metadata() {
+        for command in COMMAND_BINARIES {
+            assert!(
+                l400::command_metadata(command).is_some(),
+                "missing metadata for {command}"
+            );
+        }
+    }
+
+    #[test]
+    fn validation_uses_command_metadata() {
+        let args = vec!["BOGUS(1)".to_string()];
+
+        assert_eq!(
+            validate_named_args("WRKOBJ", &args, &["OBJ", "FILTER", "OBJTYPE", "LIB"]),
+            Some("parametro BOGUS no valido".to_string())
+        );
     }
 }

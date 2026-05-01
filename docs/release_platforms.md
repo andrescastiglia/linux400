@@ -27,6 +27,21 @@ RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh
 
 El build formal de RC (`scripts/build/build_release_rc.sh`) exige ese gate QEMU salvo que se use `RUN_RC_GATE=0` para builds internos no publicables.
 
+Cada build formal deja evidencia reproducible en:
+
+```bash
+output/rc-evidence/<VERSION>/
+```
+
+Ese directorio contiene:
+
+- `build.log`: log del pipeline de artefactos;
+- `release-gate.log`: log del gate de RC;
+- `release-gate.env`: que se probo, host, kernel, version de Rust/Cargo y comando de reproduccion;
+- `support-profile`: capacidades activas segun `l400-support-report`;
+- `artifacts/`: ISO, initramfs, kernel y EFI generados si existen;
+- `SHA256SUMS`: hashes de los artefactos publicados.
+
 ## Matriz de soporte
 
 | Modo | Requisitos | Garantia operativa |
@@ -114,3 +129,47 @@ WRKMBRPDM FILE(QGPL/QCLSRC)
 ```
 
 `l400-bootstrap` debe ser idempotente: puede crear objetos base faltantes, pero no debe borrar bibliotecas ni miembros de usuario. Si una migracion cambia formato de metadatos, debe agregarse una fase explicita versionada antes de tocar datos existentes.
+
+Downgrade de metadata no esta soportado. Si `.metadata-version` es mayor que la version objetivo, `l400-migrate` debe fallar y el operador debe restaurar un backup o snapshot tomado antes del upgrade.
+
+Para validar una migracion local desde metadata anterior:
+
+```bash
+./scripts/test/test_l400_upgrade_metadata.sh
+```
+
+## Instalacion
+
+El camino normal de instalacion es arrancar la ISO de RC y usar el instalador textual:
+
+```bash
+RUN_E2E_INSTALL=1 ./scripts/build/build_release_rc.sh
+```
+
+En consola interactiva, el instalador:
+
+- enumera discos;
+- exige confirmacion escribiendo `INSTALL`;
+- crea particion EFI y root;
+- copia el sistema;
+- instala arranque UEFI;
+- conserva `/l400` como estado persistente del sistema instalado.
+
+Tras el primer boot instalado:
+
+```bash
+l400-support-report --write
+l400-upgrade-check
+WRKOBJ LIB(QSYS)
+WRKOBJ LIB(QGPL)
+```
+
+## Modo Rescue
+
+La ISO incluye una entrada `Linux/400 rescue`. Tambien puede activarse con el parametro de kernel:
+
+```text
+l400.rescue=1
+```
+
+El modo rescue abre shell de soporte en vez de iniciar la experiencia principal. Se usa para revisar discos, montar/restaurar `/l400`, ejecutar `l400-upgrade-check`, copiar backups y recuperar un sistema que no completa el arranque normal. No ejecuta downgrade automatico de metadata.

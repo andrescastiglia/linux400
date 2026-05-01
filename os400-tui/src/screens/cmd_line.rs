@@ -1,16 +1,18 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::Line,
     text::Text,
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 use std::process::Command;
 
+use crate::cl_parser::{extract_command_arg, tokenize_cl_command};
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::session::SessionContext;
 use crate::style::*;
+use crate::widgets::help_bar::{HelpAction, HelpBar};
 
 #[derive(Clone, Debug)]
 struct PromptField {
@@ -95,7 +97,10 @@ impl CommandLine {
             "WRKACTJOB" => {
                 return ScreenResult::goto(ScreenId::WorkManagement);
             }
-            "WRKOBJ" | "WRKLIB" => {
+            "WRKLIB" => {
+                return ScreenResult::goto(ScreenId::WrkLib);
+            }
+            "WRKOBJ" => {
                 return ScreenResult::goto(ScreenId::ObjectBrowser);
             }
             cmd if cmd.starts_with("DSPDTAQ") => {
@@ -104,6 +109,9 @@ impl CommandLine {
                     .or_else(|| tokens.get(1).map(|value| value.to_string()))
                     .unwrap_or_else(|| "QUSRSYS/QEZJOBLOG".to_string());
                 return ScreenResult::with_data(ScreenId::DataQueueViewer, dtaq);
+            }
+            cmd if cmd.starts_with("DSPPFM") => {
+                return ScreenResult::with_data(ScreenId::DspPfm, cmd);
             }
             "HELP" => {
                 self.output.push("Available commands:".to_string());
@@ -169,10 +177,9 @@ impl CommandLine {
 
     fn start_prompt(&mut self) {
         let action = self
-            .command
-            .split_whitespace()
-            .next()
-            .map(str::to_uppercase)
+            .command_tokens()
+            .first()
+            .map(|value| value.to_uppercase())
             .unwrap_or_else(|| "WRKOBJ".to_string());
         let fields = if let Some(metadata) = l400::command_metadata(&action) {
             metadata
@@ -341,18 +348,18 @@ impl CommandLine {
                 return self.execute_command();
             }
             KeyCode::Backspace => {
-                if let Some(field) = self.prompt_fields.get_mut(self.prompt_index) {
-                    if self.prompt_cursor > 0 {
-                        self.prompt_cursor -= 1;
-                        field.value.remove(self.prompt_cursor);
-                    }
+                if let Some(field) = self.prompt_fields.get_mut(self.prompt_index)
+                    && self.prompt_cursor > 0
+                {
+                    self.prompt_cursor -= 1;
+                    field.value.remove(self.prompt_cursor);
                 }
             }
             KeyCode::Delete => {
-                if let Some(field) = self.prompt_fields.get_mut(self.prompt_index) {
-                    if self.prompt_cursor < field.value.len() {
-                        field.value.remove(self.prompt_cursor);
-                    }
+                if let Some(field) = self.prompt_fields.get_mut(self.prompt_index)
+                    && self.prompt_cursor < field.value.len()
+                {
+                    field.value.remove(self.prompt_cursor);
                 }
             }
             KeyCode::Left => {
@@ -385,28 +392,36 @@ impl CommandLine {
                     .get(1)
                     .map(|value| value.trim().to_uppercase())
                     .unwrap_or_default();
-                if target == "MAIN" {
-                    Some(ScreenResult::goto(ScreenId::MainMenu))
-                } else {
-                    self.show_usage_error("Usage: GO MAIN");
-                    Some(ScreenResult::none())
+                match target.as_str() {
+                    "MAIN" => Some(ScreenResult::goto(ScreenId::MainMenu)),
+                    "CMDOBJ" | "CMDSQL" | "CMDSYS" => {
+                        Some(ScreenResult::with_data(ScreenId::CommandMenu, target))
+                    }
+                    _ => {
+                        self.show_usage_error("Usage: GO MAIN, GO CMDOBJ, GO CMDSQL, GO CMDSYS");
+                        Some(ScreenResult::none())
+                    }
                 }
             }
             "SIGNOFF" => Some(ScreenResult::goto(ScreenId::SignOn)),
             "STRPDM" => Some(ScreenResult::goto(ScreenId::PdmBrowser)),
             "STRSQL" => Some(ScreenResult::goto(ScreenId::StrSql)),
+            "SBMJOB" if tokens.len() == 1 => Some(ScreenResult::goto(ScreenId::SubmitJob)),
+            "PWRDWNSYS" => Some(ScreenResult::goto(ScreenId::PowerDown)),
             "WRKACTJOB" => Some(ScreenResult::goto(ScreenId::WorkManagement)),
-            "WRKOBJ" | "WRKLIB" => Some(ScreenResult::goto(ScreenId::ObjectBrowser)),
+            "WRKLIB" => Some(ScreenResult::goto(ScreenId::WrkLib)),
+            "WRKOBJ" => Some(ScreenResult::goto(ScreenId::ObjectBrowser)),
             "WRKUSRPRF" => Some(ScreenResult::goto(ScreenId::UserProfiles)),
-            "DSPPOLICY" | "DSPAUD" => Some(ScreenResult::with_data(ScreenId::PolicyAudit, command)),
+            "DSPLOG" => Some(ScreenResult::goto(ScreenId::DspLog)),
+            "DSPPOLICY" => Some(ScreenResult::goto(ScreenId::DspPolicy)),
+            "DSPAUD" => Some(ScreenResult::with_data(ScreenId::PolicyAudit, command)),
             "DSPCMD" | "WRKCMD" => Some(ScreenResult::with_data(ScreenId::SystemPanel, command)),
+            "DSPPFM" => Some(ScreenResult::with_data(ScreenId::DspPfm, command)),
             "WRKSPLF" | "WRKOUTQ" => Some(ScreenResult::with_data(ScreenId::SpoolOutq, command)),
-            "WRKSYSSTS" | "WRKSYSVAL" => {
-                Some(ScreenResult::with_data(ScreenId::SystemPanel, command))
-            }
-            "DSPOBJD" | "DSPOBJAUT" => {
-                Some(ScreenResult::with_data(ScreenId::ObjectDetail, command))
-            }
+            "WRKSYSVAL" => Some(ScreenResult::goto(ScreenId::WrkSysVal)),
+            "WRKSYSSTS" => Some(ScreenResult::with_data(ScreenId::SystemPanel, command)),
+            "DSPOBJD" => Some(ScreenResult::with_data(ScreenId::ObjectDetail, command)),
+            "DSPOBJAUT" => Some(ScreenResult::with_data(ScreenId::ObjectAuthority, command)),
             "WRKMBRPDM" => {
                 let file = extract_command_arg(&tokens[1..], "FILE").or_else(|| {
                     tokens
@@ -509,6 +524,10 @@ impl CommandLine {
             _ => false,
         }
     }
+
+    fn command_tokens(&self) -> Vec<String> {
+        tokenize_cl_command(&self.command)
+    }
 }
 
 impl Screen for CommandLine {
@@ -524,7 +543,7 @@ impl Screen for CommandLine {
                 Constraint::Min(0),
                 Constraint::Length(3),
             ])
-            .split(frame.area());
+            .split(crate::screens::screen_area(frame));
 
         self.render_command_line(frame, chunks[0]);
         if self.show_output {
@@ -619,57 +638,7 @@ impl Screen for CommandLine {
     }
 }
 
-fn extract_command_arg(tokens: &[String], key: &str) -> Option<String> {
-    tokens.iter().find_map(|token| {
-        let token = token.trim();
-        if !token.to_uppercase().starts_with(&format!("{key}(")) || !token.ends_with(')') {
-            return None;
-        }
-        Some(token[key.len() + 1..token.len() - 1].trim().to_string())
-    })
-}
-
-fn tokenize_cl_command(command: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut depth = 0usize;
-    let mut in_single = false;
-    let mut in_double = false;
-
-    for ch in command.chars() {
-        match ch {
-            '\'' if !in_double => {
-                in_single = !in_single;
-                current.push(ch);
-            }
-            '"' if !in_single => {
-                in_double = !in_double;
-                current.push(ch);
-            }
-            '(' if !in_single && !in_double => {
-                depth += 1;
-                current.push(ch);
-            }
-            ')' if !in_single && !in_double => {
-                depth = depth.saturating_sub(1);
-                current.push(ch);
-            }
-            ch if ch.is_whitespace() && depth == 0 && !in_single && !in_double => {
-                if !current.trim().is_empty() {
-                    tokens.push(current.trim().to_string());
-                    current.clear();
-                }
-            }
-            _ => current.push(ch),
-        }
-    }
-
-    if !current.trim().is_empty() {
-        tokens.push(current.trim().to_string());
-    }
-
-    tokens
-}
+// tokenize_cl_command and extract_command_arg are now in crate::cl_parser
 
 fn normalize_file_spec(spec: &str, session: &SessionContext) -> String {
     let spec = spec.trim();
@@ -697,7 +666,7 @@ impl CommandLine {
                 Constraint::Min(0),
                 Constraint::Length(3),
             ])
-            .split(frame.area());
+            .split(crate::screens::screen_area(frame));
 
         let command = self.prompt_command.as_deref().unwrap_or("WRKOBJ");
         let block = Block::default()
@@ -742,19 +711,15 @@ impl CommandLine {
             field_inner,
         );
 
-        let help_text = Line::from(vec![
-            "Enter=Run   ".into(),
-            "Tab=Next   ".into(),
-            "Shift-Tab=Prev   ".into(),
-            "F12=Cancel".into(),
-        ]);
-        let help = Block::default()
-            .style(STYLE_HELP)
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-        let help_inner = Rect::new(chunks[2].x + 1, chunks[2].y + 1, chunks[2].width - 2, 1);
-        frame.render_widget(help, chunks[2]);
-        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), help_inner);
+        HelpBar::new()
+            .command(command)
+            .actions(vec![
+                HelpAction::new("Enter", "Run"),
+                HelpAction::new("Tab", "Next"),
+                HelpAction::new("Shift-Tab", "Prev"),
+                HelpAction::new("F12", "Cancel"),
+            ])
+            .render(frame, chunks[2]);
 
         let cursor_y = field_inner.y + self.prompt_index as u16;
         let cursor_x = field_inner.x + 13 + self.prompt_cursor as u16;
@@ -800,27 +765,28 @@ impl CommandLine {
         frame.render_widget(block, area);
 
         let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, area.height - 2);
-        frame.render_widget(Paragraph::new(text).style(STYLE_NORMAL), inner);
+        let paragraph = Paragraph::new(text)
+            .style(STYLE_NORMAL)
+            .wrap(ratatui::widgets::Wrap { trim: false });
+        frame.render_widget(paragraph, inner);
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
-        let help_text = Line::from(vec![
-            "F3=Exit   ".into(),
-            "F4=Prompt   ".into(),
-            "F12=Cancel   ".into(),
-            "Enter=Execute   ".into(),
-            "Up/Down=History".into(),
-        ]);
-
-        let block = Block::default()
-            .style(STYLE_HELP)
-            .borders(Borders::ALL)
-            .border_style(STYLE_BORDER);
-
-        frame.render_widget(block, area);
-
-        let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
-        frame.render_widget(Paragraph::new(help_text).style(STYLE_HELP), inner);
+        HelpBar::new()
+            .command(
+                self.command_tokens()
+                    .first()
+                    .map(|value| value.to_uppercase())
+                    .unwrap_or_else(|| "CALL".to_string()),
+            )
+            .actions(vec![
+                HelpAction::new("F3", "Exit"),
+                HelpAction::new("F4", "Prompt"),
+                HelpAction::new("F12", "Cancel"),
+                HelpAction::new("Enter", "Execute"),
+                HelpAction::new("Up/Down", "History"),
+            ])
+            .render(frame, area);
     }
 }
 
@@ -842,6 +808,17 @@ mod tests {
         let result = cmd.execute_command();
 
         assert_eq!(result.next, Some(ScreenId::SignOn));
+    }
+
+    #[test]
+    fn go_cmdobj_routes_to_command_menu() {
+        let mut cmd = CommandLine::new();
+        cmd.command = "GO CMDOBJ".to_string();
+
+        let result = cmd.execute_command();
+
+        assert_eq!(result.next, Some(ScreenId::CommandMenu));
+        assert_eq!(result.data.as_deref(), Some("CMDOBJ"));
     }
 
     #[test]
