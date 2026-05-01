@@ -208,7 +208,8 @@ impl MainMenu {
             "WRKUSRPRF" => ScreenResult::goto(ScreenId::UserProfiles),
             "WRKSPLF" | "WRKOUTQ" => ScreenResult::goto(ScreenId::SpoolOutq),
             "DSPPOLICY" | "DSPAUD" => ScreenResult::goto(ScreenId::PolicyAudit),
-            "DSPOBJD" | "DSPOBJAUT" => ScreenResult::with_data(ScreenId::ObjectDetail, command),
+            "DSPOBJD" => ScreenResult::with_data(ScreenId::ObjectDetail, command),
+            "DSPOBJAUT" => ScreenResult::with_data(ScreenId::ObjectAuthority, command),
             _ => ScreenResult::with_data(ScreenId::CommandLine, command),
         }
     }

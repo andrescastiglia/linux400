@@ -200,7 +200,7 @@ impl Screen for ObjectDetail {
                 ScreenResult::none()
             }
             KeyCode::Char('8') => ScreenResult::with_data(
-                ScreenId::SystemPanel,
+                ScreenId::ObjectAuthority,
                 format!("DSPOBJAUT OBJ({})", self.object_spec),
             ),
             _ => ScreenResult::none(),

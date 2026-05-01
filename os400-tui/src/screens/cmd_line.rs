@@ -415,9 +415,8 @@ impl CommandLine {
             "WRKSYSSTS" | "WRKSYSVAL" => {
                 Some(ScreenResult::with_data(ScreenId::SystemPanel, command))
             }
-            "DSPOBJD" | "DSPOBJAUT" => {
-                Some(ScreenResult::with_data(ScreenId::ObjectDetail, command))
-            }
+            "DSPOBJD" => Some(ScreenResult::with_data(ScreenId::ObjectDetail, command)),
+            "DSPOBJAUT" => Some(ScreenResult::with_data(ScreenId::ObjectAuthority, command)),
             "WRKMBRPDM" => {
                 let file = extract_command_arg(&tokens[1..], "FILE").or_else(|| {
                     tokens

@@ -341,7 +341,7 @@ Criterio de cierre:
 
 ## Fase 7: work management y spool de producto
 
-Estado: **en progreso para 0.3-pre**.
+Estado: **finalizado para 0.3-pre**.
 
 Objetivo: que jobs y spool sean gestionables de forma completa desde la TUI.
 
@@ -372,40 +372,40 @@ Objetivo: que jobs y spool sean gestionables de forma completa desde la TUI.
 
 ### 7.4 WRKSPLF/WRKOUTQ mejorado
 
-- [ ] Migrar spool a `SubfileTable`.
-- [ ] Visor de spool file con scroll horizontal y vertical.
-- [ ] Opción de imprimir a stdout (para redirección).
-- [ ] Filtro por job, usuario, fecha.
+- [x] Migrar spool a `SubfileTable`.
+- [x] Visor de spool file con scroll horizontal y vertical.
+- [x] Opción de imprimir a stdout (para redirección).
+- [x] Filtro por job, usuario, fecha.
 
 Criterio de cierre:
 
 - [x] Auto-refresh de WRKACTJOB funciona y se puede desactivar.
 - [x] WRKJOB muestra log en tiempo real.
-- [ ] WRKSPLF permite visualizar spool con scroll completo.
+- [x] WRKSPLF permite visualizar spool con scroll completo.
 
 ---
 
 ## Fase 8: administración de seguridad y sistema
 
-Estado: **pendiente**.
+Estado: **en progreso para 0.3-pre**.
 
 Objetivo: que el operador pueda administrar seguridad y configuración
 desde la TUI.
 
 ### 8.1 WRKUSRPRF dedicado
 
-- [ ] Nueva pantalla con `SubfileTable` listando perfiles de `L400_ROOT`.
-- [ ] Opciones: 2=Crear, 3=Copiar, 4=Deshabilitar, 5=Mostrar detalle,
+- [x] Nueva pantalla con `SubfileTable` listando perfiles de `L400_ROOT`.
+- [x] Opciones: 2=Crear, 3=Copiar, 4=Deshabilitar, 5=Mostrar detalle,
   7=Renombrar.
-- [ ] Detalle de perfil: nombre, UID, estado, autoridades asignadas, last
+- [x] Detalle de perfil: nombre, UID, estado, autoridades asignadas, last
   signon.
 
 ### 8.2 DSPOBJAUT / EDTOBJAUT interactivo
 
-- [ ] Nueva pantalla que muestra la matriz de autorización de un objeto.
-- [ ] Columnas: User, Authority, Origin (explicit/public/owner).
-- [ ] Opciones: 1=Grant (*USE/*CHANGE/*ALL), 4=Revoke.
-- [ ] Operaciones ejecutan `GRTOBJAUT`/`RVKOBJAUT` vía runtime.
+- [x] Nueva pantalla que muestra la matriz de autorización de un objeto.
+- [x] Columnas: User, Authority, Origin (explicit/public/owner).
+- [x] Opciones: 1=Grant (*USE/*CHANGE/*ALL), 4=Revoke.
+- [x] Operaciones ejecutan grant/revoke sobre el runtime de autorizaciones.
 
 ### 8.3 WRKSYSVAL editable
 
@@ -429,8 +429,8 @@ desde la TUI.
 
 Criterio de cierre:
 
-- [ ] WRKUSRPRF permite crear y desactivar un perfil desde TUI.
-- [ ] DSPOBJAUT muestra matriz real y permite grant/revoke.
+- [x] WRKUSRPRF permite crear y desactivar un perfil desde TUI.
+- [x] DSPOBJAUT muestra matriz real y permite grant/revoke.
 - [ ] DSPLOG muestra entradas reales con filtro funcional.
 
 ---

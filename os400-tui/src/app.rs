@@ -9,6 +9,7 @@ use crate::screens::admin_views::AdminCommandView;
 use crate::screens::cmd_line::CommandLine;
 use crate::screens::dtaq_viewer::DataQueueViewer;
 use crate::screens::main_menu::MainMenu;
+use crate::screens::object_authority::ObjectAuthority;
 use crate::screens::object_browser::ObjectBrowser;
 use crate::screens::object_detail::ObjectDetail;
 use crate::screens::pdm_browser::PdmBrowser;
@@ -22,6 +23,7 @@ use crate::screens::work_mgmt::WorkManagement;
 use crate::screens::wrk_job::WrkJob;
 use crate::screens::wrk_lib::WrkLib;
 use crate::screens::wrk_mbr_pdm::WrkMbrPdm;
+use crate::screens::wrk_usrprf::WrkUsrPrf;
 use crate::screens::{Screen, ScreenId};
 use crate::session::SessionContext;
 use crate::widgets::status_bar::StatusBar;
@@ -240,9 +242,10 @@ impl App {
             ScreenId::ObjectDetail => {
                 Box::new(ObjectDetail::new(data.as_deref(), self.session.clone()))
             }
-            ScreenId::UserProfiles => {
-                Box::new(AdminCommandView::user_profiles(self.session.clone()))
+            ScreenId::ObjectAuthority => {
+                Box::new(ObjectAuthority::new(data.as_deref(), self.session.clone()))
             }
+            ScreenId::UserProfiles => Box::new(WrkUsrPrf::new()),
             ScreenId::PolicyAudit => Box::new(AdminCommandView::policy_audit(
                 data.as_deref(),
                 self.session.clone(),
