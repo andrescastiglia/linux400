@@ -192,7 +192,8 @@ impl MainMenu {
             "GO CMDOBJ" => ScreenResult::with_data(ScreenId::CommandMenu, "CMDOBJ"),
             "GO CMDSQL" => ScreenResult::with_data(ScreenId::CommandMenu, "CMDSQL"),
             "GO CMDSYS" => ScreenResult::with_data(ScreenId::CommandMenu, "CMDSYS"),
-            "WRKLIB" | "WRKOBJ" | "WRKPGM" => ScreenResult::goto(ScreenId::ObjectBrowser),
+            "WRKLIB" => ScreenResult::goto(ScreenId::WrkLib),
+            "WRKOBJ" | "WRKPGM" => ScreenResult::goto(ScreenId::ObjectBrowser),
             "WRKACTJOB" => ScreenResult::goto(ScreenId::WorkManagement),
             "DSPDTAQ" => ScreenResult::goto(ScreenId::DataQueueViewer),
             "CMD" => ScreenResult::goto(ScreenId::CommandLine),
@@ -467,7 +468,7 @@ mod tests {
         assert_eq!(menu.pending_option, "1");
 
         let result = menu.handle_key(key(KeyCode::Enter));
-        assert_eq!(result.next, Some(ScreenId::ObjectBrowser));
+        assert_eq!(result.next, Some(ScreenId::WrkLib));
     }
 
     #[test]

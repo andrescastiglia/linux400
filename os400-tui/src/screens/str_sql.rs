@@ -1,8 +1,9 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use l400::run_select_query;
+use l400::{list_libraries, list_objects, read_pf_schema, resolve_l400_root, run_select_query};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Row, Table, TableState},
 };
 
@@ -21,6 +22,7 @@ pub struct StrSql {
     column_offset: usize,
     history: Vec<String>,
     history_idx: usize,
+    status_message: Option<String>,
     default_library: Option<String>,
     return_to: ScreenId,
     return_data: Option<String>,
@@ -65,6 +67,7 @@ impl StrSql {
             column_offset: 0,
             history: Vec::new(),
             history_idx: 0,
+            status_message: None,
             default_library,
             return_to,
             return_data,
@@ -101,21 +104,171 @@ impl StrSql {
             .default_library
             .as_deref()
             .unwrap_or(snapshot.current_library.as_str());
-        match run_select_query(&statement, Some(default_library)) {
-            Ok(result) => {
-                self.columns = result.columns;
-                self.results = result.rows;
-                if !self.results.is_empty() {
-                    self.table_state.select(Some(0));
+        if statement.eq_ignore_ascii_case("SHOW TABLES") {
+            self.show_tables();
+        } else if statement.to_uppercase().starts_with("DESCRIBE TABLE ") {
+            self.describe_table(statement["DESCRIBE TABLE ".len()..].trim());
+        } else {
+            match run_select_query(&statement, Some(default_library)) {
+                Ok(result) => {
+                    self.columns = result.columns;
+                    self.results = result.rows;
+                    if !self.results.is_empty() {
+                        self.table_state.select(Some(0));
+                    }
+                    self.status_message = Some(format!("CPF0000: {} rows.", self.results.len()));
                 }
-            }
-            Err(error) => {
-                self.error = Some(error.to_string());
+                Err(error) => {
+                    self.error = Some(format!("CPF9898 at position 1: {error}"));
+                    self.status_message = self.error.clone();
+                }
             }
         }
 
         self.input.clear();
         self.cursor = 0;
+    }
+
+    fn show_tables(&mut self) {
+        self.columns = vec![
+            "Library".to_string(),
+            "Table".to_string(),
+            "Text".to_string(),
+        ];
+        let root = resolve_l400_root();
+        let mut rows = Vec::new();
+        if let Ok(libraries) = list_libraries(&root) {
+            for library in libraries {
+                let lib_path = root.join(&library);
+                if let Ok(objects) = list_objects(&lib_path) {
+                    rows.extend(
+                        objects
+                            .into_iter()
+                            .filter(|object| object.objtype == "*FILE")
+                            .map(|object| {
+                                vec![
+                                    library.clone(),
+                                    object.name,
+                                    object.text.unwrap_or_default(),
+                                ]
+                            }),
+                    );
+                }
+            }
+        }
+        self.results = rows;
+        if !self.results.is_empty() {
+            self.table_state.select(Some(0));
+        }
+        self.status_message = Some(format!("CPF0000: {} tables.", self.results.len()));
+    }
+
+    fn describe_table(&mut self, table: &str) {
+        let snapshot = self.session.snapshot();
+        let (library, file) = parse_table_name(table, &snapshot.current_library);
+        let path = resolve_l400_root().join(&library).join(&file);
+        self.columns = vec![
+            "Field".to_string(),
+            "Type".to_string(),
+            "Length".to_string(),
+            "Text".to_string(),
+        ];
+        match read_pf_schema(&path) {
+            Ok(schema) => {
+                self.results = schema
+                    .fields
+                    .into_iter()
+                    .map(|field| {
+                        vec![
+                            field.name,
+                            field.type_,
+                            field.length.to_string(),
+                            field.text.unwrap_or_default(),
+                        ]
+                    })
+                    .collect();
+                self.status_message = Some(format!("CPF0000: schema for {library}/{file}."));
+            }
+            Err(error) => {
+                self.results.clear();
+                self.error = Some(format!("CPF9898 at position 16: {error}"));
+                self.status_message = self.error.clone();
+            }
+        }
+        if !self.results.is_empty() {
+            self.table_state.select(Some(0));
+        }
+    }
+
+    fn autocomplete_table(&mut self) {
+        let prefix = self.input[..self.cursor]
+            .split_whitespace()
+            .last()
+            .unwrap_or("")
+            .to_uppercase();
+        if prefix.is_empty() {
+            return;
+        }
+        let root = resolve_l400_root();
+        let snapshot = self.session.snapshot();
+        let default_library = self
+            .default_library
+            .as_deref()
+            .unwrap_or(snapshot.current_library.as_str());
+        let Ok(objects) = list_objects(&root.join(default_library)) else {
+            return;
+        };
+        if let Some(candidate) = objects
+            .into_iter()
+            .filter(|object| object.objtype == "*FILE")
+            .map(|object| object.name)
+            .find(|name| name.starts_with(&prefix))
+        {
+            let start = self.cursor.saturating_sub(prefix.len());
+            self.input.replace_range(start..self.cursor, &candidate);
+            self.cursor = start + candidate.len();
+            self.status_message = Some(format!("CPF0000: completed {candidate}."));
+        }
+    }
+
+    fn result_text(&self) -> String {
+        let mut lines = Vec::new();
+        if !self.columns.is_empty() {
+            lines.push(self.columns.join("\t"));
+        }
+        lines.extend(self.results.iter().map(|row| row.join("\t")));
+        lines.join("\n")
+    }
+
+    fn copy_result(&mut self) {
+        let path = l400::l400_run_dir().join("strsql.clipboard");
+        match std::fs::write(&path, self.result_text()) {
+            Ok(_) => {
+                self.status_message = Some(format!("CPF0000: result copied to {}.", path.display()))
+            }
+            Err(error) => self.status_message = Some(format!("CPF9898: clipboard error: {error}")),
+        }
+    }
+
+    fn export_spool(&mut self) {
+        let spool_dir = std::env::var_os("L400_SPOOL_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| resolve_l400_root().join("QUSRSYS").join("QSPL"));
+        let _ = std::fs::create_dir_all(&spool_dir);
+        let path = spool_dir.join(format!("STRSQL_{}.spl", std::process::id()));
+        let payload = format!(
+            "spool_version=1 status=READY command=STRSQL\n{}\n",
+            self.result_text()
+        );
+        match std::fs::write(&path, payload) {
+            Ok(_) => {
+                self.status_message =
+                    Some(format!("CPF0000: result exported to {}.", path.display()))
+            }
+            Err(error) => {
+                self.status_message = Some(format!("CPF9898: spool export error: {error}"))
+            }
+        }
     }
 }
 
@@ -163,8 +316,25 @@ impl Screen for StrSql {
                 }
                 ScreenResult::none()
             }
+            KeyCode::F(18) => {
+                self.copy_result();
+                ScreenResult::none()
+            }
+            KeyCode::F(19) => {
+                self.export_spool();
+                ScreenResult::none()
+            }
+            KeyCode::Tab => {
+                self.autocomplete_table();
+                ScreenResult::none()
+            }
             KeyCode::Enter => {
-                self.execute();
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    self.input.insert(self.cursor, '\n');
+                    self.cursor += 1;
+                } else {
+                    self.execute();
+                }
                 ScreenResult::none()
             }
             KeyCode::Backspace => {
@@ -252,9 +422,15 @@ impl StrSql {
             .border_style(STYLE_BORDER);
         frame.render_widget(block, area);
 
-        let hint = "  Supported: SELECT [*|KEY|DATA] FROM [LIB/]FILE [WHERE KEY='X']";
+        let hint = self
+            .status_message
+            .as_deref()
+            .unwrap_or("Supported: SELECT [*|KEY|DATA] FROM [LIB/]FILE [WHERE KEY='X']");
         let inner = Rect::new(area.x + 1, area.y + 1, area.width - 2, 1);
-        frame.render_widget(Paragraph::new(hint).style(STYLE_NORMAL), inner);
+        frame.render_widget(
+            Paragraph::new(format!("  {hint}")).style(STYLE_NORMAL),
+            inner,
+        );
     }
 
     fn render_results(&mut self, frame: &mut Frame, area: Rect) {
@@ -267,7 +443,7 @@ impl StrSql {
             let inner = block.inner(area);
             frame.render_widget(block, area);
             frame.render_widget(
-                Paragraph::new(format!("  ERROR: {}", error))
+                Paragraph::new(format!("  {}", error))
                     .style(ratatui::style::Style::default().fg(ratatui::style::Color::Red)),
                 inner,
             );
@@ -325,7 +501,8 @@ impl StrSql {
         let inner = block.inner(area);
         frame.render_widget(block, area);
         frame.render_widget(
-            Paragraph::new(format!("SQL> {}", self.input)).style(STYLE_NORMAL),
+            Paragraph::new(Line::from(sql_spans(&format!("SQL> {}", self.input))))
+                .style(STYLE_NORMAL),
             inner,
         );
 
@@ -342,6 +519,9 @@ impl StrSql {
                 HelpAction::new("F3", "Exit"),
                 HelpAction::new("F5", "Clear"),
                 HelpAction::new("F7/F8", "Cols"),
+                HelpAction::new("F18", "Copy"),
+                HelpAction::new("F19", "Spool"),
+                HelpAction::new("Tab", "Complete"),
                 HelpAction::new("F12", "Cancel"),
                 HelpAction::new("Enter", "Run"),
                 HelpAction::new("Up/Down", "History"),
@@ -355,5 +535,104 @@ fn parse_context(context: &str) -> (String, String) {
         (library.trim().to_uppercase(), file.trim().to_uppercase())
     } else {
         ("QSYS".to_string(), context.trim().to_uppercase())
+    }
+}
+
+fn parse_table_name(table: &str, default_library: &str) -> (String, String) {
+    let trimmed = table.trim().trim_end_matches(';').to_uppercase();
+    if let Some((library, file)) = trimmed.split_once('/') {
+        (library.trim().to_string(), file.trim().to_string())
+    } else {
+        (default_library.to_uppercase(), trimmed)
+    }
+}
+
+fn sql_spans(value: &str) -> Vec<Span<'static>> {
+    value
+        .split_inclusive(' ')
+        .map(|word| {
+            let bare = word.trim().trim_matches(';').to_uppercase();
+            if matches!(
+                bare.as_str(),
+                "SELECT" | "FROM" | "WHERE" | "SHOW" | "TABLES" | "DESCRIBE" | "TABLE"
+            ) {
+                Span::styled(word.to_string(), STYLE_TABLE_HEADER)
+            } else if bare.starts_with('\'') {
+                Span::styled(word.to_string(), STYLE_WARNING)
+            } else {
+                Span::raw(word.to_string())
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &std::path::Path) -> Self {
+            let original = std::env::var_os(key);
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(original) = &self.original {
+                    std::env::set_var(self.key, original);
+                } else {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn show_tables_lists_real_file_objects_and_spools_results() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _root_guard = EnvGuard::set("L400_ROOT", temp.path());
+        let spool = temp.path().join("spool");
+        let _spool_guard = EnvGuard::set("L400_SPOOL_DIR", &spool);
+        l400::bootstrap_l400_root(temp.path()).expect("bootstrap");
+        let qgpl = temp.path().join("QGPL");
+        let _ = l400::create_object_with_metadata(
+            &qgpl,
+            "CUSTOMERS",
+            "*FILE",
+            Some("PF"),
+            Some("Customer table"),
+        )
+        .expect("create pf");
+
+        let mut sql = StrSql::new();
+        sql.input = "SHOW TABLES".to_string();
+        sql.cursor = sql.input.len();
+        sql.execute();
+
+        assert!(sql.results.iter().any(|row| row[1] == "CUSTOMERS"));
+        sql.export_spool();
+        assert!(
+            spool
+                .join(format!("STRSQL_{}.spl", std::process::id()))
+                .exists()
+        );
+    }
+
+    #[test]
+    fn parse_table_name_uses_default_library() {
+        assert_eq!(
+            parse_table_name("customers", "qgpl"),
+            ("QGPL".to_string(), "CUSTOMERS".to_string())
+        );
     }
 }

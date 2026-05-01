@@ -97,7 +97,10 @@ impl CommandLine {
             "WRKACTJOB" => {
                 return ScreenResult::goto(ScreenId::WorkManagement);
             }
-            "WRKOBJ" | "WRKLIB" => {
+            "WRKLIB" => {
+                return ScreenResult::goto(ScreenId::WrkLib);
+            }
+            "WRKOBJ" => {
                 return ScreenResult::goto(ScreenId::ObjectBrowser);
             }
             cmd if cmd.starts_with("DSPDTAQ") => {
@@ -402,7 +405,8 @@ impl CommandLine {
             "STRSQL" => Some(ScreenResult::goto(ScreenId::StrSql)),
             "PWRDWNSYS" => Some(ScreenResult::goto(ScreenId::PowerDown)),
             "WRKACTJOB" => Some(ScreenResult::goto(ScreenId::WorkManagement)),
-            "WRKOBJ" | "WRKLIB" => Some(ScreenResult::goto(ScreenId::ObjectBrowser)),
+            "WRKLIB" => Some(ScreenResult::goto(ScreenId::WrkLib)),
+            "WRKOBJ" => Some(ScreenResult::goto(ScreenId::ObjectBrowser)),
             "WRKUSRPRF" => Some(ScreenResult::goto(ScreenId::UserProfiles)),
             "DSPPOLICY" | "DSPAUD" => Some(ScreenResult::with_data(ScreenId::PolicyAudit, command)),
             "DSPCMD" | "WRKCMD" => Some(ScreenResult::with_data(ScreenId::SystemPanel, command)),

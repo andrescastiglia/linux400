@@ -3,6 +3,7 @@ pub mod cmd_line;
 pub mod dtaq_viewer;
 pub mod main_menu;
 pub mod object_browser;
+pub mod object_detail;
 pub mod pdm_browser;
 pub mod power_down;
 pub mod sign_on;
@@ -10,6 +11,7 @@ pub mod str_seu;
 pub mod str_sql;
 pub mod system_panel;
 pub mod work_mgmt;
+pub mod wrk_lib;
 pub mod wrk_mbr_pdm;
 
 use crossterm::event::KeyEvent;
@@ -22,6 +24,7 @@ pub enum ScreenId {
     CommandMenu,
     PowerDown,
     WorkManagement,
+    WrkLib,
     ObjectBrowser,
     DataQueueViewer,
     CommandLine,

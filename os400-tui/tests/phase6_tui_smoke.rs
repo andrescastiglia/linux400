@@ -9,6 +9,7 @@ use os400_tui::screens::sign_on::SignOnScreen;
 use os400_tui::screens::str_seu::StrSeu;
 use os400_tui::screens::str_sql::StrSql;
 use os400_tui::screens::work_mgmt::WorkManagement;
+use os400_tui::screens::wrk_lib::WrkLib;
 use os400_tui::screens::wrk_mbr_pdm::WrkMbrPdm;
 use os400_tui::screens::{Screen, ScreenId};
 use ratatui::Terminal;
@@ -116,6 +117,7 @@ fn phase6_screens_render_at_80_and_132_columns() {
         Box::new(SignOnScreen::new()),
         Box::new(MainMenu::with_session(session.clone())),
         Box::new(CommandLine::with_session(session.clone())),
+        Box::new(WrkLib::new(session.clone())),
         Box::new(ObjectBrowser::with_session(session.clone())),
         Box::new(PdmBrowser::with_session(session.clone())),
         Box::new(WrkMbrPdm::new("QGPL".to_string(), "QCLSRC".to_string())),
@@ -262,6 +264,8 @@ fn phase6_create_compile_call_submit_and_spool_flow_is_automated() {
     members.handle_key(key(KeyCode::F(6)));
     type_text(&mut members, "PHASE6B");
     members.handle_key(key(KeyCode::Enter));
+    members.handle_key(key(KeyCode::F(14)));
+    render_at(&mut members, 80, 24);
 
     let mut seu = StrSeu::from_member_spec(
         "QGPL",

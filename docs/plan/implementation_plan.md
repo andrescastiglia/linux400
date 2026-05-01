@@ -219,123 +219,123 @@ Criterio de cierre:
 
 ## Fase 4: WRKLIB y object browser de producto
 
-Estado: **pendiente**.
+Estado: **finalizado para 0.3-pre**.
 
 Objetivo: que la administración de bibliotecas y objetos sea fluida y
 completa.
 
 ### 4.1 WRKLIB dedicado
 
-- [ ] Nueva pantalla `WrkLib` con `SubfileTable`.
-- [ ] Listar todas las bibliotecas bajo `L400_ROOT`.
-- [ ] Opciones por fila:
+- [x] Nueva pantalla `WrkLib` con `SubfileTable`.
+- [x] Listar todas las bibliotecas bajo `L400_ROOT`.
+- [x] Opciones por fila:
   - 2=Cambiar current library
   - 3=Contenido (→ ObjectBrowser con esa library)
   - 4=Borrar (con confirmación)
   - 5=Descripción (→ DSPOBJD)
   - 7=Renombrar
   - 12=Crear nueva biblioteca
-- [ ] Filtro por nombre (F17 o campo de filtro).
-- [ ] Separar del `ObjectBrowser` actual: opción 1 del menú → WRKLIB,
+- [x] Filtro por nombre (F17 o campo de filtro).
+- [x] Separar del `ObjectBrowser` actual: opción 1 del menú → WRKLIB,
   opción 2 → ObjectBrowser.
 
 ### 4.2 ObjectBrowser mejorado
 
-- [ ] Migrar a `SubfileTable`.
-- [ ] Agregar campo de filtro por nombre y tipo de objeto.
-- [ ] Agregar opción 7=Renombrar (RNMOBJ con confirmación).
-- [ ] Agregar opción 12=Crear objeto nuevo (→ prompt CRTLIB/CRTPF/CRTDTAQ
+- [x] Migrar a `SubfileTable`.
+- [x] Agregar campo de filtro por nombre y tipo de objeto.
+- [x] Agregar opción 7=Renombrar (RNMOBJ con confirmación).
+- [x] Agregar opción 12=Crear objeto nuevo (→ prompt CRTLIB/CRTPF/CRTDTAQ
   según tipo seleccionado).
-- [ ] Mostrar tamaño y fecha de creación si están disponibles.
-- [ ] Soporte para cambiar de library sin volver al menú (campo Library en
+- [x] Mostrar tamaño y fecha de creación si están disponibles.
+- [x] Soporte para cambiar de library sin volver al menú (campo Library en
   el header, editable con Tab).
 
 ### 4.3 DSPOBJD con layout de campos
 
-- [ ] Reemplazar la vista de texto plano de `AdminCommandView::object_detail`
+- [x] Reemplazar la vista de texto plano de `AdminCommandView::object_detail`
   por una pantalla dedicada con campos:
   - Object, Library, Type, Attribute, Owner, Text
   - Created, Changed, Last used
   - Size, Storage backend
   - Public authority, Auth manifest summary
-- [ ] Opciones desde DSPOBJD: 2=Change text, 8=Authorities.
+- [x] Opciones desde DSPOBJD: 2=Change text, 8=Authorities.
 
 Criterio de cierre:
 
-- [ ] WRKLIB permite crear y borrar una biblioteca desde TUI.
-- [ ] ObjectBrowser soporta filtro funcional.
-- [ ] DSPOBJD muestra campos reales de xattrs, no texto plano de l400cmd.
+- [x] WRKLIB permite crear y borrar una biblioteca desde TUI.
+- [x] ObjectBrowser soporta filtro funcional.
+- [x] DSPOBJD muestra campos reales de xattrs, no texto plano de l400cmd.
 
 ---
 
 ## Fase 5: PDM, SEU y ciclo de desarrollo integrado
 
-Estado: **pendiente**.
+Estado: **en progreso para 0.3-pre**.
 
 Objetivo: que el ciclo crear→editar→compilar→ejecutar→debug sea fluido
 y autocontenido en la TUI.
 
 ### 5.1 STRPDM mejorado
 
-- [ ] Agregar opción de compilar directamente desde WRKMBRPDM (opción 14 o
+- [x] Agregar opción de compilar directamente desde WRKMBRPDM (opción 14 o
   F14 = CRTCLPGM del miembro seleccionado).
-- [ ] Agregar opción de ejecutar (opción 16 = CALL del PGM correspondiente).
-- [ ] Mostrar resultado de compilación inline (popup o panel inferior).
-- [ ] Agregar indicador de tipo de miembro (.CLP, .C, .TXT) con color.
+- [x] Agregar opción de ejecutar (opción 16 = CALL del PGM correspondiente).
+- [x] Mostrar resultado de compilación inline (popup o panel inferior).
+- [x] Agregar indicador de tipo de miembro (.CLP, .C, .TXT) con color.
 
 ### 5.2 STRSEU mejorado
 
-- [ ] Agregar números de línea en el editor.
-- [ ] Agregar indicador de línea/columna en la status bar del editor.
-- [ ] Soporte para Find (F16) con highlight de ocurrencias.
-- [ ] Soporte para Go To Line (F13).
-- [ ] F14 desde SEU compila directamente el fuente actual.
+- [x] Agregar números de línea en el editor.
+- [x] Agregar indicador de línea/columna en la status bar del editor.
+- [x] Soporte para Find (F16) con highlight de ocurrencias.
+- [x] Soporte para Go To Line (F13).
+- [x] F14 desde SEU compila directamente el fuente actual.
 - [ ] Mostrar errores de compilación con posición si están disponibles.
-- [ ] Undo básico (un nivel) con Ctrl-Z.
+- [x] Undo básico (un nivel) con Ctrl-Z.
 
 ### 5.3 Integración de compilación
 
-- [ ] `F14` en WRKMBRPDM y SEU invoca `CRTCLPGM` o `CRTPGM` según el
+- [x] `F14` en WRKMBRPDM y SEU invoca `CRTCLPGM` o `CRTPGM` según el
   tipo de miembro.
 - [ ] Si la compilación falla, mostrar spool de errores en un panel popup.
-- [ ] Si la compilación tiene éxito, mensaje CPF informativo en la status bar.
+- [x] Si la compilación tiene éxito, mensaje CPF informativo en la status bar.
 
 Criterio de cierre:
 
 - [ ] Un operador puede crear un miembro, editarlo, compilarlo con F14,
   ver errores, corregirlos y ejecutar el PGM — todo sin salir de
   PDM/SEU.
-- [ ] Test automatizado para el flujo F14→compile→popup de resultado.
+- [x] Test automatizado para el flujo F14→compile→popup de resultado.
 
 ---
 
 ## Fase 6: STRSQL de producto
 
-Estado: **pendiente**.
+Estado: **finalizado para 0.3-pre**.
 
 Objetivo: que el SQL interactivo sea una herramienta operativa real, no solo
 un visor.
 
 ### 6.1 Mejoras de UX
 
-- [ ] Syntax highlighting básico (keywords SQL en color, strings en otro).
-- [ ] Autocompletado de nombres de tabla (Tab) leyendo PFs del catálogo.
-- [ ] Multiline input: soporte para queries largas con continuation.
-- [ ] Copiar resultado al clipboard (F18).
-- [ ] Exportar resultado a spool (F19).
+- [x] Syntax highlighting básico (keywords SQL en color, strings en otro).
+- [x] Autocompletado de nombres de tabla (Tab) leyendo PFs del catálogo.
+- [x] Multiline input: soporte para queries largas con continuation.
+- [x] Copiar resultado al clipboard (F18).
+- [x] Exportar resultado a spool (F19).
 
 ### 6.2 Mejoras funcionales
 
-- [ ] `DESCRIBE TABLE` para mostrar schema de un PF.
-- [ ] `SHOW TABLES` para listar PFs accesibles.
-- [ ] Manejo de errores SQL con CPF y posición del error.
-- [ ] Paginación de resultados para tablas grandes.
+- [x] `DESCRIBE TABLE` para mostrar schema de un PF.
+- [x] `SHOW TABLES` para listar PFs accesibles.
+- [x] Manejo de errores SQL con CPF y posición del error.
+- [x] Paginación de resultados para tablas grandes.
 
 Criterio de cierre:
 
-- [ ] `SHOW TABLES` lista PFs reales.
-- [ ] Query con error muestra posición y CPF.
-- [ ] Resultado exportable a spool.
+- [x] `SHOW TABLES` lista PFs reales.
+- [x] Query con error muestra posición y CPF.
+- [x] Resultado exportable a spool.
 
 ---
 

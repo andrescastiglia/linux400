@@ -114,6 +114,25 @@ impl WrkMbrPdm {
             })
     }
 
+    fn selected_compile_command(&self) -> Option<String> {
+        let member = self
+            .state
+            .selected()
+            .and_then(|index| self.members.get(index))?;
+        let pgm = self.selected_program_spec()?;
+        if member.type_.eq_ignore_ascii_case("C") {
+            Some(format!(
+                "CRTPGM PGM({pgm}) SRCFILE({}/{}) SRCMBR({})",
+                self.library, self.file, member.file_name
+            ))
+        } else {
+            Some(format!(
+                "CRTCLPGM PGM({pgm}) SRCFILE({}/{}) SRCMBR({})",
+                self.library, self.file, member.file_name
+            ))
+        }
+    }
+
     fn run_toolchain_command(&mut self, command: String) {
         match Command::new("l400cmd")
             .args(crate::cl_parser::tokenize_cl_command(&command))
@@ -235,17 +254,16 @@ impl Screen for WrkMbrPdm {
                 ScreenResult::none()
             }
             KeyCode::F(16) => {
-                ScreenResult::with_data(ScreenId::StrSql, format!("{}/{}", self.library, self.file))
+                if let Some(pgm) = self.selected_program_spec() {
+                    self.run_toolchain_command(format!("CALL PGM({pgm})"));
+                } else {
+                    self.status_message = Some("No program selected.".to_string());
+                }
+                ScreenResult::none()
             }
             KeyCode::F(14) => {
-                if let (Some(member), Some(pgm)) =
-                    (self.selected_member_spec(), self.selected_program_spec())
-                {
-                    let srcmbr = member.rsplit('/').next().unwrap_or("MAIN.CLP");
-                    self.run_toolchain_command(format!(
-                        "CRTCLPGM PGM({pgm}) SRCFILE({}/{}) SRCMBR({srcmbr})",
-                        self.library, self.file
-                    ));
+                if let Some(command) = self.selected_compile_command() {
+                    self.run_toolchain_command(command);
                 } else {
                     self.status_message = Some("No source member selected.".to_string());
                 }
@@ -321,7 +339,7 @@ impl WrkMbrPdm {
             Row::new(vec![
                 " ".to_string(),
                 member.name.clone(),
-                member.type_.clone(),
+                typed_member_label(&member.type_),
                 member.text.clone(),
             ])
         });
@@ -377,10 +395,48 @@ impl WrkMbrPdm {
                     HelpAction::new("2/5", "Edit"),
                     HelpAction::new("F14", "CRTCLPGM"),
                     HelpAction::new("F15", "Edit"),
-                    HelpAction::new("F16", "STRSQL"),
-                    HelpAction::new("F17", "CRTPGM"),
+                    HelpAction::new("F16", "CALL"),
                 ])
                 .render(frame, area);
         }
+    }
+}
+
+fn typed_member_label(type_: &str) -> String {
+    match type_.to_uppercase().as_str() {
+        "CLP" => "CLP source".to_string(),
+        "C" => "C source".to_string(),
+        "TXT" => "Text".to_string(),
+        other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn f14_command_uses_member_type() {
+        let mut screen = WrkMbrPdm::new("QGPL".to_string(), "QCSRC".to_string());
+        screen.members = vec![MemberInfo {
+            file_name: "HELLO.C".to_string(),
+            name: "HELLO".to_string(),
+            type_: "C".to_string(),
+            text: String::new(),
+        }];
+        screen.state.select(Some(0));
+
+        assert!(
+            screen
+                .selected_compile_command()
+                .expect("compile command")
+                .starts_with("CRTPGM")
+        );
+    }
+
+    #[test]
+    fn typed_member_label_is_user_friendly() {
+        assert_eq!(typed_member_label("CLP"), "CLP source");
+        assert_eq!(typed_member_label("C"), "C source");
     }
 }
