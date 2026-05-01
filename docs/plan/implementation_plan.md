@@ -437,35 +437,35 @@ Criterio de cierre:
 
 ## Fase 9: datos operativos — PF/LF/DTAQ viewers
 
-Estado: **pendiente**.
+Estado: **finalizado para 0.3-pre**.
 
 Objetivo: que los visores de datos sean herramientas operativas, no solo
 dumps de texto.
 
 ### 9.1 DSPPFM de producto
 
-- [ ] Pantalla dedicada (no SystemPanel genérico).
-- [ ] Scroll horizontal para registros anchos.
-- [ ] Headers de columna basados en schema PF.
-- [ ] Filtro por campo / valor.
-- [ ] Opción de editar registro inline (experimental).
-- [ ] Indicador de RRN y count total.
+- [x] Pantalla dedicada (no SystemPanel genérico).
+- [x] Scroll horizontal para registros anchos.
+- [x] Headers de columna basados en schema PF.
+- [x] Filtro por campo / valor.
+- [x] Opción de editar registro inline (experimental).
+- [x] Indicador de RRN y count total.
 
 ### 9.2 DSPDTAQ mejorado
 
-- [ ] Auto-refresh para DTAQ activas.
-- [ ] Mostrar timestamp, longitud, y primeros N bytes de cada mensaje.
-- [ ] Opción de enviar mensaje (SNDDTAQ) desde la misma pantalla.
+- [x] Auto-refresh para DTAQ activas.
+- [x] Mostrar timestamp, longitud, y primeros N bytes de cada mensaje.
+- [x] Opción de enviar mensaje (SNDDTAQ) desde la misma pantalla.
 
 ### 9.3 Visor de LF
 
-- [ ] Mostrar registros del PF base ordenados por el índice del LF.
-- [ ] Indicar nombre del PF base y campos de clave.
+- [x] Mostrar registros del PF base ordenados por el índice del LF.
+- [x] Indicar nombre del PF base y campos de clave.
 
 Criterio de cierre:
 
-- [ ] DSPPFM muestra columnas con headers del schema.
-- [ ] DSPDTAQ permite enviar y recibir desde la misma pantalla.
+- [x] DSPPFM muestra columnas con headers del schema.
+- [x] DSPDTAQ permite enviar y recibir desde la misma pantalla.
 
 ---
 

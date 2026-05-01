@@ -448,7 +448,7 @@ impl Screen for ObjectBrowser {
                 .filter(|object| object.type_ == "*FILE" && object.attribute == "PF")
                 .map(|object| {
                     ScreenResult::with_data(
-                        ScreenId::SystemPanel,
+                        ScreenId::DspPfm,
                         format!("DSPPFM FILE({}/{})", object.library, object.name),
                     )
                 })

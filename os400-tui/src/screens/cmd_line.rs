@@ -110,6 +110,9 @@ impl CommandLine {
                     .unwrap_or_else(|| "QUSRSYS/QEZJOBLOG".to_string());
                 return ScreenResult::with_data(ScreenId::DataQueueViewer, dtaq);
             }
+            cmd if cmd.starts_with("DSPPFM") => {
+                return ScreenResult::with_data(ScreenId::DspPfm, cmd);
+            }
             "HELP" => {
                 self.output.push("Available commands:".to_string());
                 self.output
@@ -413,6 +416,7 @@ impl CommandLine {
             "DSPPOLICY" => Some(ScreenResult::goto(ScreenId::DspPolicy)),
             "DSPAUD" => Some(ScreenResult::with_data(ScreenId::PolicyAudit, command)),
             "DSPCMD" | "WRKCMD" => Some(ScreenResult::with_data(ScreenId::SystemPanel, command)),
+            "DSPPFM" => Some(ScreenResult::with_data(ScreenId::DspPfm, command)),
             "WRKSPLF" | "WRKOUTQ" => Some(ScreenResult::with_data(ScreenId::SpoolOutq, command)),
             "WRKSYSVAL" => Some(ScreenResult::goto(ScreenId::WrkSysVal)),
             "WRKSYSSTS" => Some(ScreenResult::with_data(ScreenId::SystemPanel, command)),

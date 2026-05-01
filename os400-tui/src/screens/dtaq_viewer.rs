@@ -7,6 +7,7 @@ use ratatui::{
     text::Text,
     widgets::{Block, Borders, Paragraph, Row, Table, TableState},
 };
+use std::time::{Duration, Instant};
 
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::style::*;
@@ -15,6 +16,7 @@ pub struct DtaqMessage {
     pub key: String,
     pub data: String,
     pub timestamp: String,
+    pub length: usize,
 }
 
 pub struct DataQueueViewer {
@@ -24,6 +26,10 @@ pub struct DataQueueViewer {
     state: TableState,
     using_runtime_data: bool,
     status_message: Option<String>,
+    auto_refresh: bool,
+    last_refresh: Instant,
+    send_mode: bool,
+    send_buffer: String,
 }
 
 impl DataQueueViewer {
@@ -53,6 +59,10 @@ impl DataQueueViewer {
             state: TableState::default(),
             using_runtime_data,
             status_message,
+            auto_refresh: false,
+            last_refresh: Instant::now(),
+            send_mode: false,
+            send_buffer: String::new(),
         }
     }
 
@@ -69,8 +79,9 @@ impl DataQueueViewer {
                 .into_iter()
                 .map(|(id, data)| DtaqMessage {
                     key: format!("{id:05}"),
-                    data: String::from_utf8_lossy(&data).to_string(),
-                    timestamp: "runtime".to_string(),
+                    data: preview_bytes(&data),
+                    timestamp: format!("seq:{id}"),
+                    length: data.len(),
                 })
                 .collect::<Vec<_>>();
             return (mapped, true);
@@ -91,6 +102,7 @@ impl DataQueueViewer {
             self.state.select(Some(0));
             self.status_message = None;
         }
+        self.last_refresh = Instant::now();
     }
 
     fn show_selected(&mut self) {
@@ -105,6 +117,9 @@ impl DataQueueViewer {
 
 impl Screen for DataQueueViewer {
     fn render(&mut self, frame: &mut Frame) {
+        if self.auto_refresh && self.last_refresh.elapsed() >= Duration::from_secs(5) {
+            self.refresh();
+        }
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -122,6 +137,28 @@ impl Screen for DataQueueViewer {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
+        if self.send_mode {
+            return match key.code {
+                KeyCode::Enter => {
+                    self.send_message();
+                    ScreenResult::none()
+                }
+                KeyCode::Esc | KeyCode::F(12) => {
+                    self.send_mode = false;
+                    self.send_buffer.clear();
+                    ScreenResult::none()
+                }
+                KeyCode::Backspace => {
+                    self.send_buffer.pop();
+                    ScreenResult::none()
+                }
+                KeyCode::Char(c) => {
+                    self.send_buffer.push(c);
+                    ScreenResult::none()
+                }
+                _ => ScreenResult::none(),
+            };
+        }
         match key.code {
             KeyCode::F(3) => ScreenResult::goto(ScreenId::MainMenu),
             KeyCode::F(4) => ScreenResult::goto(ScreenId::CommandLine),
@@ -139,6 +176,23 @@ impl Screen for DataQueueViewer {
             }
             KeyCode::F(5) => {
                 self.refresh();
+                ScreenResult::none()
+            }
+            KeyCode::F(6) => {
+                self.send_mode = true;
+                self.send_buffer.clear();
+                ScreenResult::none()
+            }
+            KeyCode::F(7) => {
+                self.receive_message();
+                ScreenResult::none()
+            }
+            KeyCode::F(21) => {
+                self.auto_refresh = !self.auto_refresh;
+                self.status_message = Some(format!(
+                    "Auto-refresh {}.",
+                    if self.auto_refresh { "on" } else { "off" }
+                ));
                 ScreenResult::none()
             }
             KeyCode::Enter | KeyCode::Char('5') => {
@@ -186,8 +240,8 @@ impl DataQueueViewer {
     }
 
     fn render_messages(&mut self, frame: &mut Frame, area: Rect) {
-        let header = ["", "Key", "Timestamp", "Data"];
-        let widths = [4u16, 8, 12, 50];
+        let header = ["", "Key", "Timestamp", "Len", "Preview"];
+        let widths = [4u16, 8, 16, 8, 50];
 
         let rows: Vec<Row> = self
             .messages
@@ -197,6 +251,7 @@ impl DataQueueViewer {
                     " ".to_string(),
                     msg.key.clone(),
                     msg.timestamp.clone(),
+                    msg.length.to_string(),
                     msg.data.clone(),
                 ])
             })
@@ -224,6 +279,9 @@ impl DataQueueViewer {
             "F3=Exit   ".into(),
             "F4=Prompt   ".into(),
             "F5=Refresh   ".into(),
+            "F6=Send   ".into(),
+            "F7=Receive   ".into(),
+            "F21=Auto   ".into(),
             "F12=Cancel   ".into(),
             "5/Enter=Display".into(),
         ]);
@@ -246,9 +304,55 @@ impl DataQueueViewer {
         let inner = block.inner(area);
         frame.render_widget(block, area);
         frame.render_widget(
-            Paragraph::new(self.status_message.clone().unwrap_or_default()).style(STYLE_NORMAL),
+            Paragraph::new(if self.send_mode {
+                format!("SNDDTAQ MSG: {}", self.send_buffer)
+            } else {
+                self.status_message.clone().unwrap_or_default()
+            })
+            .style(STYLE_NORMAL),
             inner,
         );
+    }
+
+    fn send_message(&mut self) {
+        let path = resolve_l400_root()
+            .join(&self.current_library)
+            .join(&self.current_dtaq);
+        match DataQueue::open(&path).and_then(|queue| queue.snddtaq(self.send_buffer.as_bytes())) {
+            Ok(_) => {
+                self.status_message = Some("Message sent.".to_string());
+                self.send_mode = false;
+                self.send_buffer.clear();
+                self.refresh();
+            }
+            Err(error) => self.status_message = Some(format!("Error sending message: {error}")),
+        }
+    }
+
+    fn receive_message(&mut self) {
+        let path = resolve_l400_root()
+            .join(&self.current_library)
+            .join(&self.current_dtaq);
+        match DataQueue::open(&path).and_then(|queue| queue.rcvdtaq(0)) {
+            Ok(message) => {
+                self.status_message = Some(format!(
+                    "Received {} bytes: {}",
+                    message.len(),
+                    preview_bytes(&message)
+                ));
+                self.refresh();
+            }
+            Err(error) => self.status_message = Some(format!("Error receiving message: {error}")),
+        }
+    }
+}
+
+fn preview_bytes(data: &[u8]) -> String {
+    let text = String::from_utf8_lossy(data).to_string();
+    if text.chars().count() > 64 {
+        format!("{}...", text.chars().take(64).collect::<String>())
+    } else {
+        text
     }
 }
 

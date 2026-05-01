@@ -197,6 +197,7 @@ impl MainMenu {
             "WRKOBJ" | "WRKPGM" => ScreenResult::goto(ScreenId::ObjectBrowser),
             "WRKACTJOB" => ScreenResult::goto(ScreenId::WorkManagement),
             "DSPDTAQ" => ScreenResult::goto(ScreenId::DataQueueViewer),
+            "DSPPFM" => ScreenResult::goto(ScreenId::DspPfm),
             "CMD" => ScreenResult::goto(ScreenId::CommandLine),
             "SBMJOB" => ScreenResult::goto(ScreenId::SubmitJob),
             "STRPDM" => ScreenResult::goto(ScreenId::PdmBrowser),

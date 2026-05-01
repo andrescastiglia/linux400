@@ -8,6 +8,7 @@ use ratatui::{
 use crate::screens::admin_views::AdminCommandView;
 use crate::screens::cmd_line::CommandLine;
 use crate::screens::dsp_log::DspLog;
+use crate::screens::dsp_pfm::DspPfm;
 use crate::screens::dsp_policy::DspPolicy;
 use crate::screens::dtaq_viewer::DataQueueViewer;
 use crate::screens::main_menu::MainMenu;
@@ -204,6 +205,7 @@ impl App {
             ),
             ScreenId::DspLog => Box::new(DspLog::new()),
             ScreenId::DspPolicy => Box::new(DspPolicy::new()),
+            ScreenId::DspPfm => Box::new(DspPfm::new(data.as_deref(), self.session.clone())),
             ScreenId::CommandLine => Box::new(CommandLine::with_session(self.session.clone())),
             ScreenId::PdmBrowser => Box::new(PdmBrowser::with_session(self.session.clone())),
             ScreenId::WrkMbrPdm => {
