@@ -3,14 +3,14 @@ use l400::{l400_run_dir, qhst_path};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    widgets::{Block, Borders, Paragraph},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Paragraph, Row, Table, TableState},
 };
 use std::path::{Path, PathBuf};
 
 use crate::screens::{Screen, ScreenResult};
 use crate::style::*;
 use crate::widgets::help_bar::{CpfMessage, HelpAction, HelpBar};
-use crate::widgets::subfile_table::SubfileTable;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct LogEntry {
@@ -25,7 +25,7 @@ struct LogEntry {
 pub struct DspLog {
     entries: Vec<LogEntry>,
     visible: Vec<LogEntry>,
-    table: SubfileTable,
+    table_state: TableState,
     status: String,
     severity_filter: Option<String>,
     event_filter: Option<String>,
@@ -37,11 +37,7 @@ impl DspLog {
         let mut screen = Self {
             entries: Vec::new(),
             visible: Vec::new(),
-            table: SubfileTable::new(
-                vec!["Src", "Timestamp", "Sev", "Event", "User", "Message"],
-                vec![10, 14, 8, 18, 12, 42],
-            )
-            .with_title("System log"),
+            table_state: TableState::default(),
             status: String::new(),
             severity_filter: None,
             event_filter: None,
@@ -75,21 +71,16 @@ impl DspLog {
             })
             .cloned()
             .collect();
-        self.table.set_rows(
-            self.visible
-                .iter()
-                .map(|entry| {
-                    vec![
-                        entry.source.clone(),
-                        entry.timestamp.clone(),
-                        entry.severity.clone(),
-                        entry.event.clone(),
-                        entry.user.clone(),
-                        entry.message.clone(),
-                    ]
-                })
-                .collect(),
-        );
+        if self.visible.is_empty() {
+            self.table_state.select(None);
+        } else if self.table_state.selected().is_none() {
+            self.table_state.select(Some(0));
+        } else if let Some(index) = self.table_state.selected()
+            && index >= self.visible.len()
+        {
+            self.table_state
+                .select(Some(self.visible.len().saturating_sub(1)));
+        }
         self.status = format!(
             "{} entries. F6=severity {:?} F7=event {:?} F8=date {:?}.",
             self.visible.len(),
@@ -164,7 +155,7 @@ impl Screen for DspLog {
             ])
             .split(frame.area());
         self.render_header(frame, chunks[0]);
-        self.table.render(frame, chunks[1]);
+        self.render_log_table(frame, chunks[1]);
         CpfMessage::info("CPF0000", self.status.clone()).render(frame, chunks[2]);
         self.render_help(frame, chunks[3]);
     }
@@ -189,19 +180,35 @@ impl Screen for DspLog {
                 ScreenResult::none()
             }
             KeyCode::Up => {
-                self.table.select_prev();
+                if let Some(index) = self.table_state.selected() {
+                    self.table_state.select(Some(index.saturating_sub(1)));
+                }
                 ScreenResult::none()
             }
             KeyCode::Down => {
-                self.table.select_next();
+                if let Some(index) = self.table_state.selected() {
+                    self.table_state.select(Some(
+                        index
+                            .saturating_add(1)
+                            .min(self.visible.len().saturating_sub(1)),
+                    ));
+                }
                 ScreenResult::none()
             }
             KeyCode::PageUp => {
-                self.table.page_up();
+                if let Some(index) = self.table_state.selected() {
+                    self.table_state.select(Some(index.saturating_sub(10)));
+                }
                 ScreenResult::none()
             }
             KeyCode::PageDown => {
-                self.table.page_down();
+                if let Some(index) = self.table_state.selected() {
+                    self.table_state.select(Some(
+                        index
+                            .saturating_add(10)
+                            .min(self.visible.len().saturating_sub(1)),
+                    ));
+                }
                 ScreenResult::none()
             }
             _ => ScreenResult::none(),
@@ -235,6 +242,54 @@ impl DspLog {
                 HelpAction::new("PgUp/PgDn", "Scroll"),
             ])
             .render(frame, area);
+    }
+
+    fn render_log_table(&mut self, frame: &mut Frame, area: Rect) {
+        let rows = self.visible.iter().map(|entry| {
+            Row::new(vec![
+                entry.source.clone(),
+                entry.timestamp.clone(),
+                entry.severity.clone(),
+                entry.event.clone(),
+                entry.user.clone(),
+                entry.message.clone(),
+            ])
+            .style(severity_style(&entry.severity))
+        });
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Length(10),
+                Constraint::Length(14),
+                Constraint::Length(8),
+                Constraint::Length(18),
+                Constraint::Length(12),
+                Constraint::Length(42),
+            ],
+        )
+        .header(
+            Row::new(vec!["Src", "Timestamp", "Sev", "Event", "User", "Message"])
+                .style(STYLE_TABLE_HEADER),
+        )
+        .block(
+            Block::default()
+                .title(" System log ")
+                .borders(Borders::ALL)
+                .border_style(STYLE_BORDER),
+        )
+        .row_highlight_style(STYLE_SELECTION);
+        frame.render_stateful_widget(table, area, &mut self.table_state);
+    }
+}
+
+fn severity_style(severity: &str) -> Style {
+    match severity {
+        "ERROR" => Style::new()
+            .bg(COLOR_SCREEN_BG)
+            .fg(Color::Red)
+            .add_modifier(Modifier::BOLD),
+        "WARN" => STYLE_WARNING.add_modifier(Modifier::BOLD),
+        _ => STYLE_NORMAL,
     }
 }
 
@@ -339,7 +394,7 @@ mod tests {
         let mut screen = DspLog {
             entries: load_log_entries(&qhst, &joblogs),
             visible: Vec::new(),
-            table: SubfileTable::new(vec!["A"], vec![10]),
+            table_state: TableState::default(),
             status: String::new(),
             severity_filter: Some("ERROR".to_string()),
             event_filter: None,
@@ -349,5 +404,11 @@ mod tests {
 
         assert_eq!(screen.visible.len(), 1);
         assert_eq!(screen.visible[0].event, "AUTH_DENIED");
+    }
+
+    #[test]
+    fn severity_styles_are_distinct() {
+        assert_ne!(severity_style("ERROR"), severity_style("INFO"));
+        assert_ne!(severity_style("WARN"), severity_style("INFO"));
     }
 }

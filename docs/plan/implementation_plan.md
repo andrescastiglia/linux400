@@ -81,7 +81,7 @@ Que un operador pueda usar Linux/400 exclusivamente desde la TUI para:
 
 ## Fase 1: fundación de widgets y arquitectura TUI
 
-Estado: **en progreso para 0.3-pre**.
+Estado: **finalizado para 0.3-pre**.
 
 Objetivo: construir la infraestructura que sostiene todas las pantallas
 siguientes, eliminando deuda técnica.
@@ -387,7 +387,7 @@ Criterio de cierre:
 
 ## Fase 8: administración de seguridad y sistema
 
-Estado: **en progreso para 0.3-pre**.
+Estado: **finalizado para 0.3-pre**.
 
 Objetivo: que el operador pueda administrar seguridad y configuración
 desde la TUI.
@@ -418,7 +418,7 @@ desde la TUI.
 - [x] Pantalla dedicada para `QHST` y `QEZJOBLOG`.
 - [x] Filtro por fecha, severidad, tipo de evento.
 - [x] Scroll y refresh.
-- [ ] Colores por severidad.
+- [x] Colores por severidad.
 
 ### 8.5 DSPPOLICY mejorado
 
