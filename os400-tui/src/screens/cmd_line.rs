@@ -409,6 +409,7 @@ impl CommandLine {
             "WRKLIB" => Some(ScreenResult::goto(ScreenId::WrkLib)),
             "WRKOBJ" => Some(ScreenResult::goto(ScreenId::ObjectBrowser)),
             "WRKUSRPRF" => Some(ScreenResult::goto(ScreenId::UserProfiles)),
+            "DSPLOG" => Some(ScreenResult::goto(ScreenId::DspLog)),
             "DSPPOLICY" | "DSPAUD" => Some(ScreenResult::with_data(ScreenId::PolicyAudit, command)),
             "DSPCMD" | "WRKCMD" => Some(ScreenResult::with_data(ScreenId::SystemPanel, command)),
             "WRKSPLF" | "WRKOUTQ" => Some(ScreenResult::with_data(ScreenId::SpoolOutq, command)),

@@ -415,9 +415,9 @@ desde la TUI.
 
 ### 8.4 DSPLOG visual
 
-- [ ] Pantalla dedicada para `QHST` y `QEZJOBLOG`.
-- [ ] Filtro por fecha, severidad, tipo de evento.
-- [ ] Scroll y refresh.
+- [x] Pantalla dedicada para `QHST` y `QEZJOBLOG`.
+- [x] Filtro por fecha, severidad, tipo de evento.
+- [x] Scroll y refresh.
 - [ ] Colores por severidad.
 
 ### 8.5 DSPPOLICY mejorado
@@ -431,7 +431,7 @@ Criterio de cierre:
 
 - [x] WRKUSRPRF permite crear y desactivar un perfil desde TUI.
 - [x] DSPOBJAUT muestra matriz real y permite grant/revoke.
-- [ ] DSPLOG muestra entradas reales con filtro funcional.
+- [x] DSPLOG muestra entradas reales con filtro funcional.
 
 ---
 
