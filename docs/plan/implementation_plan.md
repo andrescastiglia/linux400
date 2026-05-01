@@ -406,10 +406,3 @@ Smoke seguro para apagado/reinicio:
 L400_PWRDWNSYS_DRY_RUN=1 cargo run -p l400 --bin l400cmd -- \
   PWRDWNSYS 'OPTION(*RESTART)' 'CONFIRM(*YES)'
 ```
-
-## Definicion de "siguiente nivel"
-
-El proyecto llega al siguiente nivel cuando las fases 0 a 3 estan cerradas y al
-menos una ruta end-to-end TUI queda automatizada. En ese punto Linux/400 deja de
-ser solo una base funcional y pasa a ser un sistema que puede operarse,
-diagnosticarse y evolucionar con confianza.

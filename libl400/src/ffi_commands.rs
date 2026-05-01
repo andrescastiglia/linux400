@@ -947,7 +947,7 @@ fn spool_file_status(path: &Path) -> Option<String> {
             line.split_whitespace()
                 .find_map(|field| field.strip_prefix("status="))
         })
-        .last()
+        .next_back()
         .map(|status| status.trim_start_matches('*').to_uppercase())
 }
 

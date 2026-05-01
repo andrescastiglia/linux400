@@ -571,7 +571,7 @@ impl AdminCommandView {
         )
         .style(STYLE_NORMAL)
         .row_highlight_style(STYLE_SELECTION);
-        let mut state = self.spool_state.clone();
+        let mut state = self.spool_state;
         frame.render_stateful_widget(table, area, &mut state);
     }
 
@@ -724,7 +724,7 @@ fn latest_spool_field(content: &str, key: &str) -> Option<String> {
             line.split_whitespace()
                 .find_map(|field| field.strip_prefix(&prefix))
         })
-        .last()
+        .next_back()
         .map(|value| value.trim_start_matches('*').to_uppercase())
 }
 
