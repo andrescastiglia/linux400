@@ -8,6 +8,7 @@ use ratatui::{
 };
 use std::process::Command;
 
+use crate::cl_parser::{extract_command_arg, tokenize_cl_command};
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::session::SessionContext;
 use crate::style::*;
@@ -623,57 +624,7 @@ impl Screen for CommandLine {
     }
 }
 
-fn extract_command_arg(tokens: &[String], key: &str) -> Option<String> {
-    tokens.iter().find_map(|token| {
-        let token = token.trim();
-        if !token.to_uppercase().starts_with(&format!("{key}(")) || !token.ends_with(')') {
-            return None;
-        }
-        Some(token[key.len() + 1..token.len() - 1].trim().to_string())
-    })
-}
-
-pub(crate) fn tokenize_cl_command(command: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut depth = 0usize;
-    let mut in_single = false;
-    let mut in_double = false;
-
-    for ch in command.chars() {
-        match ch {
-            '\'' if !in_double => {
-                in_single = !in_single;
-                current.push(ch);
-            }
-            '"' if !in_single => {
-                in_double = !in_double;
-                current.push(ch);
-            }
-            '(' if !in_single && !in_double => {
-                depth += 1;
-                current.push(ch);
-            }
-            ')' if !in_single && !in_double => {
-                depth = depth.saturating_sub(1);
-                current.push(ch);
-            }
-            ch if ch.is_whitespace() && depth == 0 && !in_single && !in_double => {
-                if !current.trim().is_empty() {
-                    tokens.push(current.trim().to_string());
-                    current.clear();
-                }
-            }
-            _ => current.push(ch),
-        }
-    }
-
-    if !current.trim().is_empty() {
-        tokens.push(current.trim().to_string());
-    }
-
-    tokens
-}
+// tokenize_cl_command and extract_command_arg are now in crate::cl_parser
 
 fn normalize_file_spec(spec: &str, session: &SessionContext) -> String {
     let spec = spec.trim();

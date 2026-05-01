@@ -7,7 +7,7 @@ use ratatui::{
 };
 use std::process::Command;
 
-use crate::screens::cmd_line::tokenize_cl_command;
+use crate::cl_parser::tokenize_cl_command;
 use crate::screens::{Screen, ScreenId, ScreenResult};
 use crate::session::SessionContext;
 use crate::style::*;

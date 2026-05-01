@@ -32,6 +32,8 @@ pub enum ScreenId {
     SpoolOutq,
     SystemPanel,
     Exit,
+    /// Pop the navigation stack to return to the previous screen.
+    Back,
 }
 
 #[derive(Clone, Debug)]
@@ -65,6 +67,14 @@ impl ScreenResult {
     pub fn exit() -> Self {
         Self {
             next: Some(ScreenId::Exit),
+            data: None,
+        }
+    }
+
+    /// Navigate back to the previous screen in the stack.
+    pub fn back() -> Self {
+        Self {
+            next: Some(ScreenId::Back),
             data: None,
         }
     }

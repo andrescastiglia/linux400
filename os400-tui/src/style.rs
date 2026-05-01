@@ -54,3 +54,42 @@ pub const STYLE_TABLE_HEADER: Style = Style::new()
 pub const STYLE_TABLE_ROW: Style = Style::new().bg(COLOR_SCREEN_BG).fg(COLOR_NORMAL);
 
 pub const STYLE_TABLE_ROW_ALT: Style = Style::new().bg(COLOR_SCREEN_BG).fg(COLOR_DIM);
+
+// -- 5250 input field styles --
+
+/// Active (focused) input field: green text on dark background with underline.
+pub const STYLE_INPUT_ACTIVE: Style = Style::new()
+    .bg(Color::Black)
+    .fg(Color::White)
+    .add_modifier(Modifier::UNDERLINED);
+
+/// Protected (inactive) input field: dim text, no underline.
+pub const STYLE_INPUT_PROTECTED: Style = Style::new().bg(Color::Black).fg(COLOR_DIM);
+
+/// Subfile separator line.
+pub const STYLE_SUBFILE_SEPARATOR: Style = Style::new().bg(COLOR_SCREEN_BG).fg(COLOR_BORDER);
+
+// -- Status bar styles --
+
+/// Global status bar background.
+pub const STYLE_STATUS_BAR: Style = Style::new().bg(Color::DarkGray).fg(Color::White);
+
+// -- Enforcement mode indicators --
+
+/// Full enforcement mode: green badge.
+pub const STYLE_MODE_FULL: Style = Style::new()
+    .bg(Color::Green)
+    .fg(Color::Black)
+    .add_modifier(Modifier::BOLD);
+
+/// Degraded enforcement mode: yellow badge.
+pub const STYLE_MODE_DEGRADED: Style = Style::new()
+    .bg(Color::Yellow)
+    .fg(Color::Black)
+    .add_modifier(Modifier::BOLD);
+
+/// Dev mode (no enforcement): red badge.
+pub const STYLE_MODE_DEV: Style = Style::new()
+    .bg(Color::Red)
+    .fg(Color::White)
+    .add_modifier(Modifier::BOLD);

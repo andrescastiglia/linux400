@@ -131,7 +131,7 @@ impl StrSeu {
             self.save();
         }
         match Command::new("l400cmd")
-            .args(crate::screens::cmd_line::tokenize_cl_command(&command))
+            .args(crate::cl_parser::tokenize_cl_command(&command))
             .output()
         {
             Ok(output) => {
