@@ -2,6 +2,25 @@
 
 // Shared types between kernel and user space
 
+pub const L400_POLICY_VERSION: &str = "phase3-v1";
+
+pub const STAT_OPEN_ALLOWED: u32 = 0;
+pub const STAT_DENIED_INVALID_TAG: u32 = 1;
+pub const STAT_EXEC_ALLOWED_NATIVE: u32 = 2;
+pub const STAT_EXEC_ALLOWED_PGM: u32 = 3;
+pub const STAT_EXEC_DENIED_WRONG_TYPE: u32 = 4;
+pub const STAT_EXEC_DECISION_MISSING: u32 = 5;
+pub const STAT_EXEC_CHECK_ALLOWED: u32 = 6;
+pub const STAT_EXEC_CHECK_DENIED: u32 = 7;
+pub const STAT_EXEC_DENIED_INVALID_FORMAT: u32 = 8;
+pub const STAT_EXEC_DENIED_EXCLUDE: u32 = 9;
+pub const STAT_EXEC_ALLOWED_OWNER: u32 = 10;
+pub const STAT_EXEC_ALLOWED_USER_AUTH: u32 = 11;
+pub const STAT_OPEN_DENIED_EXCLUDE: u32 = 12;
+pub const STAT_OPEN_ALLOWED_OWNER: u32 = 13;
+pub const STAT_OPEN_ALLOWED_USER_AUTH: u32 = 14;
+pub const STAT_OBJTYPE_BASE: u32 = 16;
+
 #[derive(Copy, Clone)]
 pub struct L400ObjType {
     pub prefix: [u8; 4],
@@ -40,5 +59,9 @@ pub const VALID_OBJ_TYPES: &[L400ObjType] = &[
     L400ObjType {
         prefix: *b"*OUT",
         name: "*OUTQ",
+    },
+    L400ObjType {
+        prefix: *b"*JOB",
+        name: "*JOBQ",
     },
 ];

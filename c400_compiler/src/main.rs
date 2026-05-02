@@ -1,7 +1,27 @@
 use clap::Parser;
-use l400::zfs::set_objtype;
+use l400::{catalog_object, write_toolchain_manifest};
 use std::path::Path;
 use std::process::Command;
+
+fn resolve_l400_lib_path() -> String {
+    if let Ok(path) = std::env::var("L400_LIB_PATH") {
+        return path;
+    }
+
+    for candidate in [
+        "/lib/l400",
+        "/opt/l400/lib",
+        "target/release",
+        "target/debug",
+    ] {
+        let candidate_path = Path::new(candidate);
+        if candidate_path.join("libl400.a").exists() || candidate_path.join("libl400.so").exists() {
+            return candidate.to_string();
+        }
+    }
+
+    String::from("target/debug")
+}
 
 /// Compilador Híbrido C/400 nativo de Linux/400
 #[derive(Parser, Debug)]
@@ -46,13 +66,14 @@ fn main() {
     };
     println!("   Usando compilador: {}", c_compiler);
 
-    let lib_path = std::env::var("L400_LIB_PATH").unwrap_or_else(|_| "target/debug".to_string());
+    let lib_path = resolve_l400_lib_path();
 
     let compile_status = Command::new(c_compiler)
         .arg(&args.input)
         .arg("-o")
         .arg(&args.output)
         .arg(format!("-L{}", lib_path))
+        .arg(format!("-Wl,-rpath,{}", lib_path))
         .arg("-ll400")
         .status();
 
@@ -68,8 +89,22 @@ fn main() {
 
     // Paso 2: Catalogación estricta ZFS
     println!(">> (2) Integración Single-Level Storage (zfs xattr)...");
-    match set_objtype(output_path, "*PGM") {
+    match catalog_object(
+        output_path,
+        "*PGM",
+        Some("C"),
+        Some("C/400 compiled program"),
+    ) {
         Ok(_) => {
+            if let Err(error) = write_toolchain_manifest(
+                output_path,
+                "c400c",
+                env!("CARGO_PKG_VERSION"),
+                Some(&args.input),
+            ) {
+                eprintln!("   [ERROR] Falló el manifest de toolchain: {}", error);
+                std::process::exit(1);
+            }
             println!("   [OK] Tipificación ZFS completada (*PGM asignado).");
         }
         Err(e) => {

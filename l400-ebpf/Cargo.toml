@@ -1,15 +1,9 @@
 [package]
 name = "l400-ebpf"
-version = "0.1.0"
-edition = "2021"
+version = "0.2.0"
+edition = "2024"
 
 [dependencies]
 aya-ebpf = "0.1.1"
 aya-log-ebpf = "0.1.0"
 l400-ebpf-common = { path = "../l400-ebpf-common" }
-
-[profile.release]
-panic = "abort"
-
-[profile.dev]
-panic = "abort"

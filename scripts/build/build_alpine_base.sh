@@ -1,159 +1,394 @@
 #!/bin/bash
-# build_alpine_base.sh - Construye un rootfs Alpine Linux con musl
-# para el entorno Linux/400 mínimo
+# build_alpine_base.sh - Ensambla el rootfs Alpine base para Linux/400
 
-set -e
+set -euo pipefail
 
-ALPINE_VERSION="3.20"
+ALPINE_VERSION="${ALPINE_VERSION:-3.23}"
 ARCH="${ARCH:-x86_64}"
-OUTPUT_DIR="${OUTPUT_DIR:-./output}"
-ROOTFS_DIR="${OUTPUT_DIR}/rootfs"
-
-echo "=== Construyendo Alpine Linux Base para Linux/400 ==="
-echo "Versión: ${ALPINE_VERSION}"
-echo "Arquitectura: ${ARCH}"
-
-mkdir -p "${ROOTFS_DIR}"
-
-# Descargar Alpine minirootfs
+L400_SRC_DIR="${L400_SRC_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+OUTPUT_DIR="${OUTPUT_DIR:-${L400_SRC_DIR}/output}"
+ROOTFS_DIR="${ROOTFS_DIR:-${OUTPUT_DIR}/rootfs-build}"
+USERSPACE_DIR="${OUTPUT_DIR}/userspace"
+RUNTIME_DIR="${L400_SRC_DIR}/scripts/runtime"
 MINIROOT="alpine-minirootfs-${ALPINE_VERSION}.0-${ARCH}.tar.gz"
 MINIROOT_URL="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/releases/${ARCH}/${MINIROOT}"
+COMMAND_BINARIES=(
+    WRKSYSSTS
+    WRKACTJOB
+    WRKJOB
+    WRKJOBQ
+    HLDJOB
+    RLSJOB
+    ENDJOB
+    WRKSYSVAL
+    DSPLOG
+    DSPCMD
+    WRKCMD
+    CRTCMD
+    WRKUSRPRF
+    WRKSPLF
+    WRKOUTQ
+    CRTOUTQ
+    DLTOUTQ
+    DSPSPLF
+    CHGSPLFA
+    DLTSPLF
+    PWRDWNSYS
+    SBMJOB
+    WRKOBJ
+    DLTOBJ
+    CPYOBJ
+    DSPOBJD
+    CHGOBJD
+    DSPOBJAUT
+    CHKOBJAUT
+    CHKOBJINT
+    GRTOBJAUT
+    RVKOBJAUT
+    DSPPOLICY
+    DSPAUD
+    CRTLIB
+    DLTLIB
+    ADDLIBLE
+    CHGCURLIB
+    RNMOBJ
+    CRTPGM
+    CRTCLPGM
+    CALL
+    GO
+    SIGNOFF
+    STRPDM
+    STRSEU
+    STRSQL
+    WRKMBRPDM
+    DLTMBR
+    CPYMBR
+    CHGMBRD
+    CRTPF
+    CRTLF
+    DSPPFM
+    CLRPFM
+    ADDPFM
+    WRTPFM
+    CRTDTAQ
+    SNDDTAQ
+    RCVDTAQ
+    DSPDTAQ
+)
 
-echo ">> Descargando minirootfs..."
-if [ ! -f "${OUTPUT_DIR}/${MINIROOT}" ]; then
-    curl -L -o "${OUTPUT_DIR}/${MINIROOT}" "${MINIROOT_URL}"
-fi
+copy_binary_with_runtime() {
+    local binary="$1"
+    local resolved=""
+    local dep=""
 
-# Extraer rootfs
-echo ">> Extrayendo rootfs..."
- tar -xzf "${OUTPUT_DIR}/${MINIROOT}" -C "${ROOTFS_DIR}"
+    [ -e "${binary}" ] || return 0
 
-# Configurar repositorios
-echo ">> Configurando repositorios..."
-cat > "${ROOTFS_DIR}/etc/apk/repositories" << EOF
+    resolved="$(readlink -f "${binary}" 2>/dev/null || printf '%s' "${binary}")"
+    [ -f "${resolved}" ] || return 0
+
+    mkdir -p "${ROOTFS_DIR}$(dirname "${resolved}")"
+    cp -L "${resolved}" "${ROOTFS_DIR}${resolved}"
+
+    if [ "${binary}" != "${resolved}" ]; then
+        mkdir -p "${ROOTFS_DIR}$(dirname "${binary}")"
+        ln -sf "${resolved}" "${ROOTFS_DIR}${binary}"
+    fi
+
+    while IFS= read -r dep; do
+        [ -n "${dep}" ] || continue
+        [ -f "${dep}" ] || continue
+        mkdir -p "${ROOTFS_DIR}$(dirname "${dep}")"
+        cp -L "${dep}" "${ROOTFS_DIR}${dep}"
+    done <<EOF
+$(ldd "${resolved}" 2>/dev/null | awk '
+    {
+        for (i = 1; i <= NF; ++i) {
+            if ($i ~ /^\//) {
+                print $i
+            }
+        }
+    }')
+EOF
+}
+
+download_minrootfs() {
+    mkdir -p "${OUTPUT_DIR}"
+
+    if [ -f "${OUTPUT_DIR}/${MINIROOT}" ]; then
+        return 0
+    fi
+
+    echo ">> Descargando Alpine minirootfs..."
+    if command -v curl >/dev/null 2>&1; then
+        curl -L -o "${OUTPUT_DIR}/${MINIROOT}" "${MINIROOT_URL}"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -O "${OUTPUT_DIR}/${MINIROOT}" "${MINIROOT_URL}"
+    else
+        echo "ERROR: se requiere curl o wget para descargar Alpine." >&2
+        exit 1
+    fi
+}
+
+ensure_userspace() {
+    if [ ! -x "${USERSPACE_DIR}/bin/os400-tui" ] || \
+        [ ! -x "${USERSPACE_DIR}/bin/l400-bootstrap" ] || \
+        [ ! -x "${USERSPACE_DIR}/bin/sbmjob" ]; then
+        "${L400_SRC_DIR}/scripts/build/build_userspace.sh"
+    fi
+}
+
+maybe_install_extra_packages() {
+    cat > "${ROOTFS_DIR}/etc/apk/repositories" <<EOF
 https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/main
 https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/community
 EOF
 
-# Instalar paquetes base
-echo ">> Instalando paquetes base..."
-apk --root "${ROOTFS_DIR}" --arch "${ARCH}" update
+    if ! command -v apk >/dev/null 2>&1; then
+        echo "WARNING: apk no está disponible en el host; el rootfs se arma con minirootfs puro."
+        return 0
+    fi
 
-pick_first_available_pkg() {
-    for pkg in "$@"; do
-        if apk --root "${ROOTFS_DIR}" --arch "${ARCH}" add --simulate "$pkg" >/dev/null 2>&1; then
-            echo "$pkg"
-            return 0
-        fi
-    done
-    return 1
+    local packages=(
+        alpine-base
+        bash
+        openssh
+        tzdata
+        util-linux
+        e2fsprogs
+        dosfstools
+        mtools
+    )
+
+    echo ">> Instalando paquetes extra con apk del host..."
+    apk --root "${ROOTFS_DIR}" --arch "${ARCH}" update
+    apk --root "${ROOTFS_DIR}" --arch "${ARCH}" add "${packages[@]}"
 }
 
-LLVM_PKG=""
-if LLVM_PKG=$(pick_first_available_pkg llvm20 llvm19 llvm18 llvm); then
-    echo ">> LLVM detectado: ${LLVM_PKG}"
-else
-    echo "WARNING: No se encontró paquete LLVM; continuando sin LLVM explícito."
+install_host_disk_tools_fallback() {
+    local path_entry
+    local tools=(
+        /usr/bin/mount
+        /usr/bin/umount
+        /usr/bin/findmnt
+        /usr/sbin/blkid
+        /usr/sbin/findfs
+        /usr/sbin/sfdisk
+        /usr/sbin/mkfs.ext4
+        /usr/sbin/mke2fs
+        /usr/sbin/mkfs.fat
+        /usr/sbin/fsck.fat
+        /usr/sbin/mount.vfat
+    )
+
+    for path_entry in "${tools[@]}"; do
+        copy_binary_with_runtime "${path_entry}"
+    done
+}
+
+install_host_mtools_fallback() {
+    local mtools_root="${OUTPUT_DIR}/host-tools/mtools/extracted"
+    local applet=""
+    local dep=""
+
+    if [ -x /usr/bin/mtools ]; then
+        for applet in /usr/bin/mtools /usr/bin/mcopy /usr/bin/mmd /usr/bin/mdir /usr/bin/mformat /usr/bin/mlabel; do
+            copy_binary_with_runtime "${applet}"
+        done
+    elif [ -x "${mtools_root}/usr/bin/mtools" ]; then
+        mkdir -p "${ROOTFS_DIR}/usr/bin"
+        cp -L "${mtools_root}/usr/bin/mtools" "${ROOTFS_DIR}/usr/bin/mtools"
+
+        for applet in mcopy mmd mdir mformat mlabel; do
+            ln -sf /usr/bin/mtools "${ROOTFS_DIR}/usr/bin/${applet}"
+        done
+
+        while IFS= read -r dep; do
+            [ -n "${dep}" ] || continue
+            [ -f "${dep}" ] || continue
+            mkdir -p "${ROOTFS_DIR}$(dirname "${dep}")"
+            cp -L "${dep}" "${ROOTFS_DIR}${dep}"
+        done <<EOF
+$(ldd "${mtools_root}/usr/bin/mtools" 2>/dev/null | awk '
+    {
+        for (i = 1; i <= NF; ++i) {
+            if ($i ~ /^\//) {
+                print $i
+            }
+        }
+    }')
+EOF
+    fi
+}
+
+ensure_default_user() {
+    local passwd_file="${ROOTFS_DIR}/etc/passwd"
+    local shadow_file="${ROOTFS_DIR}/etc/shadow"
+    local group_file="${ROOTFS_DIR}/etc/group"
+    local session_shell="/usr/local/bin/l400-session"
+    local default_user="qsecofr"
+
+    mkdir -p "${ROOTFS_DIR}/home/${default_user}"
+
+    # Asegura que qsecofr sea root (uid=0, gid=0)
+    sed -i '/^l400:/d' "${group_file}" 2>/dev/null || true
+    if grep -q "^${default_user}:" "${group_file}" 2>/dev/null; then
+        sed -i "s#^${default_user}:[^:]*:[^:]*#${default_user}:x:0#" "${group_file}"
+    else
+        echo "${default_user}:x:0:" >> "${group_file}"
+    fi
+
+    sed -i '/^l400:/d;/^root:/d' "${passwd_file}" 2>/dev/null || true
+    if grep -q "^${default_user}:" "${passwd_file}" 2>/dev/null; then
+        sed -i "s#^${default_user}:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:.*#${default_user}:x:0:0:Linux/400 Security Officer:/home/${default_user}:${session_shell}#" \
+            "${passwd_file}"
+    else
+        echo "${default_user}:x:0:0:Linux/400 Security Officer:/home/${default_user}:${session_shell}" >> "${passwd_file}"
+    fi
+
+    sed -i '/^l400:/d;/^root:/d' "${shadow_file}" 2>/dev/null || true
+    if ! grep -q "^${default_user}:" "${shadow_file}" 2>/dev/null; then
+        # Password por defecto: l400
+        echo "${default_user}:\$5\$0PUnB4kNAIWwK67r\$v3YFQYo9crkPTFaBSm69uMWk6RaAIaSsNrc2rvpwAd1:20000:0:99999:7:::" >> "${shadow_file}"
+    fi
+}
+
+install_userspace() {
+    echo ">> Instalando userspace Linux/400..."
+
+    mkdir -p \
+        "${ROOTFS_DIR}/opt/l400/bin" \
+        "${ROOTFS_DIR}/opt/l400/hooks" \
+        "${ROOTFS_DIR}/opt/l400/scripts" \
+        "${ROOTFS_DIR}/lib/l400" \
+        "${ROOTFS_DIR}/usr/local/bin" \
+        "${ROOTFS_DIR}/usr/local/sbin" \
+        "${ROOTFS_DIR}/etc/profile.d" \
+        "${ROOTFS_DIR}/etc" \
+        "${ROOTFS_DIR}/var/lib/l400" \
+        "${ROOTFS_DIR}/l400"
+
+    cp "${USERSPACE_DIR}/bin/os400-tui" "${ROOTFS_DIR}/opt/l400/bin/"
+    cp "${USERSPACE_DIR}/bin/l400-loader" "${ROOTFS_DIR}/opt/l400/bin/"
+    cp "${USERSPACE_DIR}/bin/c400c" "${ROOTFS_DIR}/opt/l400/bin/"
+    cp "${USERSPACE_DIR}/bin/clc" "${ROOTFS_DIR}/opt/l400/bin/"
+    cp "${USERSPACE_DIR}/bin/l400cmd" "${ROOTFS_DIR}/opt/l400/bin/"
+    cp "${USERSPACE_DIR}/bin/sbmjob" "${ROOTFS_DIR}/opt/l400/bin/"
+    cp "${USERSPACE_DIR}/bin/l400-bootstrap" "${ROOTFS_DIR}/opt/l400/bin/"
+    cp "${USERSPACE_DIR}/lib/libl400.a" "${ROOTFS_DIR}/lib/l400/"
+    if [ -f "${USERSPACE_DIR}/lib/libl400.so" ]; then
+        cp "${USERSPACE_DIR}/lib/libl400.so" "${ROOTFS_DIR}/lib/l400/"
+    fi
+
+    if [ -f "${USERSPACE_DIR}/hooks/l400-ebpf" ]; then
+        cp "${USERSPACE_DIR}/hooks/l400-ebpf" "${ROOTFS_DIR}/opt/l400/hooks/"
+    fi
+
+    cp "${RUNTIME_DIR}/l400-session.sh" "${ROOTFS_DIR}/usr/local/bin/l400-session"
+    cp "${RUNTIME_DIR}/l400-console-autologin.sh" "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin"
+    cp "${RUNTIME_DIR}/l400-installer.sh" "${ROOTFS_DIR}/usr/local/bin/l400-installer"
+    cp "${RUNTIME_DIR}/l400-support-report.sh" "${ROOTFS_DIR}/usr/local/bin/l400-support-report"
+    cp "${RUNTIME_DIR}/l400-upgrade-check.sh" "${ROOTFS_DIR}/usr/local/bin/l400-upgrade-check"
+    cp "${RUNTIME_DIR}/l400-migrate.sh" "${ROOTFS_DIR}/usr/local/bin/l400-migrate"
+    cp "${RUNTIME_DIR}/install_linux400.sh" "${ROOTFS_DIR}/usr/local/sbin/install-linux400"
+
+    cp -r "${L400_SRC_DIR}/scripts/"* "${ROOTFS_DIR}/opt/l400/scripts/" 2>/dev/null || true
+
+    chmod +x \
+        "${ROOTFS_DIR}/usr/local/bin/l400-session" \
+        "${ROOTFS_DIR}/usr/local/bin/l400-console-autologin" \
+        "${ROOTFS_DIR}/usr/local/bin/l400-installer" \
+        "${ROOTFS_DIR}/usr/local/bin/l400-support-report" \
+        "${ROOTFS_DIR}/usr/local/bin/l400-upgrade-check" \
+        "${ROOTFS_DIR}/usr/local/bin/l400-migrate" \
+        "${ROOTFS_DIR}/usr/local/sbin/install-linux400"
+
+    ln -sf /opt/l400/bin/os400-tui "${ROOTFS_DIR}/usr/local/bin/os400-tui"
+    ln -sf /opt/l400/bin/l400-loader "${ROOTFS_DIR}/usr/local/bin/l400-loader"
+    ln -sf /opt/l400/bin/c400c "${ROOTFS_DIR}/usr/local/bin/c400c"
+    ln -sf /opt/l400/bin/clc "${ROOTFS_DIR}/usr/local/bin/clc"
+    ln -sf /opt/l400/bin/l400cmd "${ROOTFS_DIR}/usr/local/bin/l400cmd"
+    ln -sf /opt/l400/bin/sbmjob "${ROOTFS_DIR}/usr/local/bin/sbmjob"
+    ln -sf /opt/l400/bin/l400-bootstrap "${ROOTFS_DIR}/usr/local/bin/l400-bootstrap"
+
+    for command_name in "${COMMAND_BINARIES[@]}"; do
+        ln -sf /opt/l400/bin/l400cmd "${ROOTFS_DIR}/opt/l400/bin/${command_name}"
+        ln -sf /opt/l400/bin/${command_name} "${ROOTFS_DIR}/usr/local/bin/${command_name}"
+    done
+}
+
+configure_shell_environment() {
+    echo ">> Configurando entorno Linux/400..."
+
+    cat > "${ROOTFS_DIR}/etc/profile.d/l400-env.sh" <<'EOF'
+export PATH="/usr/local/sbin:/usr/local/bin:/opt/l400/bin:$PATH"
+export L400_ROOT="/l400"
+export L400_LIB_PATH="/lib/l400"
+export LIBRARY_PATH="/lib/l400${LIBRARY_PATH:+:$LIBRARY_PATH}"
+export LD_LIBRARY_PATH="/lib/l400${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+EOF
+
+    cat > "${ROOTFS_DIR}/home/qsecofr/.profile" <<'EOF'
+if [ -f /etc/profile ]; then
+    . /etc/profile
 fi
 
-ZFS_PKGS=()
-if apk --root "${ROOTFS_DIR}" --arch "${ARCH}" search -x zfs >/dev/null 2>&1; then
-    ZFS_PKGS+=(zfs)
-elif apk --root "${ROOTFS_DIR}" --arch "${ARCH}" search -x zfs-lts >/dev/null 2>&1; then
-    ZFS_PKGS+=(zfs-lts)
-else
-    echo "WARNING: No se encontró paquete ZFS en repositorios Alpine ${ALPINE_VERSION}."
-fi
+exec /usr/local/bin/l400-session
+EOF
 
-BASE_PACKAGES=(
-    alpine-base
-    bash
-    libstdc++
-    clang
-    musl
-    openssh
-    openssl
-    curl
-    zlib
-    libuv
-    elfutils
-    file
-    grep
-    gawk
-    sed
-    coreutils
-    util-linux
-    e2fsprogs
-    dosfstools
-    mtools
-    squashfs-tools
-    cdrkit
-)
+    : > "${ROOTFS_DIR}/etc/motd"
 
-if [ -n "${LLVM_PKG}" ]; then
-    BASE_PACKAGES+=("${LLVM_PKG}")
-fi
+    echo "linux400" > "${ROOTFS_DIR}/etc/hostname"
+}
 
-BASE_PACKAGES+=("${ZFS_PKGS[@]}")
+configure_console_login() {
+    echo ">> Configurando autologin live..."
 
-apk --root "${ROOTFS_DIR}" --arch "${ARCH}" add "${BASE_PACKAGES[@]}"
+    if [ -x "${ROOTFS_DIR}/sbin/openrc" ] && [ -f "${ROOTFS_DIR}/etc/inittab" ]; then
+        sed -i 's#^tty1::respawn:.*#tty1::respawn:/sbin/getty -n -l /usr/local/bin/l400-console-autologin 115200 tty1 linux#' \
+            "${ROOTFS_DIR}/etc/inittab"
+        if grep -q '^ttyS0::respawn:' "${ROOTFS_DIR}/etc/inittab"; then
+            sed -i 's#^ttyS0::respawn:.*#ttyS0::respawn:/sbin/getty -L -n -l /usr/local/bin/l400-console-autologin 115200 ttyS0 vt100#' \
+                "${ROOTFS_DIR}/etc/inittab"
+        else
+            cat >> "${ROOTFS_DIR}/etc/inittab" <<'EOF'
+ttyS0::respawn:/sbin/getty -L -n -l /usr/local/bin/l400-console-autologin 115200 ttyS0 vt100
+EOF
+        fi
+    else
+        cat > "${ROOTFS_DIR}/etc/inittab" <<'EOF'
+::respawn:/sbin/getty -n -l /usr/local/bin/l400-console-autologin 115200 tty1 linux
+ttyS0::respawn:/sbin/getty -L -n -l /usr/local/bin/l400-console-autologin 115200 ttyS0 vt100
+::respawn:/sbin/getty 115200 tty2
+::respawn:/sbin/getty 115200 tty3
+::ctrlaltdel:/sbin/reboot
+EOF
+    fi
+}
 
-# Configurar locale
-echo ">> Configurando locale..."
-if [ -f "${ROOTFS_DIR}/etc/locale.gen" ]; then
-    sed -i 's/#en_US.UTF-8/en_US.UTF-8/' "${ROOTFS_DIR}/etc/locale.gen"
-    sed -i 's/#en_US ISO-8859-1/en_US ISO-8859-1/' "${ROOTFS_DIR}/etc/locale.gen"
-fi
+main() {
+    echo "=== Construyendo rootfs Alpine para Linux/400 ==="
+    echo "Versión Alpine: ${ALPINE_VERSION}"
+    echo "Arquitectura   : ${ARCH}"
 
-# Crear usuario l400
-echo ">> Creando usuario l400..."
-if ! chroot "${ROOTFS_DIR}" /bin/sh -c "id -u l400 >/dev/null 2>&1"; then
-    chroot "${ROOTFS_DIR}" /bin/sh -c "adduser -D -s /bin/bash l400" || true
-fi
+    ensure_userspace
+    download_minrootfs
 
-if chroot "${ROOTFS_DIR}" /bin/sh -c "id -u l400 >/dev/null 2>&1"; then
-    echo "l400:l400" | chroot "${ROOTFS_DIR}" /bin/sh -c "chpasswd" || true
-else
-    echo "WARNING: No se pudo crear usuario l400 dentro del rootfs."
-fi
+    rm -rf "${ROOTFS_DIR}"
+    mkdir -p "${ROOTFS_DIR}"
 
-# Configurar hostname
-echo "linux400" > "${ROOTFS_DIR}/etc/hostname"
+    echo ">> Extrayendo rootfs base..."
+    tar -xzf "${OUTPUT_DIR}/${MINIROOT}" -C "${ROOTFS_DIR}"
 
-# Copiar binarios de libl400
-echo ">> Instalando binarios Linux/400..."
-mkdir -p "${ROOTFS_DIR}/opt/l400"
-mkdir -p "${ROOTFS_DIR}/lib/l400"
-mkdir -p "${ROOTFS_DIR}/l400"
+    maybe_install_extra_packages
+    install_host_disk_tools_fallback
+    install_host_mtools_fallback
+    ensure_default_user
+    install_userspace
+    configure_shell_environment
+    configure_console_login
 
-# Directorio raíz del repositorio (soporte CI vía $L400_SRC_DIR)
-L400_SRC_DIR="${L400_SRC_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+    echo "=== Rootfs Linux/400 listo ==="
+    echo "Ubicación: ${ROOTFS_DIR}"
+}
 
-# Preferir artefactos release sobre debug
-if [ -f "${L400_SRC_DIR}/target/release/libl400.so" ]; then
-    L400_TARGET="${L400_SRC_DIR}/target/release"
-elif [ -f "${L400_SRC_DIR}/target/debug/libl400.so" ]; then
-    L400_TARGET="${L400_SRC_DIR}/target/debug"
-else
-    echo "WARNING: No se encontró libl400.so en target/release ni target/debug."
-    L400_TARGET=""
-fi
-
-if [ -n "${L400_TARGET}" ]; then
-    cp -r "${L400_TARGET}/libl400.so" "${ROOTFS_DIR}/lib/l400/" 2>/dev/null || \
-        echo "WARNING: No se pudo copiar libl400.so desde ${L400_TARGET}."
-    cp -r "${L400_TARGET}/l400"* "${ROOTFS_DIR}/opt/l400/" 2>/dev/null || \
-        echo "WARNING: No se encontraron binarios l400* en ${L400_TARGET}."
-fi
-cp -r "${L400_SRC_DIR}/scripts/"* "${ROOTFS_DIR}/opt/l400/scripts/" 2>/dev/null || true
-
-# Configurar PATH
-echo 'export PATH="/opt/l400:$PATH"' >> "${ROOTFS_DIR}/etc/profile"
-echo 'export L400_ROOT="/l400"' >> "${ROOTFS_DIR}/etc/profile"
-echo 'export LD_LIBRARY_PATH="/lib/l400:$LD_LIBRARY_PATH"' >> "${ROOTFS_DIR}/etc/profile"
-
-# Crear punto de montaje /l400
-mkdir -p "${ROOTFS_DIR}/l400"
-
-echo "=== Rootfs Alpine creado en ${ROOTFS_DIR} ==="
-echo "Para probar: chroot ${ROOTFS_DIR} /bin/bash"
+main "$@"

@@ -9,3 +9,9 @@ members = [
     "libl400",
     "os400-tui",
 ]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

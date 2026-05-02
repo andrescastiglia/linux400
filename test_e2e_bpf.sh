@@ -3,6 +3,9 @@ set -e
 
 echo "=== Linux/400 - E2E LSM Hook Test ==="
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BPF_ARTIFACT_DEFAULT="${REPO_ROOT}/l400-ebpf/target/bpfel-unknown-none/release/l400-ebpf"
+
 if [ "$EUID" -ne 0 ]; then
   echo "[-] Por favor ejecute este script con privilegios root (sudo ./test_e2e_bpf.sh)"
   exit 1
@@ -10,24 +13,50 @@ fi
 
 TEST_FILE="/tmp/myfile.obj"
 INVALID_FILE="/tmp/invalid.obj"
+EXEC_OK="/tmp/l400_exec_ok"
+EXEC_BAD="/tmp/l400_exec_bad"
 
 echo "[1] Creando archivos dummy..."
 touch $TEST_FILE
 touch $INVALID_FILE
+cp /bin/true "$EXEC_OK"
+cp /bin/true "$EXEC_BAD"
+chmod +x "$EXEC_OK" "$EXEC_BAD"
 
 echo "[2] Asignando atributos extendidos (Tipificacion L400/ZFS)..."
 # Valido
 setfattr -n user.l400.objtype -v "*PGM" $TEST_FILE
 # Invalido
 setfattr -n user.l400.objtype -v "*MAL" $INVALID_FILE
+setfattr -n user.l400.objtype -v "*PGM" $EXEC_OK
+setfattr -n user.l400.objtype -v "*FILE" $EXEC_BAD
 
 echo "[3] Probando acceso SIN el BPF hook habilitado..."
 cat $TEST_FILE > /dev/null && echo "  -> Acceso a $TEST_FILE OK"
 cat $INVALID_FILE > /dev/null && echo "  -> Acceso a $INVALID_FILE OK"
 
 echo "[4] Iniciando BPF Loader en background..."
-# Asumimos que el binario fue construido previomente via setup_env.sh
-./l400-loader/target/release/l400-loader &
+if [[ ! -x "${REPO_ROOT}/target/release/l400-loader" ]]; then
+    cargo build -p l400-loader --release
+fi
+
+BPF_ARTIFACT_PATH="${L400_BPF_PATH:-${BPF_ARTIFACT_DEFAULT}}"
+if [[ ! -f "${BPF_ARTIFACT_PATH}" ]]; then
+    echo "[4.1] Binario eBPF no encontrado en ${BPF_ARTIFACT_PATH}, compilando l400-ebpf..."
+    (
+        cd "${REPO_ROOT}/l400-ebpf"
+        cargo build --target bpfel-unknown-none --release
+    )
+    BPF_ARTIFACT_PATH="${BPF_ARTIFACT_DEFAULT}"
+fi
+
+if [[ ! -f "${BPF_ARTIFACT_PATH}" ]]; then
+    echo "[-] No se encontró el artefacto eBPF en ${BPF_ARTIFACT_PATH}."
+    echo "[-] Configure L400_BPF_PATH o compile l400-ebpf antes de correr esta prueba."
+    exit 1
+fi
+
+L400_BPF_PATH="${BPF_ARTIFACT_PATH}" "${REPO_ROOT}/target/release/l400-loader" &
 BPF_PID=$!
 
 echo "Esperando 2 segundos para montaje del hook BPF..."
@@ -46,8 +75,21 @@ else
     echo "  -> [EXCELENTE] Acceso a $INVALID_FILE DENEGADO (-EACCES disparado por BPF LSM)"
 fi
 
-echo "[6] Limpiando entorno..."
+echo "[6] Probando ejecución CON el BPF hook habilitado..."
+if "$EXEC_OK" >/dev/null 2>&1; then
+    echo "  -> [EXCELENTE] Ejecución de $EXEC_OK permitida como *PGM"
+else
+    echo "  -> [ERROR] Fallo inesperado al ejecutar $EXEC_OK"
+fi
+
+if "$EXEC_BAD" >/dev/null 2>&1; then
+    echo "  -> [ERROR] BPF fallo en denegar ejecución de objeto no *PGM!"
+else
+    echo "  -> [EXCELENTE] Ejecución de $EXEC_BAD DENEGADA por política de *PGM"
+fi
+
+echo "[7] Limpiando entorno..."
 kill -SIGINT $BPF_PID
-rm -f $TEST_FILE $INVALID_FILE
+rm -f $TEST_FILE $INVALID_FILE $EXEC_OK $EXEC_BAD
 
 echo "=== Pruebas E2E BPF completadas exitosamente ==="

@@ -1,80 +1,296 @@
-# Roadmap Maestro de Implementación: Proyecto Linux/400
+# Plan de implementacion hacia Linux/400 Version 1
 
-Este documento es el **plan estratégico de alto nivel** estructurado a partir de las arquitecturas definidas en `PROJECT.md` y las restricciones técnicas debatidas sobre el `KERNEL.md`. Su objetivo es organizar el desarrollo sistemático del ecosistema "Linux/400".
+Fecha base: 2026-05-02
+Objetivo: cerrar una Version 1 operable, instalable, mantenible y recuperable, con experiencia basica de administracion tipo AS/400.
 
-## User Review Required
+Este plan reemplaza planes previos centrados solo en UI. La prioridad de V1 es que el sistema pueda usarse como entorno operacional basico: instalar, actualizar, aplicar PTFs, respaldar, restaurar, administrar usuarios, jobs, job queues, spool, bibliotecas, objetos y datos desde Linux/400.
 
-> [!IMPORTANT]
-> **Estrategia Confirmada:** Se realizará un acoplamiento progresivo de la "personalidad Linux/400" sobre un sistema host Linux base (**Kernel mínimo >= 6.11**). Una vez estabilizados los subsistemas de Compilación (CL y C/400), TUI, la gestión ZFS/DAX y los punteros LAM, se empaquetará todo en una imagen ISO instalable de Kernel Minimalista.
+## Principios de V1
 
-## Fases del Proyecto (Roadmap de Tareas)
+- La TUI es la interfaz normal de operador; la shell queda para soporte/rescue.
+- Todo flujo critico debe tener comando, pantalla y prueba.
+- Cada accion destructiva requiere confirmacion y auditoria.
+- Cada feature debe degradar con mensaje Linux/400 claro si falta soporte del host.
+- El estado persistente de `/l400` y sus xattrs es parte central del producto.
+- Los gates de release deben probar instalacion, upgrade, backup/restore y operacion basica.
 
-### Fase 1: Acoplamiento BPF LSM (Kernel Hooks >= 6.11)
-El requerimiento base del kernel 6.11 permite inyectar políticas rigurosas de seguridad en tiempo de ejecución.
-- [x] Incorporar la toolchain Rust (`clc`, `c400c`, `libl400.so`).
-- [x] Desarrollar y cargar módulos **BPF LSM** en Rust (vía *Aya*) para interceptar llamadas como `file_open` y `bprm_check_security`. Esto leerá las meta-etiquetas de ZFS e impondrá el tipado fuerte de los "Objetos" sin impacto en el userspace.
+## Alcance de V1
 
-### Fase 2: Storage Object-Oriented (ZFS y Atributos SA)
-Conservar la majestuosidad de ZFS para la gobernanza de datos y copias atomicas, implementando su bypass.
-- [x] Inicializar ZFS en el host configurando **`xattr=sa`** (System Attributes) para que los metadatos `i:objtype` vivan incrustados en los inodos.
-- [x] Crear *Storage Pools* locales simulando los ASP (Pool `/linux400pool`).
-- [x] Enlazar el BPF LSM de la Fase 1 para que valide el atributo extendido de seguridad antes de cualquier apertura.
+V1 debe incluir:
 
-### Fase 3: Subsistema Relacional BDB y Workaround DAX
-Implementar la semántica de *Single-Level Storage (SLS)* garantizando baja latencia a pesar del caché ZFS.
-- [x] **Workaround DAX sobre ZFS:** Implementado en `libl400.so` mediante `AlignedBuffer` (alineación 4096 bytes) y el flag **`O_DIRECT`**, mitigando la doble capa de caché y permitiendo acceso directo a objetos ZFS.
-- [x] Integrar motor de datos relacional (sustituido BDB por **Sled**) mapeando llamadas nativas a PF y LF (Archivo Físico y Lógico).
-- [x] Configurar las **Colas de Datos (`*DTAQ`)** como colas transaccionales sobre `sled`.
+- instalacion live/install e instalada con persistencia;
+- actualizacion y PTFs con precheck, apply, rollback y auditoria;
+- backup/restore completo y verificable;
+- administracion de usuarios y autoridades;
+- administracion de bibliotecas, objetos y datos;
+- work management basico: QINTER, QBATCH, job queues y logs;
+- spool basico: output queues, spool files, estados y retencion;
+- comandos y pantallas para operacion diaria;
+- CL y C como lenguajes soportados de V1;
+- PF/LF/DTAQ y SQL minimo operativo;
+- soporte/rescue y reportes diagnosticos.
 
-### Fase 4: Compiladores Híbridos (Control Language y C/400)
-- [x] **Compilador CL (`clc`)**: Parser Pest y codegen LLVM operativos. Soporta enlazado dinámico con LLVM 20 para evitar dependencias estáticas (libPolly).
-- [x] **Compilador C/400 (`c400c`)**: Front-end envolvente de C operativo, inyectando la runtime `l400` y realizando catalogación automática en ZFS.
-- [x] Los compiladores emiten binarios que inyectan los "tags" espaciales y catalogan el objeto como `*PGM` en ZFS.
+Fuera de V1:
 
-### Fase 5: Memory Tagging de 64-bits (TBI / Intel LAM)
-- [x] Módulo `lam.rs` con detección automática de hardware (Intel LAM48 / ARM TBI / Software Mask)
-- [x] `arch_prctl` para LAM48 vía syscall inline en CPUs Intel Sapphire Rapids+
-- [x] **Fallback de Software Seguro:** `untag_pointer()` con enmascaramiento bitwise (`ptr & 0x0000_FFFF_FFFF_FFFF`) para CPUs sin LAM
-- [x] API pública: `tag_pointer()`, `untag_pointer()`, `get_space_bits()`, `is_tagged_pointer()`, `enable_for_platform()`
-- [x] Inicialización automática via `init()` - `enable_for_platform()` llamado en carga de libl400
+- RPG;
+- SQL avanzado como lenguaje de desarrollo completo;
+- compatibilidad binaria IBM i;
+- emulacion completa de 5250;
+- service programs productivos completos si no son necesarios para V1.
 
-### Fase 6: Cargas de Trabajo (Cgroups v2)
-- [x] Módulo `cgroup.rs` con gestión de slices cgroups v2
-- [x] `l400.qinter` slice: `cpu.weight=10000`, `io.weight=100` (Interactive TUI/terminal)
-- [x] `l400.qbatch` slice: `cpu.weight=100`, `io.weight=50` (Batch DTAQ processors)
-- [x] API: `create_l400_slices()`, `assign_to_workload()`, `get_current_workload()`
-- [x] Límites de memoria configurables por workload type
+## Fase 1: estabilizar base operacional
 
-### Fase 7: Frontend TUI (Green Screen) e Interfaces de Consola
-- [x] Crate `os400-tui/` con Ratatui y estilo Green Screen
-- [x] Menú principal con opciones: WRKLIB, WRKPGM, WRKOBJ, WRKACTJOB, DSPDTAQ, CMD
-- [x] Paneles: WorkManagement (WRKACTJOB), ObjectBrowser (WRKOBJ), DataQueueViewer (DSPDTAQ), CommandLine
-- [x] Atajos de teclado: F3=Exit, F4=Prompt, F5=Refresh, F12=Cancel, Enter=Select
-- [x] Navegación entre pantallas y historial de comandos
+Estado: en progreso.
 
-### Fase 8 (HITO FINAL): Empaquetado de Kernel Minimalista e ISO
-- [x] Script `build_alpine_base.sh`: Rootfs Alpine Linux con musl, ZFS, LLVM
-- [x] Script `build_kernel.sh`: Kernel 6.11+ con `CONFIG_BPF_LSM=y`, `CONFIG_X86_64_LAM=y`
-- [x] Script `build_initramfs.sh`: Initramfs con preload BPF LSM
-- [x] Script `build_iso.sh`: ISO booteable con SYSLINUX/EFI
+Objetivo: asegurar que lo ya implementado sea confiable como base de V1.
 
----
+Tareas:
 
-## Análisis de Riesgos y Factibilidad Técnica (Actualizado)
+- [ ] Revisar comandos actuales y clasificarlos como estable, experimental o stub.
+- [ ] Hacer que `DSPCMD`/`WRKCMD` muestren estado, autoridad, parametros y ejemplos de cada comando.
+- [ ] Garantizar que todos los comandos sensibles emitan status CPF o equivalente.
+- [ ] Unificar validacion de autoridad para create/change/delete/call/spool/jobs.
+- [ ] Asegurar que `l400-bootstrap` cree objetos base, `*OUTQ`, `*JOBQ`, perfiles y metadata versionada.
+- [ ] Expandir `CHKOBJINT` para `*OUTQ`, `*JOBQ`, `*USRPRF`, PF/LF/DTAQ y `*PGM`.
+- [ ] Agregar tests de regresion por comando critico en `libl400`.
 
-En base a las deliberaciones arquitectónicas, los bloqueadores han sido resueltos de la siguiente manera:
+Criterio de cierre:
 
-> [!NOTE]
-> **Superación de Conflicto ZFS vs DAX:** Es sabido que ZFS prohíbe el protocolo DAX puro a nivel VFS. El *Workaround* asumido requiere que `libl400.so` mapee las bases de datos de alto impacto en ZFS (o ZVOLs dedicados) abriendo el file descriptor con el flag **`O_DIRECT`**. Aunque perdemos el mapeo zero-copy puro a memoria persistente de memoria persistente por DAX, sorteamos el doble-caching del kernel Linux y nos recostamos puramente en el ARC de ZFS para el rendimiento sin corromper el diseño OOP de los atributos del Archivo físico y lógico.
+- `cargo test -p l400`, `cargo test -p clc` y `cargo test -p os400-tui` pasan.
+- Los comandos V1 tienen metadata visible.
+- No hay stubs silenciosos en flujos V1.
 
-> [!TIP]
-> **Compatibilidad Extendida (Fallback LAM x86_64):** El requerimiento de usar las etiquetas de memoria a nivel hardware restringía agudamente la distribución. Integrando máscaras en software (`bitwise AND`) a nivel de la capa de API de `libl400.so`, habilitamos virtualmente cualquier CPU x86 de los 2010s a correr código empaquetado de C/400 o CL. Existirá una ínfima penalización de rendimiento en estas extracciones de memoria por software comparado al Hardware nativo de LAM (Sapphire Rapids), pero el sacrificio viabiliza la distribución general.
+## Fase 2: instalacion y primer arranque
 
-> [!TIP]
-> **Estabilidad del Kernel (Remoción de Sched_ext):** Al fijar un base razonable de **Kernel 6.11**, podemos confiar firmemente en BPF LSM para la inspección de seguridad delegación, pero **descartamos el uso de sched_ext**, ya que requeriría la rama súper experimental 6.11. Cgroups v2 por si solo será estadísticamente suficiente para retener al `QBATCH` sin sofocar a `QINTER`.
+Estado: pendiente.
 
----
+Objetivo: que la instalacion sea repetible, diagnosticable y validada por gate.
 
-## Open Questions
+Tareas:
 
-- Las dudas conceptuales se han disuelto. Ahora que todos los subsistemas convergen de manera determinista desde un simple Kernel >= 6.11 y validaciones hibrídas de TBI/LAM o mascara de software, el *Project Plan* ha madurado para comenzar un Sprint de código.
+- [ ] Endurecer `install-linux400` para errores de disco, particion, EFI, rootfs y persistencia.
+- [ ] Agregar pantalla TUI de instalacion/resumen cuando el boot sea `install`.
+- [ ] Registrar en `/l400` version instalada, build id, metadata version y perfil de plataforma.
+- [ ] Validar que el primer arranque cree o repare objetos base sin borrar datos del operador.
+- [ ] Mejorar modo rescue con opciones: montar `/l400`, support report, upgrade check, restore y shell.
+- [ ] Hacer que `test_e2e_install_qemu.sh` verifique persistencia de objetos, usuarios, spool y jobs.
+
+Criterio de cierre:
+
+- `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh` instala, reinicia y valida persistencia.
+- El operador puede reconocer modo live/install/installed desde TUI o support report.
+
+## Fase 3: actualizacion y PTFs
+
+Estado: pendiente.
+
+Objetivo: introducir mantenimiento versionado estilo PTF.
+
+Tareas:
+
+- [ ] Definir formato de paquete PTF: manifiesto, version origen/destino, archivos, scripts, checksum y rollback.
+- [ ] Crear comando `DSPPTF` para listar PTFs aplicados y pendientes.
+- [ ] Crear comando `APYPTF` con `OPTION(*CHECK|*APPLY|*ROLLBACK)` y `CONFIRM`.
+- [ ] Integrar `l400-upgrade-check` como precheck obligatorio de `APYPTF`.
+- [ ] Expandir `l400-migrate` para migraciones idempotentes por version.
+- [ ] Auditar apply/rollback con usuario, fecha, build id y resultado.
+- [ ] Agregar pantalla TUI de mantenimiento/PTF.
+- [ ] Agregar tests de PTF con paquete falso, apply, rollback y downgrade rechazado.
+
+Criterio de cierre:
+
+- Un PTF puede aplicarse y revertirse en entorno de prueba.
+- El sistema bloquea downgrades de metadata sin restore.
+- `DSPPTF` y support report muestran historial de mantenimiento.
+
+## Fase 4: backup, restore e integridad
+
+Estado: pendiente.
+
+Objetivo: convertir las recetas actuales de backup/restore en operacion Linux/400.
+
+Tareas:
+
+- [ ] Crear comandos `SAVLIB`, `SAVOBJ`, `SAVSYS` o equivalentes V1.
+- [ ] Crear comandos `RSTLIB`, `RSTOBJ`, `RSTSYS` o equivalentes V1.
+- [ ] Preservar xattrs, ownership Linux/400, auth manifest, PF/LF/DTAQ y spool cuando aplique.
+- [ ] Soportar backend de backup por `rsync -aX`, `tar --xattrs` y, si existe ZFS, snapshot/send.
+- [ ] Ejecutar `CHKOBJINT` despues de restore.
+- [ ] Agregar pantalla TUI de backup/restore con progreso y resultado.
+- [ ] Documentar procedimiento de restore desde rescue.
+- [ ] Ampliar `test_l400_backup_restore.sh` con usuarios, autoridades, outq, spool y job logs.
+
+Criterio de cierre:
+
+- Backup completo de `/l400` restaura objetos, datos, xattrs y autorizaciones.
+- Restore selectivo de biblioteca/objeto funciona en tests.
+- La TUI muestra exito/falla y proximo paso operativo.
+
+## Fase 5: usuarios, perfiles y autoridades
+
+Estado: pendiente.
+
+Objetivo: cerrar administracion de usuarios V1.
+
+Tareas:
+
+- [ ] Completar comandos dedicados `CRTUSRPRF`, `CHGUSRPRF`, `DLTUSRPRF`, `DSPUSRPRF`.
+- [ ] Definir atributos V1 de perfil: status, UID, texto, clase, home/current library, grupos o perfiles suplementarios.
+- [ ] Integrar cambio/validacion de password si el perfil se enlaza a PAM/Linux.
+- [ ] Hacer que `WRKUSRPRF` use esos comandos en vez de acciones parciales.
+- [ ] Aplicar autorizacion runtime a todos los comandos administrativos.
+- [ ] Expandir auditoria `USRPRF_CHANGE`, grants, revokes y logins.
+- [ ] Agregar tests de crear, deshabilitar, reactivar, borrar y denegar login/uso.
+
+Criterio de cierre:
+
+- Un administrador puede gestionar perfiles desde TUI.
+- Autoridades sobre objetos se conservan en backup/restore.
+- Denegados aparecen en auditoria y tienen mensaje operativo claro.
+
+## Fase 6: work management y job queues
+
+Estado: pendiente.
+
+Objetivo: hacer que jobs y colas sean una herramienta operacional, no solo una demo.
+
+Tareas:
+
+- [ ] Formalizar `*JOBQ` como tipo valido en contrato comun si se decide mantenerlo como objeto kernel-visible.
+- [ ] Crear/normalizar comandos `CRTJOBQ`, `DLTJOBQ`, `HLDJOBQ`, `RLSJOBQ`, `WRKJOBQ`.
+- [ ] Persistir metadata de job queue y relacion con subsistema.
+- [ ] Mejorar `SBMJOB` con usuario, jobq, prioridad, log y salida spool.
+- [ ] Completar pantallas de job detail, job log y job queue.
+- [ ] Manejar terminacion controlada vs inmediata con auditoria.
+- [ ] Agregar tests de hold/release/end, jobs fallidos y salida spool.
+
+Criterio de cierre:
+
+- Jobs batch pueden enviarse, retenerse, liberarse, terminarse y auditarse.
+- Los logs sobreviven lo necesario y son visibles por comando/TUI.
+- Modo sin cgroups degrada de forma explicita.
+
+## Fase 7: spool y output queues
+
+Estado: pendiente.
+
+Objetivo: cubrir la administracion basica de spool AS/400-style.
+
+Tareas:
+
+- [ ] Completar atributos de `*OUTQ`: status, retencion, routing, autoridad y texto.
+- [ ] Generar spool files desde `SBMJOB`, comandos y reportes.
+- [ ] Definir formato metadata de spool file: owner, job, outq, status, fecha, tamano, paginas/logicas.
+- [ ] Implementar retencion/limpieza basica.
+- [ ] Agregar comandos/pantallas para hold, release, save/delete/display spool files.
+- [ ] Implementar writer/export minimo a archivo o stdout controlado.
+- [ ] Agregar tests de outq, spool states, delete confirmado y restore.
+
+Criterio de cierre:
+
+- Un operador puede ver y administrar salida batch desde TUI.
+- Spool participa en backup/restore cuando se elige incluirlo.
+- Estados y autorizaciones son consistentes.
+
+## Fase 8: datos y toolchain de V1
+
+Estado: pendiente.
+
+Objetivo: cerrar el flujo de desarrollo basico CL/C y datos administrativos.
+
+Tareas:
+
+- [ ] Integrar compilacion desde PDM/SEU con comandos `CRTCLPGM`, `CRTPGM` y mensajes de error.
+- [ ] Ampliar tests CL para programas administrativos V1.
+- [ ] Mejorar salida de compilacion y job log.
+- [ ] Fortalecer PF/LF/DTAQ con errores CPF, integridad y concurrencia basica.
+- [ ] Hacer que `STRSQL` pueda usarse sobre PF V1 con resultados navegables y errores claros.
+- [ ] Mantener RPG y SQL avanzado documentados como V2, sin bloquear V1.
+
+Criterio de cierre:
+
+- Un usuario puede crear fuente, compilar CL/C, ejecutar y revisar logs sin shell.
+- PF/LF/DTAQ soportan los flujos administrativos y demos V1.
+
+## Fase 9: seguridad kernel y perfiles de plataforma
+
+Estado: pendiente.
+
+Objetivo: que `dev`, `degraded` y `full` sean comprensibles y testeables.
+
+Tareas:
+
+- [ ] Alinear `l400-ebpf-common` con tipos V1 definitivos.
+- [ ] Expandir enforcement eBPF donde aporte proteccion real sin romper modo dev.
+- [ ] Mejorar reportes de loader: BTF, kernel, cgroups, xattrs, artefacto eBPF y modo efectivo.
+- [ ] Mostrar modo efectivo en TUI y support report.
+- [ ] Crear pruebas e2e documentadas para perfil `full`.
+- [ ] Definir politica de upgrade/PTF para artefacto eBPF.
+
+Criterio de cierre:
+
+- El operador sabe si el sistema esta protegido, degradado o en desarrollo.
+- Los comandos sensibles no dependen exclusivamente de eBPF; runtime sigue validando.
+
+## Fase 10: release candidate V1
+
+Estado: pendiente.
+
+Objetivo: convertir el sistema en un release candidate instalable y verificable.
+
+Tareas:
+
+- [ ] Actualizar `docs/KERNEL.md`, `docs/PROJECT.md`, README principal y README de componentes.
+- [ ] Crear checklist de operacion V1: instalar, crear usuario, crear biblioteca, compilar, enviar job, revisar spool, backup, PTF, restore.
+- [ ] Ejecutar gate rapido local.
+- [ ] Ejecutar gate de release.
+- [ ] Ejecutar QEMU install cuando el host lo permita.
+- [ ] Generar support report y artefactos de release.
+- [ ] Documentar limitaciones conocidas y caminos de rescue.
+
+Criterio de cierre:
+
+- Un operador puede completar el checklist V1 sin shell.
+- Los gates reproducibles pasan.
+- Las limitaciones restantes no afectan instalacion, mantenimiento ni recuperacion basica.
+
+## Gates permanentes
+
+Gate rapido local:
+
+```bash
+cargo fmt --all --check
+cargo test -p l400
+cargo test -p clc
+cargo test -p os400-tui
+```
+
+Gate de calidad:
+
+```bash
+cargo clippy -p l400 --all-targets -- -D warnings
+cargo clippy -p os400-tui --all-targets -- -D warnings
+./scripts/test/test_release_rc.sh
+```
+
+Gate de release V1:
+
+```bash
+./scripts/test/test_objects_v1_demo.sh
+./scripts/test/test_toolchain_v1_demo.sh
+./scripts/test/test_workload_demo.sh
+./scripts/test/test_loader_modes.sh
+./scripts/test/test_l400_backup_restore.sh
+./scripts/test/test_l400_upgrade_metadata.sh
+./scripts/test/test_release_rc.sh
+RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh
+```
+
+Pruebas que deben agregarse antes de cerrar V1:
+
+- PTF apply/rollback;
+- backup/restore con usuarios, autoridades, outq y spool;
+- TUI de mantenimiento;
+- job queue hold/release/end con salida spool;
+- instalacion QEMU con persistencia de usuarios, objetos y spool;
+- perfil `full` documentado con eBPF activo.

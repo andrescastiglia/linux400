@@ -65,8 +65,8 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     // Guardar LLVM en un obj nativo .o
     pub fn emit_object_file(&self, path: &str) -> Result<(), String> {
-        use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
         use inkwell::OptimizationLevel;
+        use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 
         Target::initialize_all(&InitializationConfig::default());
         let triple = TargetMachine::get_default_triple();

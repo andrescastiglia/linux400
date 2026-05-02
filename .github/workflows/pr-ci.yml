@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Tests (l400)
+    name: Tests + smoke
     runs-on: ubuntu-latest
 
     steps:
@@ -45,13 +45,31 @@ jobs:
         run: cargo clippy -p l400 --all-targets -- -D warnings
 
       - name: Run tests (libl400)
-        run: cargo test -p l400 --verbose
+        run: cargo test -p l400 --verbose -- --test-threads=1
+
+      - name: Run tests (CL compiler)
+        run: cargo test -p clc --verbose
+
+      - name: Run tests (TUI)
+        run: cargo test -p os400-tui --verbose
 
       - name: Build user-space tools
         run: |
           cargo build -p c400c
           cargo build -p clc
           cargo build -p l400-loader
+          cargo build -p os400-tui
+
+      - name: Runtime smoke scripts
+        run: |
+          bash scripts/test/test_objects_v1_demo.sh
+          bash scripts/test/test_toolchain_v1_demo.sh
+          bash scripts/test/test_workload_demo.sh
+          bash scripts/test/test_loader_modes.sh
+          bash scripts/test/test_support_profile.sh
+
+      - name: Build eBPF when toolchain is available
+        run: bash scripts/test/test_ebpf_build_optional.sh
 
   build-iso:
     name: Build ISO
@@ -90,13 +108,14 @@ jobs:
             squashfs-tools \
             dosfstools \
             libattr1-dev \
-            xattr
+            xattr \
+            musl-tools
 
       - name: Build user-space tools (release)
-        run: |
-          cargo build -p c400c --release
-          cargo build -p clc --release
-          cargo build -p l400-loader --release
+        run: bash scripts/build/build_userspace.sh
+        env:
+          OUTPUT_DIR: ${{ github.workspace }}/output
+          L400_SRC_DIR: ${{ github.workspace }}
 
       - name: Determine ISO suffix
         id: iso_name
@@ -117,7 +136,7 @@ jobs:
             -w /work \
             -e OUTPUT_DIR=/work/output \
             -e L400_SRC_DIR=/work \
-            alpine:3.20 \
+            alpine:3.23 \
             sh -lc '
               set -eu
               apk add --no-cache bash curl

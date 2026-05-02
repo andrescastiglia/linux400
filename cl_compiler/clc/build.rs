@@ -14,8 +14,8 @@ fn main() {
 
         let ldflags = String::from_utf8_lossy(&ldflags_output.stdout);
         for flag in ldflags.split_whitespace() {
-            if flag.starts_with("-L") {
-                println!("cargo:rustc-link-search=native={}", &flag[2..]);
+            if let Some(stripped) = flag.strip_prefix("-L") {
+                println!("cargo:rustc-link-search=native={}", stripped);
             }
         }
 
@@ -29,9 +29,8 @@ fn main() {
 
         let libs = String::from_utf8_lossy(&libs_output.stdout);
         for lib in libs.split_whitespace() {
-            if lib.starts_with("-l") {
-                // Remove prefix -l
-                println!("cargo:rustc-link-lib=dylib={}", &lib[2..]);
+            if let Some(stripped) = lib.strip_prefix("-l") {
+                println!("cargo:rustc-link-lib=dylib={}", stripped);
             }
         }
 
@@ -43,8 +42,8 @@ fn main() {
 
         let system_libs = String::from_utf8_lossy(&system_libs_output.stdout);
         for lib in system_libs.split_whitespace() {
-            if lib.starts_with("-l") {
-                println!("cargo:rustc-link-lib=dylib={}", &lib[2..]);
+            if let Some(stripped) = lib.strip_prefix("-l") {
+                println!("cargo:rustc-link-lib=dylib={}", stripped);
             }
         }
     }
