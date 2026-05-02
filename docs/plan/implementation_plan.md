@@ -1,124 +1,263 @@
-# Plan de implementación: Linux/400 0.2.0 — Foco en experiencia AS/400 y usabilidad
+# Plan de implementacion hacia Linux/400 Version 1
 
-Fecha: 2026-05-01  
-Release: 0.2.0 (sin cambio de versión)  
-Reemplaza todos los planes de implementación previos. Este plan inicia desde **Fase 1**, priorizando:
-- Replicar fielmente la interfaz y experiencia de OS/400/AS/400
-- Corregir críticos problemas de usabilidad (backspace, F4, navegación)
-- Garantizar que los comandos sean funcionales y operativos
+Fecha base: 2026-05-02
+Objetivo: cerrar una Version 1 operable, instalable, mantenible y recuperable, con experiencia basica de administracion tipo AS/400.
 
----
+Este plan reemplaza planes previos centrados solo en UI. La prioridad de V1 es que el sistema pueda usarse como entorno operacional basico: instalar, actualizar, aplicar PTFs, respaldar, restaurar, administrar usuarios, jobs, job queues, spool, bibliotecas, objetos y datos desde Linux/400.
 
-## Diagnóstico actual
+## Principios de V1
 
-### Fortalezas existentes
-- Sign-on con autenticación PAM real y bloqueo de ROOT.
-- Command line con historial y tokenizer CL.
-- Object browser, work management, PDM/SEU/SQL básicos.
-- PF/LF/DTAQ con backend `sled`, CL/C toolchain, loader eBPF.
-- Smoke tests automatizados para TUI.
+- La TUI es la interfaz normal de operador; la shell queda para soporte/rescue.
+- Todo flujo critico debe tener comando, pantalla y prueba.
+- Cada accion destructiva requiere confirmacion y auditoria.
+- Cada feature debe degradar con mensaje Linux/400 claro si falta soporte del host.
+- El estado persistente de `/l400` y sus xattrs es parte central del producto.
+- Los gates de release deben probar instalacion, upgrade, backup/restore y operacion basica.
 
-### Brechas críticas (prioridad alta)
-| Área | Brecha |
-| --- | --- |
-| **Usabilidad básica** | Backspace no funciona en campos de entrada; F4 no muestra el prompt de parámetros de comandos; navegación con F3/F12 pierde contexto. |
-| **Apariencia AS/400** | Menú principal y pantallas no se asemejan a OS/400: falta layout 5250 clásico, ruler lines, línea de comandos persistente inferior, mapeo estándar de teclas F. |
-| **Comandos funcionales** | `PWRDWNSYS` no apaga/reinicia el sistema real (solo dry-run); varios comandos son stubs sin implementación operativa. |
-| **Arquitectura TUI** | Screen trait síncrono, sin soporte para eventos asíncronos; stack de navegación limitado a un nivel. |
-| **Widgets** | Falta de campos de entrada con longitud visible, tablas paginadas, popups de confirmación estándar. |
+## Alcance de V1
 
----
+V1 debe incluir:
 
-## Objetivo general
-Que Linux/400 0.2.0 sea un sistema operativo con experiencia idéntica a OS/400, donde el operador pueda:
-1. Autenticarse y operar exclusivamente desde la TUI tipo 5250.
-2. Usar menús y comandos que replican fielmente el comportamiento de AS/400.
-3. Contar con manejo de entrada correcto (backspace, F4, flechas) en todas las pantallas.
-4. Ejecutar comandos 100% funcionales (ej. `PWRDWNSYS` apaga el sistema, `CRTPF` crea archivos reales).
-5. Navegar sin pérdida de contexto, con feedback visual claro y mensajes CPF consistentes.
+- instalacion live/install e instalada con persistencia;
+- actualizacion y PTFs con precheck, apply, rollback y auditoria;
+- backup/restore completo y verificable;
+- administracion de usuarios y autoridades;
+- administracion de bibliotecas, objetos y datos;
+- work management basico: QINTER, QBATCH, job queues y logs;
+- spool basico: output queues, spool files, estados y retencion;
+- comandos y pantallas para operacion diaria;
+- CL y C como lenguajes soportados de V1;
+- PF/LF/DTAQ y SQL minimo operativo;
+- soporte/rescue y reportes diagnosticos.
 
----
+Fuera de V1:
 
-## Reglas de ejecución
-- Prioridad absoluta a la fidelidad con la UI/UX de OS/400/AS/400.
-- Todo campo de entrada debe soportar backspace, delete, navegación con flechas y auto-uppercase para nombres de objetos.
-- F4 siempre abre el prompt de parámetros para comandos válidos, con descripción de tipos y validación.
-- Todas las pantallas siguen el layout 5250: ruler lines, línea de comandos inferior, F-keys mapeados a funciones estándar.
-- Los comandos deben tener implementación funcional real, no solo stubs (ej. `PWRDWNSYS` invoca `systemctl` o `/sbin/shutdown` con validación de autoría).
-- `cargo test -p os400-tui` es el gate mínimo para cada PR, con tests específicos de usabilidad y fidelidad AS/400.
-- Modos `dev`, `degraded` y `full` degradan con mensajes CPF, nunca con errores de Linux crudos.
+- RPG;
+- SQL avanzado como lenguaje de desarrollo completo;
+- compatibilidad binaria IBM i;
+- emulacion completa de 5250;
+- service programs productivos completos si no son necesarios para V1.
 
----
+## Fase 1: estabilizar base operacional
 
-## Fase 1: Fundación UI AS/400 y correcciones de usabilidad
-Estado: **En progreso para 0.2.0**  
-Objetivo: Establecer las bases de la interfaz tipo OS/400 y corregir los problemas de usabilidad críticos.
+Estado: en progreso.
 
-### 1.1 Corrección de manejo de entrada de texto
-- [x] Backspace funciona correctamente en `InputField`, `CommandInput` y editor SEU.
-- [x] Soporte para teclas Delete, Arrow Left/Right, Home/End en campos de texto.
-- [x] Auto-uppercase en campos de nombres de objetos, comandos y rutas (como OS/400).
-- [x] Test automatizado de entrada de texto para todos los widgets.
+Objetivo: asegurar que lo ya implementado sea confiable como base de V1.
 
-### 1.2 Implementación de F4 Prompt de comandos
-- [x] Al presionar F4 en la línea de comandos o ejecutar un comando, se muestra el prompt de parámetros del *CMD correspondiente.
-- [x] El prompt replica el layout de OS/400: descripción del parámetro, tipo, longitud, valores posibles y ayuda contextual.
-- [x] Validación de parámetros al ejecutar el comando, con mensajes CPF de error específicos.
-- [x] F4 funciona en todos los comandos catalogados en `COMMAND_METADATA`.
+Tareas:
 
-### 1.3 Rediseño del menú principal estilo OS/400
-- [x] Rediseñar `MainMenu` para replicar el layout 5250 clásico:
-  - Ruler line superior con nombre del sistema, usuario y fecha/hora.
-  - Opciones numeradas con descripción corta y mapeo a F-keys.
-  - Ruler line inferior con F-keys estándar (F3=Salir, F4=Prompt, F12=Cancelar, F24=More keys).
-  - Línea de comandos persistente (`===>`) en la parte inferior de la pantalla.
-- [x] Navegación coherente: F3 cierra sesión, F12 vuelve a la pantalla anterior, Enter ejecuta la opción seleccionada.
-- [x] Opciones del menú mapeadas a comandos reales, no stubs.
+- [ ] Revisar comandos actuales y clasificarlos como estable, experimental o stub.
+- [ ] Hacer que `DSPCMD`/`WRKCMD` muestren estado, autoridad, parametros y ejemplos de cada comando.
+- [ ] Garantizar que todos los comandos sensibles emitan status CPF o equivalente.
+- [ ] Unificar validacion de autoridad para create/change/delete/call/spool/jobs.
+- [ ] Asegurar que `l400-bootstrap` cree objetos base, `*OUTQ`, `*JOBQ`, perfiles y metadata versionada.
+- [ ] Expandir `CHKOBJINT` para `*OUTQ`, `*JOBQ`, `*USRPRF`, PF/LF/DTAQ y `*PGM`.
+- [ ] Agregar tests de regresion por comando critico en `libl400`.
 
-### 1.4 Comandos funcionales: PWRDWNSYS
-- [x] `PWRDWNSYS` ejecuta apagado (`poweroff`) o reinicio (`reboot`) real del sistema, validando privilegios de root/autoridad *ALLOBJ.
-- [x] Confirmación obligatoria con `ConfirmDialog` estilo OS/400.
-- [x] Opción `CONFIRM(*YES)` para ejecución no interactiva.
-- [x] Variable `L400_PWRDWNSYS_DRY_RUN=1` mantiene el modo prueba para desarrollo.
+Criterio de cierre:
 
-### 1.5 Estilo 5250 base
-- [x] Paleta de colores idéntica a OS/400: verde claro sobre fondo negro, campos activos en verde brillante, campos protegidos en verde apagado.
-- [x] Ruler lines (`========`) en todas las pantallas, como AS/400.
-- [x] Indicador de cursor visible (subrayado o inverso) en todos los campos de entrada.
-- [x] Definir constantes de estilo en `style.rs` para mantener consistencia.
+- `cargo test -p l400`, `cargo test -p clc` y `cargo test -p os400-tui` pasan.
+- Los comandos V1 tienen metadata visible.
+- No hay stubs silenciosos en flujos V1.
 
-Criterio de cierre Fase 1:
-- [x] Backspace y navegación de texto funcionan en todos los campos.
-- [x] F4 muestra el prompt de parámetros para comandos *CMD válidos.
-- [x] Menú principal replica el layout básico de OS/400.
-- [x] `PWRDWNSYS` apaga/reinicia el sistema real con autorización válida.
-- [x] `cargo test -p os400-tui` pasa sin regresiones, con tests de usabilidad y fidelidad AS/400.
+## Fase 2: instalacion y primer arranque
 
----
+Estado: pendiente.
 
-## Fase 2: Navegación y pantallas operativas (próxima)
-Estado: **Pendiente**  
-Objetivo: Implementar stack de navegación real, pantallas faltantes y widgets reutilizables.
+Objetivo: que la instalacion sea repetible, diagnosticable y validada por gate.
 
-### 2.1 Stack de navegación
-- [x] Reemplazar `previous_screen: Option<ScreenId>` con `Vec<NavEntry>` (stack LIFO).
-- [x] F3/F12 hacen pop del stack, manteniendo contexto de retorno.
-- [x] Límite de 16 entradas en el stack para evitar fugas.
+Tareas:
 
-### 2.2 Widgets reutilizables
-- [x] `SubfileTable`: tabla paginada con scroll vertical, opciones numéricas por fila.
-- [x] `ConfirmDialog`: popup modal estándar para acciones destructivas.
-- [x] `StatusBar`: barra inferior con reloj, usuario, biblioteca actual, job y estado del sistema.
+- [ ] Endurecer `install-linux400` para errores de disco, particion, EFI, rootfs y persistencia.
+- [ ] Agregar pantalla TUI de instalacion/resumen cuando el boot sea `install`.
+- [ ] Registrar en `/l400` version instalada, build id, metadata version y perfil de plataforma.
+- [ ] Validar que el primer arranque cree o repare objetos base sin borrar datos del operador.
+- [ ] Mejorar modo rescue con opciones: montar `/l400`, support report, upgrade check, restore y shell.
+- [ ] Hacer que `test_e2e_install_qemu.sh` verifique persistencia de objetos, usuarios, spool y jobs.
 
-### 2.3 Pantallas faltantes
-- [x] `WRKLIB` dedicado con opciones de crear/borrar/renombrar bibliotecas.
-- [x] `DSPOBJD` con layout de campos estilo OS/400, no texto plano.
-- [x] `WRKSYSVAL` editable con F4 prompt para valores.
+Criterio de cierre:
 
----
+- `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh` instala, reinicia y valida persistencia.
+- El operador puede reconocer modo live/install/installed desde TUI o support report.
+
+## Fase 3: actualizacion y PTFs
+
+Estado: pendiente.
+
+Objetivo: introducir mantenimiento versionado estilo PTF.
+
+Tareas:
+
+- [ ] Definir formato de paquete PTF: manifiesto, version origen/destino, archivos, scripts, checksum y rollback.
+- [ ] Crear comando `DSPPTF` para listar PTFs aplicados y pendientes.
+- [ ] Crear comando `APYPTF` con `OPTION(*CHECK|*APPLY|*ROLLBACK)` y `CONFIRM`.
+- [ ] Integrar `l400-upgrade-check` como precheck obligatorio de `APYPTF`.
+- [ ] Expandir `l400-migrate` para migraciones idempotentes por version.
+- [ ] Auditar apply/rollback con usuario, fecha, build id y resultado.
+- [ ] Agregar pantalla TUI de mantenimiento/PTF.
+- [ ] Agregar tests de PTF con paquete falso, apply, rollback y downgrade rechazado.
+
+Criterio de cierre:
+
+- Un PTF puede aplicarse y revertirse en entorno de prueba.
+- El sistema bloquea downgrades de metadata sin restore.
+- `DSPPTF` y support report muestran historial de mantenimiento.
+
+## Fase 4: backup, restore e integridad
+
+Estado: pendiente.
+
+Objetivo: convertir las recetas actuales de backup/restore en operacion Linux/400.
+
+Tareas:
+
+- [ ] Crear comandos `SAVLIB`, `SAVOBJ`, `SAVSYS` o equivalentes V1.
+- [ ] Crear comandos `RSTLIB`, `RSTOBJ`, `RSTSYS` o equivalentes V1.
+- [ ] Preservar xattrs, ownership Linux/400, auth manifest, PF/LF/DTAQ y spool cuando aplique.
+- [ ] Soportar backend de backup por `rsync -aX`, `tar --xattrs` y, si existe ZFS, snapshot/send.
+- [ ] Ejecutar `CHKOBJINT` despues de restore.
+- [ ] Agregar pantalla TUI de backup/restore con progreso y resultado.
+- [ ] Documentar procedimiento de restore desde rescue.
+- [ ] Ampliar `test_l400_backup_restore.sh` con usuarios, autoridades, outq, spool y job logs.
+
+Criterio de cierre:
+
+- Backup completo de `/l400` restaura objetos, datos, xattrs y autorizaciones.
+- Restore selectivo de biblioteca/objeto funciona en tests.
+- La TUI muestra exito/falla y proximo paso operativo.
+
+## Fase 5: usuarios, perfiles y autoridades
+
+Estado: pendiente.
+
+Objetivo: cerrar administracion de usuarios V1.
+
+Tareas:
+
+- [ ] Completar comandos dedicados `CRTUSRPRF`, `CHGUSRPRF`, `DLTUSRPRF`, `DSPUSRPRF`.
+- [ ] Definir atributos V1 de perfil: status, UID, texto, clase, home/current library, grupos o perfiles suplementarios.
+- [ ] Integrar cambio/validacion de password si el perfil se enlaza a PAM/Linux.
+- [ ] Hacer que `WRKUSRPRF` use esos comandos en vez de acciones parciales.
+- [ ] Aplicar autorizacion runtime a todos los comandos administrativos.
+- [ ] Expandir auditoria `USRPRF_CHANGE`, grants, revokes y logins.
+- [ ] Agregar tests de crear, deshabilitar, reactivar, borrar y denegar login/uso.
+
+Criterio de cierre:
+
+- Un administrador puede gestionar perfiles desde TUI.
+- Autoridades sobre objetos se conservan en backup/restore.
+- Denegados aparecen en auditoria y tienen mensaje operativo claro.
+
+## Fase 6: work management y job queues
+
+Estado: pendiente.
+
+Objetivo: hacer que jobs y colas sean una herramienta operacional, no solo una demo.
+
+Tareas:
+
+- [ ] Formalizar `*JOBQ` como tipo valido en contrato comun si se decide mantenerlo como objeto kernel-visible.
+- [ ] Crear/normalizar comandos `CRTJOBQ`, `DLTJOBQ`, `HLDJOBQ`, `RLSJOBQ`, `WRKJOBQ`.
+- [ ] Persistir metadata de job queue y relacion con subsistema.
+- [ ] Mejorar `SBMJOB` con usuario, jobq, prioridad, log y salida spool.
+- [ ] Completar pantallas de job detail, job log y job queue.
+- [ ] Manejar terminacion controlada vs inmediata con auditoria.
+- [ ] Agregar tests de hold/release/end, jobs fallidos y salida spool.
+
+Criterio de cierre:
+
+- Jobs batch pueden enviarse, retenerse, liberarse, terminarse y auditarse.
+- Los logs sobreviven lo necesario y son visibles por comando/TUI.
+- Modo sin cgroups degrada de forma explicita.
+
+## Fase 7: spool y output queues
+
+Estado: pendiente.
+
+Objetivo: cubrir la administracion basica de spool AS/400-style.
+
+Tareas:
+
+- [ ] Completar atributos de `*OUTQ`: status, retencion, routing, autoridad y texto.
+- [ ] Generar spool files desde `SBMJOB`, comandos y reportes.
+- [ ] Definir formato metadata de spool file: owner, job, outq, status, fecha, tamano, paginas/logicas.
+- [ ] Implementar retencion/limpieza basica.
+- [ ] Agregar comandos/pantallas para hold, release, save/delete/display spool files.
+- [ ] Implementar writer/export minimo a archivo o stdout controlado.
+- [ ] Agregar tests de outq, spool states, delete confirmado y restore.
+
+Criterio de cierre:
+
+- Un operador puede ver y administrar salida batch desde TUI.
+- Spool participa en backup/restore cuando se elige incluirlo.
+- Estados y autorizaciones son consistentes.
+
+## Fase 8: datos y toolchain de V1
+
+Estado: pendiente.
+
+Objetivo: cerrar el flujo de desarrollo basico CL/C y datos administrativos.
+
+Tareas:
+
+- [ ] Integrar compilacion desde PDM/SEU con comandos `CRTCLPGM`, `CRTPGM` y mensajes de error.
+- [ ] Ampliar tests CL para programas administrativos V1.
+- [ ] Mejorar salida de compilacion y job log.
+- [ ] Fortalecer PF/LF/DTAQ con errores CPF, integridad y concurrencia basica.
+- [ ] Hacer que `STRSQL` pueda usarse sobre PF V1 con resultados navegables y errores claros.
+- [ ] Mantener RPG y SQL avanzado documentados como V2, sin bloquear V1.
+
+Criterio de cierre:
+
+- Un usuario puede crear fuente, compilar CL/C, ejecutar y revisar logs sin shell.
+- PF/LF/DTAQ soportan los flujos administrativos y demos V1.
+
+## Fase 9: seguridad kernel y perfiles de plataforma
+
+Estado: pendiente.
+
+Objetivo: que `dev`, `degraded` y `full` sean comprensibles y testeables.
+
+Tareas:
+
+- [ ] Alinear `l400-ebpf-common` con tipos V1 definitivos.
+- [ ] Expandir enforcement eBPF donde aporte proteccion real sin romper modo dev.
+- [ ] Mejorar reportes de loader: BTF, kernel, cgroups, xattrs, artefacto eBPF y modo efectivo.
+- [ ] Mostrar modo efectivo en TUI y support report.
+- [ ] Crear pruebas e2e documentadas para perfil `full`.
+- [ ] Definir politica de upgrade/PTF para artefacto eBPF.
+
+Criterio de cierre:
+
+- El operador sabe si el sistema esta protegido, degradado o en desarrollo.
+- Los comandos sensibles no dependen exclusivamente de eBPF; runtime sigue validando.
+
+## Fase 10: release candidate V1
+
+Estado: pendiente.
+
+Objetivo: convertir el sistema en un release candidate instalable y verificable.
+
+Tareas:
+
+- [ ] Actualizar `docs/KERNEL.md`, `docs/PROJECT.md`, README principal y README de componentes.
+- [ ] Crear checklist de operacion V1: instalar, crear usuario, crear biblioteca, compilar, enviar job, revisar spool, backup, PTF, restore.
+- [ ] Ejecutar gate rapido local.
+- [ ] Ejecutar gate de release.
+- [ ] Ejecutar QEMU install cuando el host lo permita.
+- [ ] Generar support report y artefactos de release.
+- [ ] Documentar limitaciones conocidas y caminos de rescue.
+
+Criterio de cierre:
+
+- Un operador puede completar el checklist V1 sin shell.
+- Los gates reproducibles pasan.
+- Las limitaciones restantes no afectan instalacion, mantenimiento ni recuperacion basica.
 
 ## Gates permanentes
-Gate rápido local:
+
+Gate rapido local:
+
 ```bash
 cargo fmt --all --check
 cargo test -p l400
@@ -127,13 +266,31 @@ cargo test -p os400-tui
 ```
 
 Gate de calidad:
+
 ```bash
 cargo clippy -p l400 --all-targets -- -D warnings
 cargo clippy -p os400-tui --all-targets -- -D warnings
 ./scripts/test/test_release_rc.sh
 ```
 
-Gate de comandos funcionales:
+Gate de release V1:
+
 ```bash
-L400_PWRDWNSYS_DRY_RUN=1 cargo run -p l400 --bin l400cmd -- PWRDWNSYS 'OPTION(*RESTART)' 'CONFIRM(*YES)'
+./scripts/test/test_objects_v1_demo.sh
+./scripts/test/test_toolchain_v1_demo.sh
+./scripts/test/test_workload_demo.sh
+./scripts/test/test_loader_modes.sh
+./scripts/test/test_l400_backup_restore.sh
+./scripts/test/test_l400_upgrade_metadata.sh
+./scripts/test/test_release_rc.sh
+RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh
 ```
+
+Pruebas que deben agregarse antes de cerrar V1:
+
+- PTF apply/rollback;
+- backup/restore con usuarios, autoridades, outq y spool;
+- TUI de mantenimiento;
+- job queue hold/release/end con salida spool;
+- instalacion QEMU con persistencia de usuarios, objetos y spool;
+- perfil `full` documentado con eBPF activo.

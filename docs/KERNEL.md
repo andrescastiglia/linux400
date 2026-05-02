@@ -1,43 +1,80 @@
-# Linux/400: objetivo del sistema
+# Linux/400: objetivo general del proyecto
 
-Este documento define el objetivo de producto de Linux/400. No describe el estado actual del repositorio ni una lista de modulos implementados; esa fotografia vive en `docs/PROJECT.md`. La brecha entre esta vision y el estado actual vive en `docs/plan/implementation_plan.md`.
+Este documento define la vision de producto de Linux/400. No describe el avance actual del repositorio; esa fotografia vive en `docs/PROJECT.md`. El plan para cerrar la Version 1 vive en `docs/plan/implementation_plan.md`.
 
 ## Vision
 
-Linux/400 busca ofrecer una forma de trabajo tipo OS/400/IBM i sobre Linux: el usuario entra a una pantalla de sign-on, opera desde menus y comandos de pantalla verde, administra objetos y trabajos, desarrolla programas y conserva el estado del sistema sin depender de una shell Unix para las tareas normales.
+Linux/400 busca ofrecer una experiencia operativa inspirada en OS/400/IBM i sobre Linux: un sistema orientado a objetos, administrable desde pantalla verde, con comandos consistentes, bibliotecas, perfiles, autorizaciones, trabajos, spool, datos persistentes y herramientas de desarrollo integradas.
 
-No se busca compatibilidad binaria con IBM i ni reproducir cada detalle historico. El objetivo es recrear el modelo operativo:
+No se busca compatibilidad binaria con IBM i ni una emulacion historica completa. El objetivo es recrear el modelo operacional que hacia valioso al AS/400:
 
-- sistema orientado a objetos, no a rutas de archivos visibles para el operador;
+- objetos tipados como unidad primaria de administracion;
 - bibliotecas y library list como contexto natural de trabajo;
-- comandos consistentes, promptables y administrables;
-- pantalla verde como interfaz primaria;
+- comandos promptables con ayuda, validacion y mensajes formales;
+- pantalla verde como interfaz principal para operadores y administradores;
 - jobs interactivos y batch visibles y controlables;
-- perfiles, autorizaciones, auditoria y politica explicita;
-- almacenamiento persistente y recuperable;
-- degradacion clara cuando una capacidad de plataforma no esta disponible.
+- perfiles, autorizaciones, auditoria y ownership consistentes;
+- datos persistentes con PF, LF, DTAQ y SQL operativo;
+- instalacion, mantenimiento, respaldo y recuperacion desde flujos guiados;
+- degradacion explicita cuando el host Linux no ofrece una capacidad requerida.
+
+La shell Linux debe quedar como herramienta de soporte, desarrollo interno o rescate, no como la interfaz normal de operacion.
 
 ## Experiencia objetivo
 
-Un operador debe poder arrancar una ISO o una instalacion, autenticarse con un perfil Linux/400 y llegar directamente a un menu principal. Desde ahi debe poder:
+Una persona debe poder arrancar o instalar Linux/400, autenticarse con un perfil del sistema y operar desde un menu principal sin conocer rutas Unix. Desde ahi debe poder:
 
-- navegar y administrar bibliotecas;
-- crear, copiar, renombrar, describir y borrar objetos;
-- administrar perfiles y autorizaciones;
-- trabajar con jobs interactivos y batch;
-- revisar estado de sistema, logs, auditoria y politica activa;
-- editar miembros fuente;
-- compilar CL/C y ejecutar programas catalogados;
-- trabajar con PF, LF y DTAQ;
-- usar SQL operativo contra archivos Linux/400;
-- apagar o reiniciar el sistema con confirmacion y autoridad adecuada;
-- cerrar sesion sin dejar estado interactivo colgado.
+- administrar bibliotecas y objetos;
+- administrar perfiles de usuario, permisos y auditoria;
+- trabajar con jobs, job queues, subsistemas y salida de trabajos;
+- administrar spool files y output queues;
+- revisar estado del sistema, logs y modo de politica activa;
+- crear y editar miembros fuente;
+- compilar y ejecutar programas catalogados;
+- trabajar con PF, LF, DTAQ y consultas SQL;
+- aplicar mantenimiento, PTFs y migraciones de metadata;
+- ejecutar backups/restores y validar integridad;
+- apagar, reiniciar o dejar el sistema en modo rescue con autoridad adecuada.
 
-La shell Linux debe quedar como herramienta de soporte, instalacion, desarrollo interno o rescue, no como interfaz principal del sistema.
+## Version 1: operacion basica del sistema
+
+La Version 1 debe entregar una plataforma operable de punta a punta, aunque todavia con un subconjunto controlado de comandos y lenguajes. La prioridad de V1 es administracion y operacion diaria de un sistema tipo AS/400.
+
+Capacidades objetivo de V1:
+
+- instalacion live/install y arranque instalado con persistencia de `/l400`;
+- actualizacion por paquetes de mantenimiento o PTFs, con precheck, backup recomendado, apply, rollback y auditoria;
+- backups y restores de objetos, bibliotecas y datos preservando xattrs y metadata Linux/400;
+- administracion de usuarios, perfiles, estados, ownership y autorizaciones;
+- administracion de bibliotecas, objetos, atributos, integridad y catalogo;
+- work management basico: jobs interactivos, jobs batch, job queues, subsistemas base, hold/release/end y logs;
+- spool basico: output queues, spool files, estados, visualizacion, cambio, borrado y retencion;
+- comandos y pantallas para operacion normal desde TUI;
+- PF, LF, DTAQ y SQL operativo suficiente para datos administrativos y demos reales;
+- compilacion y ejecucion de CL y C como `*PGM`;
+- auditoria de cambios sensibles, denegados, ejecuciones y operaciones de mantenimiento;
+- soporte para modos `dev`, `degraded` y `full`, con mensajes claros al operador;
+- rescue/support report para diagnostico y recuperacion.
+
+El criterio de V1 no es cubrir todo IBM i, sino permitir que un operador instale, mantenga, use, respalde y recupere un Linux/400 basico sin depender de shell para el flujo normal.
+
+## Version 2: desarrollo ampliado
+
+La Version 2 debe ampliar el sistema desde una plataforma operable hacia un entorno de desarrollo mas completo.
+
+Capacidades objetivo de V2:
+
+- programacion no solo en CL y C, sino tambien RPG;
+- SQL mas completo como lenguaje de datos y herramienta de desarrollo;
+- integracion de RPG/SQL con PF/LF, DTAQ, `*SRVPGM` y programas catalogados;
+- source files, PDM/SEU o reemplazos equivalentes mas productivos;
+- compiladores con diagnosticos formales, listados, referencias cruzadas y ayudas;
+- contratos estables para service programs, binding y llamadas entre lenguajes;
+- pruebas de compatibilidad para aplicaciones de negocio no triviales.
 
 ## Modelo objetivo de objetos
 
-El sistema debe presentar una frontera de objetos Linux/400 con tipos reconocibles:
+Linux/400 debe presentar objetos con tipos reconocibles y metadata visible para comandos y pantallas:
 
 | Tipo | Objetivo |
 | --- | --- |
@@ -49,90 +86,49 @@ El sistema debe presentar una frontera de objetos Linux/400 con tipos reconocibl
 | `*CMD` | Comando promptable y documentable. |
 | `*SRVPGM` | Servicio/codigo compartido para programas. |
 | `*OUTQ` | Cola de salida/spool. |
+| `*JOBQ` | Cola de trabajos batch. |
 
-Los objetos deben tener metadatos de tipo, atributo, texto, owner, autorizaciones, auditoria y backend de almacenamiento. El operador debe ver esos metadatos mediante comandos y pantallas, no inspeccionando xattrs manualmente.
+Los objetos deben tener tipo, atributo, texto, owner, autorizaciones, auditoria, version de metadata y backend de almacenamiento. El operador debe ver esos datos mediante comandos y pantallas.
 
 ## Interfaz objetivo
 
-La TUI debe comportarse como la consola primaria del sistema:
+La TUI debe comportarse como consola primaria:
 
 - sign-on y sign-off reales;
-- menu principal y menus de trabajo;
-- linea de comandos persistente en la sesion;
+- menu principal y menus de administracion;
+- linea de comandos persistente;
 - `F4` como prompt por campos con validacion;
 - teclas F consistentes;
 - opciones numericas por fila;
-- confirmaciones visuales para acciones destructivas;
-- mensajes de estado claros;
+- confirmaciones para acciones destructivas;
+- mensajes CPF o equivalentes Linux/400;
+- indicadores claros de modo `dev`, `degraded` o `full`;
 - ausencia de datos demo silenciosos cuando falta runtime real.
 
-Las pantallas minimas objetivo son:
+Pantallas minimas objetivo:
 
-- `WRKOBJ` / `WRKLIB`;
-- `DSPOBJD`;
-- `WRKUSRPRF`;
-- `WRKACTJOB`;
-- `WRKSYSSTS`;
-- `WRKSYSVAL`;
-- `WRKSPLF` / `WRKOUTQ`;
-- `STRPDM`;
-- `WRKMBRPDM`;
-- `STRSEU`;
-- `STRSQL`;
-- visores PF/LF/DTAQ;
-- politica/auditoria (`DSPPOLICY`, `DSPAUD`, autorizaciones).
-
-## Work management objetivo
-
-Linux/400 debe exponer trabajos como unidad operativa:
-
-- jobs interactivos (`QINTER`);
-- jobs batch (`QBATCH`);
-- estado `JOBQ`, `ACTIVE`, `COMPLETED`, `FAILED` y terminado;
-- comando ejecutado, usuario, timestamps, salida/log y subsistema;
-- envio batch por comando;
-- terminacion controlada;
-- degradacion visible cuando cgroups o aislamiento no estan disponibles.
-
-La implementacion puede usar procesos Linux, cgroups y archivos de runtime, pero el operador debe ver trabajos Linux/400.
-
-## Datos objetivo
-
-PF/LF/DTAQ deben ser suficientes para operar demos y flujos administrativos reales:
-
-- PF con record length, miembros, campos, claves, RRN y arrival sequence;
-- LF como indice mantenido automaticamente sobre PF;
-- comandos para crear, limpiar, agregar miembros, escribir y visualizar;
-- DTAQ con mensajes de longitud variable, espera y lectura FIFO;
-- SQL sobre PF con consultas y DML basico;
-- persistencia entre reinicios en instalacion real.
-
-## Toolchain objetivo
-
-El entorno debe permitir desarrollar sin salir de Linux/400:
-
-- source files y miembros;
-- edicion desde TUI;
-- compilacion CL y C;
-- catalogacion como `*PGM`;
-- resolucion por current library y library list;
-- errores formales estilo CPF para que `MONMSG` y auditoria tengan semantica util;
-- marca o firma de toolchain verificable antes de ejecutar.
+- `WRKOBJ`, `WRKLIB`, `DSPOBJD`;
+- `WRKUSRPRF`, `DSPOBJAUT`, `GRTOBJAUT`, `RVKOBJAUT`;
+- `WRKACTJOB`, `WRKJOB`, `WRKJOBQ`, subsistemas;
+- `WRKSYSSTS`, `WRKSYSVAL`, `DSPLOG`;
+- `WRKSPLF`, `WRKOUTQ`, `DSPSPLF`;
+- `STRPDM`, `WRKMBRPDM`, `STRSEU`;
+- `STRSQL`, visores PF/LF/DTAQ;
+- instalacion, PTFs, backup/restore, soporte y rescue;
+- politica/auditoria (`DSPPOLICY`, `DSPAUD`).
 
 ## Seguridad objetivo
 
-La politica de seguridad debe tener una fuente visible y operable:
+La seguridad debe tener una fuente visible y operable:
 
 - perfiles y owners;
 - autorizaciones `*USE`, `*CHANGE`, `*ALL`, `*EXCLUDE`;
 - fallback `*PUBLIC`;
 - comandos de otorgar, revocar, mostrar y verificar autoridad;
 - auditoria de denegados, ejecuciones y cambios sensibles;
-- enforcement runtime para todos los comandos sensibles;
-- enforcement kernel para la frontera de objetos y ejecucion de `*PGM`;
+- enforcement runtime para comandos sensibles;
+- enforcement kernel para frontera de objetos, ejecucion de `*PGM` y acceso donde Linux pueda protegerlo;
 - modo degradado explicito cuando el kernel no puede reforzar la politica.
-
-La meta no es meter IBM i dentro del kernel, sino usar el kernel para reforzar aquello que Linux puede proteger mejor: ejecucion, acceso a objetos tipados, aislamiento de procesos y observabilidad.
 
 ## Plataforma objetivo
 
@@ -140,11 +136,13 @@ Linux/400 debe correr en tres perfiles:
 
 | Perfil | Objetivo |
 | --- | --- |
-| `dev` | Desarrollo local sin depender de BPF/ZFS/root; todo debe ser testeable en user space. |
+| `dev` | Desarrollo local sin depender de BPF/ZFS/root; todo debe ser testeable en userspace. |
 | `degraded` | Sistema instalable y operable sin enforcement kernel completo; la TUI/reportes deben decirlo claramente. |
 | `full` | BPF LSM activo, BTF disponible, cgroups v2, `/l400` persistente con xattrs y preferentemente ZFS `xattr=sa`. |
 
-La plataforma completa debe poder instalarse, reiniciar y conservar `/l400`. El gate de release debe probar instalacion, arranque instalado y persistencia.
+`/l400` es el estado persistente del sistema: bibliotecas, objetos, PF/LF/DTAQ, perfiles, logs y metadata. El backend recomendado es un dataset ZFS con `xattr=sa`; ext4/xfs con xattrs de usuario son fallback validos para desarrollo o modo degradado.
+
+DAX no es requisito de V1 ni condicion de arquitectura. Si se incorpora algun dia, debe ser un perfil avanzado y opt-in para hardware PMEM/NVDIMM/CXL o dispositivos `fsdax`, con contrato propio de layout, flush, recovery, checksums, migracion y reporte en `l400-support-report`. No debe reemplazar el catalogo canonico `/l400` ni bloquear la meta V1.
 
 ## No objetivos
 
@@ -152,18 +150,20 @@ La plataforma completa debe poder instalarse, reiniciar y conservar `/l400`. El 
 - Emulacion completa de 5250.
 - Reimplementar TIMI, EBCDIC o todos los comandos historicos.
 - Requerir un fork permanente del kernel.
-- Bloquear herramientas Linux nativas fuera de la frontera Linux/400.
+- Ocultar o bloquear herramientas Linux nativas fuera de la frontera Linux/400.
+- Requerir DAX, PMEM, CXL o storage byte-addressable para operar la Version 1.
 
 ## Definicion de sistema logrado
 
-El objetivo se considera alcanzado cuando una persona puede instalar o arrancar Linux/400, entrar al menu principal y completar un ciclo operativo completo sin shell:
+Linux/400 cumple su objetivo inicial cuando una persona puede instalarlo, entrar al menu principal y completar un ciclo operativo sin shell:
 
-1. crear biblioteca y source file;
-2. crear/editar miembro CL;
-3. compilarlo a `*PGM`;
-4. ejecutar el programa;
-5. enviar un job batch;
-6. revisar jobs/logs/auditoria;
-7. crear PF/LF/DTAQ y operar datos;
-8. administrar autorizaciones;
-9. reiniciar y verificar persistencia de `/l400`.
+1. crear biblioteca y objetos;
+2. crear/editar miembros fuente;
+3. compilar CL/C a `*PGM`;
+4. ejecutar programas interactivos y batch;
+5. administrar usuarios y autorizaciones;
+6. trabajar con PF/LF/DTAQ y SQL;
+7. revisar jobs, logs, auditoria, spool y estado de sistema;
+8. aplicar mantenimiento/PTF con precheck y rollback;
+9. hacer backup/restore y verificar integridad;
+10. reiniciar y conservar estado persistente.
