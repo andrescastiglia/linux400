@@ -15,6 +15,27 @@ pub struct PowerDownSystem {
     session: SessionContext,
     confirm: Option<ConfirmDialog>,
     message: String,
+    option: String,
+    confirm_param: String,
+}
+
+impl PowerDownSystem {
+    pub fn with_params(session: SessionContext, option: String, confirm_param: String) -> Self {
+        Self {
+            session,
+            confirm: if confirm_param == "*YES" {
+                None
+            } else {
+                Some(ConfirmDialog::new(
+                    "PWRDWNSYS",
+                    "Confirm power down of Linux/400?",
+                ))
+            },
+            message: "Enter=Confirm   F12=Cancel".to_string(),
+            option,
+            confirm_param,
+        }
+    }
 }
 
 impl PowerDownSystem {
@@ -26,6 +47,8 @@ impl PowerDownSystem {
                 "Confirm power down of Linux/400?",
             )),
             message: "Enter=Confirm   F12=Cancel".to_string(),
+            option: "POWEROFF".to_string(),
+            confirm_param: "*NO".to_string(),
         }
     }
 
@@ -43,18 +66,24 @@ impl PowerDownSystem {
             return;
         }
 
-        match Command::new("l400cmd").arg("PWRDWNSYS").output() {
+        let system_command = match self.option.as_str() {
+            "*RESTART" => "reboot",
+            _ => "poweroff",
+        };
+
+        match Command::new(system_command).output() {
             Ok(output) if output.status.success() => {
-                self.message = "CPF0000: PWRDWNSYS command completed.".to_string();
+                self.message = format!("CPF0000: {} completed.", system_command);
             }
             Ok(output) => {
                 self.message = format!(
-                    "CPF9999: PWRDWNSYS failed with status {}.",
+                    "CPF9999: {} failed with status {}.",
+                    system_command,
                     output.status.code().unwrap_or_default()
                 );
             }
             Err(error) => {
-                self.message = format!("CPF9999: PWRDWNSYS unavailable: {error}");
+                self.message = format!("CPF9999: {} unavailable: {}", system_command, error);
             }
         }
         self.session.set_last_message(&self.message);

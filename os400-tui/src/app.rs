@@ -187,7 +187,32 @@ impl App {
                 data.as_deref().unwrap_or("MAIN"),
                 self.session.clone(),
             )),
-            ScreenId::PowerDown => Box::new(PowerDownSystem::new(self.session.clone())),
+            ScreenId::PowerDown => {
+                let parts: Vec<&str> = data
+                    .as_deref()
+                    .unwrap_or_default()
+                    .split_whitespace()
+                    .collect();
+                let option = parts
+                    .iter()
+                    .find(|p| p.starts_with("OPTION("))
+                    .and_then(|p| p.strip_prefix("OPTION("))
+                    .and_then(|p| p.strip_suffix(')'))
+                    .unwrap_or("POWEROFF")
+                    .to_string();
+                let confirm = parts
+                    .iter()
+                    .find(|p| p.starts_with("CONFIRM("))
+                    .and_then(|p| p.strip_prefix("CONFIRM("))
+                    .and_then(|p| p.strip_suffix(')'))
+                    .unwrap_or("*NO")
+                    .to_string();
+                Box::new(PowerDownSystem::with_params(
+                    self.session.clone(),
+                    option,
+                    confirm,
+                ))
+            }
             ScreenId::WorkManagement => Box::new(WorkManagement::new()),
             ScreenId::WrkJob => Box::new(WrkJob::new(
                 data.as_deref()

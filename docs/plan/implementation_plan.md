@@ -76,10 +76,10 @@ Objetivo: Establecer las bases de la interfaz tipo OS/400 y corregir los problem
 - [x] Opciones del menú mapeadas a comandos reales, no stubs.
 
 ### 1.4 Comandos funcionales: PWRDWNSYS
-- [ ] `PWRDWNSYS` ejecuta apagado (`poweroff`) o reinicio (`reboot`) real del sistema, validando privilegios de root/autoridad *ALLOBJ.
-- [ ] Confirmación obligatoria con `ConfirmDialog` estilo OS/400.
-- [ ] Opción `CONFIRM(*YES)` para ejecución no interactiva.
-- [ ] Variable `L400_PWRDWNSYS_DRY_RUN=1` mantiene el modo prueba para desarrollo.
+- [x] `PWRDWNSYS` ejecuta apagado (`poweroff`) o reinicio (`reboot`) real del sistema, validando privilegios de root/autoridad *ALLOBJ.
+- [x] Confirmación obligatoria con `ConfirmDialog` estilo OS/400.
+- [x] Opción `CONFIRM(*YES)` para ejecución no interactiva.
+- [x] Variable `L400_PWRDWNSYS_DRY_RUN=1` mantiene el modo prueba para desarrollo.
 
 ### 1.5 Estilo 5250 base
 - [ ] Paleta de colores idéntica a OS/400: verde claro sobre fondo negro, campos activos en verde brillante, campos protegidos en verde apagado.

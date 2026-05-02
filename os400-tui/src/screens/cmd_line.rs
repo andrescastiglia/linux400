@@ -424,7 +424,13 @@ impl CommandLine {
             "STRPDM" => Some(ScreenResult::goto(ScreenId::PdmBrowser)),
             "STRSQL" => Some(ScreenResult::goto(ScreenId::StrSql)),
             "SBMJOB" if tokens.len() == 1 => Some(ScreenResult::goto(ScreenId::SubmitJob)),
-            "PWRDWNSYS" => Some(ScreenResult::goto(ScreenId::PowerDown)),
+            "PWRDWNSYS" => {
+                let option = extract_command_arg(&tokens[1..], "OPTION")
+                    .unwrap_or_else(|| "POWEROFF".to_string());
+                let confirm = extract_command_arg(&tokens[1..], "CONFIRM")
+                    .unwrap_or_else(|| "*NO".to_string());
+                Some(ScreenResult::with_data(ScreenId::PowerDown, format!("{} {}", option, confirm)))
+            }
             "WRKACTJOB" => Some(ScreenResult::goto(ScreenId::WorkManagement)),
             "WRKLIB" => Some(ScreenResult::goto(ScreenId::WrkLib)),
             "WRKOBJ" => Some(ScreenResult::goto(ScreenId::ObjectBrowser)),
