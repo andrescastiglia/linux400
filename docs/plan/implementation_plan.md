@@ -61,10 +61,10 @@ Objetivo: Establecer las bases de la interfaz tipo OS/400 y corregir los problem
 - [x] Test automatizado de entrada de texto para todos los widgets.
 
 ### 1.2 Implementación de F4 Prompt de comandos
-- [ ] Al presionar F4 en la línea de comandos o ejecutar un comando, se muestra el prompt de parámetros del *CMD correspondiente.
-- [ ] El prompt replica el layout de OS/400: descripción del parámetro, tipo, longitud, valores posibles y ayuda contextual.
-- [ ] Validación de parámetros al ejecutar el comando, con mensajes CPF de error específicos.
-- [ ] F4 funciona en todos los comandos catalogados en `COMMAND_METADATA`.
+- [x] Al presionar F4 en la línea de comandos o ejecutar un comando, se muestra el prompt de parámetros del *CMD correspondiente.
+- [x] El prompt replica el layout de OS/400: descripción del parámetro, tipo, longitud, valores posibles y ayuda contextual.
+- [x] Validación de parámetros al ejecutar el comando, con mensajes CPF de error específicos.
+- [x] F4 funciona en todos los comandos catalogados en `COMMAND_METADATA`.
 
 ### 1.3 Rediseño del menú principal estilo OS/400
 - [ ] Rediseñar `MainMenu` para replicar el layout 5250 clásico:

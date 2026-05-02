@@ -2,8 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    text::Line,
-    text::Text,
+    text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph},
 };
 use std::process::Command;
@@ -298,18 +297,36 @@ impl CommandLine {
     }
 
     fn finish_prompt(&mut self) -> bool {
-        if let Some(field) = self
-            .prompt_fields
-            .iter()
-            .find(|field| field.required && field.value.trim().is_empty())
-        {
-            self.prompt_error = Some(format!("{} es requerido.", field.name));
-            return false;
-        }
         let command = self
             .prompt_command
             .clone()
             .unwrap_or_else(|| "WRKOBJ".to_string());
+        let metadata = l400::command_metadata(&command);
+        
+        for field in &self.prompt_fields {
+            if field.required && field.value.trim().is_empty() {
+                self.prompt_error = Some(format!("CPF0001: El parámetro {} es requerido.", field.name));
+                return false;
+            }
+            
+            if let Some(meta) = metadata {
+                if let Some(param) = meta.parameters.iter().find(|p| p.name == field.name) {
+                    if !field.value.trim().is_empty() && (param.values.contains('|') || param.values.contains(',')) {
+                        let separators = ['|', ','];
+                        let valid_values: Vec<&str> = param.values.split(|c| separators.contains(&c)).map(|v| v.trim()).collect();
+                        let value = field.value.trim();
+                        if !valid_values.contains(&value) && !value.starts_with('*') {
+                            self.prompt_error = Some(format!(
+                                "CPF0002: Valor inválido para {}. Valores válidos: {}", 
+                                field.name, param.values
+                            ));
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        
         let params = self
             .prompt_fields
             .iter()
@@ -669,6 +686,8 @@ impl CommandLine {
             .split(crate::screens::screen_area(frame));
 
         let command = self.prompt_command.as_deref().unwrap_or("WRKOBJ");
+        let metadata = l400::command_metadata(command);
+        
         let block = Block::default()
             .title(format!(" Prompt {} ", command))
             .style(STYLE_HEADER)
@@ -686,21 +705,46 @@ impl CommandLine {
             inner,
         );
 
-        let lines = self
+        let mut lines = self
             .prompt_fields
             .iter()
             .enumerate()
             .map(|(index, field)| {
                 let marker = if index == self.prompt_index { ">" } else { " " };
-                Line::from(format!(
-                    "{} {:<10} {}{}",
-                    marker,
-                    field.name,
-                    field.value,
-                    if field.required { "  *REQ" } else { "" }
-                ))
+                let param_info = metadata
+                    .and_then(|meta| {
+                        meta.parameters.iter().find(|p| p.name == field.name)
+                    });
+                
+                let mut parts = vec![
+                    Span::styled(marker, STYLE_NORMAL),
+                    Span::styled(format!("{:<10} ", field.name), STYLE_NORMAL),
+                    Span::styled(&field.value, if index == self.prompt_index { STYLE_INPUT_ACTIVE } else { STYLE_INPUT_PROTECTED }),
+                ];
+                
+                if let Some(param) = param_info {
+                    if !param.type_.is_empty() {
+                        parts.push(Span::styled(format!("  Type: {}", param.type_), STYLE_DIM));
+                    }
+                    if !param.values.is_empty() {
+                        parts.push(Span::styled(format!("  Values: {}", param.values), STYLE_DIM));
+                    }
+                }
+                
+                if field.required {
+                    parts.push(Span::styled("  *REQ", STYLE_WARNING));
+                }
+                
+                Line::from(parts)
             })
             .collect::<Vec<_>>();
+        
+        if let Some(meta) = metadata {
+            if !meta.text.is_empty() {
+                lines.push(Line::from(Span::styled(format!("Description: {}", meta.text), STYLE_DIM)));
+            }
+        }
+        
         let field_block = Block::default()
             .borders(Borders::ALL)
             .border_style(STYLE_BORDER);
@@ -838,7 +882,7 @@ mod tests {
     #[test]
     fn tokenizer_preserves_keyword_values_with_spaces() {
         let tokens = tokenize_cl_command("CHGOBJD OBJ(QGPL/DEMO) TEXT('Demo object')");
-
+        
         assert_eq!(
             tokens,
             vec![
@@ -851,5 +895,55 @@ mod tests {
             extract_command_arg(&tokens[1..], "TEXT").as_deref(),
             Some("'Demo object'")
         );
+    }
+
+    #[test]
+    fn f4_prompt_shows_parameter_info() {
+        let mut cmd = CommandLine::new();
+        cmd.command = "WRKOBJ".to_string();
+        cmd.start_prompt();
+        
+        assert_eq!(cmd.prompt_command.as_deref(), Some("WRKOBJ"));
+        assert!(!cmd.prompt_fields.is_empty());
+        
+        let metadata = l400::command_metadata("WRKOBJ").unwrap();
+        for field in &cmd.prompt_fields {
+            let param = metadata.parameters.iter().find(|p| p.name == field.name);
+            assert!(param.is_some(), "Parameter {} not found in metadata", field.name);
+        }
+    }
+
+    #[test]
+    fn f4_prompt_validation_cpf_error_for_required_field() {
+        let mut cmd = CommandLine::new();
+        cmd.command = "CALL".to_string();
+        cmd.start_prompt();
+        
+        assert!(cmd.prompt_fields[0].required);
+        
+        cmd.prompt_fields[0].value = "".to_string();
+        
+        assert!(!cmd.finish_prompt());
+        assert!(cmd.prompt_error.is_some());
+        assert!(cmd.prompt_error.unwrap().contains("CPF0001"));
+    }
+
+    #[test]
+    fn f4_prompt_validates_against_allowed_values() {
+        let mut cmd = CommandLine::new();
+        cmd.command = "PWRDWNSYS".to_string();
+        cmd.start_prompt();
+        
+        for field in &mut cmd.prompt_fields {
+            if field.name == "OPTION" {
+                field.value = "INVALID".to_string();
+                break;
+            }
+        }
+        
+        assert!(!cmd.finish_prompt());
+        assert!(cmd.prompt_error.is_some());
+        let error = cmd.prompt_error.unwrap();
+        assert!(error.contains("CPF0002"), "Expected CPF0002 in error: {}", error);
     }
 }
