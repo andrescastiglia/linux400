@@ -1,6 +1,6 @@
-# Linux/400 Cheatsheet de Comandos
+# Linux/400 Cheatsheet de Comandos por Rol
 
-Referencia rapida de comandos estilo OS/400 para operar y administrar Linux/400. Los comandos pueden ejecutarse desde la linea de comandos de la TUI, como binarios/symlinks en `PATH`, o con `l400cmd <CMD> [parametros]`.
+Referencia rapida de comandos estilo AS/400 para operar, administrar y programar en Linux/400. Los comandos implementados pueden ejecutarse desde la linea de comandos de la TUI, como binarios/symlinks en `PATH`, o con `l400cmd <CMD> [parametros]`.
 
 Formas de parametros aceptadas por el dispatcher actual:
 
@@ -10,16 +10,17 @@ CRTLIB LIB(QGPL)
 CRTLIB LIB=QGPL
 ```
 
-## Sesion y navegacion
+## Estado
 
-| Comando | Descripcion | Ejemplo |
-| --- | --- | --- |
-| `GO` | Abre un menu por nombre. | `GO MAIN` |
-| `SIGNOFF` | Cierra la sesion actual. | `SIGNOFF` |
-| `HELP` | Muestra ayuda basica en la linea de comandos de la TUI. | `HELP` |
-| `CALL` | Ejecuta un programa catalogado resolviendo `CURLIB` y `LIBLIST`. | `CALL PGM(QGPL/MYPGM)` |
+| Estado | Significado |
+| --- | --- |
+| Implementado | Existe en `l400cmd`, TUI o script actual. |
+| Parcial | Existe, pero todavia cubre un subconjunto de AS/400. |
+| Script | Existe como herramienta Linux/400 fuera del dispatcher de comandos. |
+| Objetivo V1 | Debe agregarse para la operacion basica de Version 1. |
+| Objetivo V2 | Debe agregarse para programacion ampliada, RPG o SQL avanzado. |
 
-Teclas frecuentes en la TUI:
+## Teclas TUI frecuentes
 
 ```text
 F3=Exit/Save
@@ -32,56 +33,129 @@ Enter=Select/Run
 
 En la linea de comandos, `F4` abre prompt por campos; `Tab`/`Shift-Tab` cambia parametro y `Enter` ejecuta.
 
-## Sistema
+## Rol: operador
 
-| Comando | Descripcion | Ejemplo |
-| --- | --- | --- |
-| `WRKSYSSTS` | Muestra estado general: carga, memoria, uptime y resumen de trabajos. | `WRKSYSSTS` |
-| `WRKSYSVAL` | Muestra valores de sistema relevantes para Linux/400. | `WRKSYSVAL` |
-| `CHGSYSVAL` | Cambia un valor de sistema. | `CHGSYSVAL SYSVAL(QAUTOCFG) VALUE(*NO)` |
-| `DSPLOG` | Muestra mensajes recientes del sistema o QHST equivalente. | `DSPLOG` |
-| `PWRDWNSYS` | Solicita apagado o reinicio del sistema; accion real requiere root y confirmacion. | `PWRDWNSYS OPTION(*IMMED) CONFIRM(*YES)` |
-| `l400-bootstrap` | Inicializa bibliotecas y objetos base del catalogo Linux/400. | `l400-bootstrap --root /l400` |
-| `l400-support-report` | Reporta capacidades de plataforma: loader, BPF, cgroups, ZFS/xattrs. | `l400-support-report --write` |
+El operador mantiene el sistema en marcha: revisa salud, sesiones, jobs, colas, spool, logs, backups basicos y apagado controlado.
 
-## Bibliotecas
+### Sesion y navegacion
 
-| Comando | Descripcion | Ejemplo |
-| --- | --- | --- |
-| `CRTLIB` | Crea una biblioteca `*LIB`. | `CRTLIB LIB(MYLIB)` |
-| `DLTLIB` | Elimina una biblioteca. | `DLTLIB LIB(MYLIB)` |
-| `WRKLIB` | Lista y trabaja con bibliotecas. | `WRKLIB LIB(Q*)` |
-| `DSPLIB` | Muestra informacion de una biblioteca. | `DSPLIB LIB(QGPL)` |
-| `ADDLIBLE` | Agrega una biblioteca a la library list de la sesion. | `ADDLIBLE LIB(QGPL)` |
-| `RMVLIBLE` | Quita una biblioteca de la library list. | `RMVLIBLE LIB(QGPL)` |
-| `CHGCURLIB` | Cambia la biblioteca actual. | `CHGCURLIB CURLIB(QGPL)` |
-| `DSPLIBL` | Muestra la library list actual. | `DSPLIBL` |
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `GO` | Implementado | Abre un menu por nombre. | `GO MAIN` |
+| `SIGNOFF` | Implementado | Cierra la sesion actual. | `SIGNOFF` |
+| `HELP` | Parcial | Muestra ayuda basica en la linea de comandos de la TUI. | `HELP` |
+| `CALL` | Implementado | Ejecuta un programa catalogado resolviendo `CURLIB` y `LIBLIST`. | `CALL PGM(QGPL/MYPGM)` |
 
-## Objetos
+### Salud del sistema
 
-| Comando | Descripcion | Ejemplo |
-| --- | --- | --- |
-| `WRKOBJ` | Lista objetos por nombre, biblioteca o tipo. | `WRKOBJ OBJ(QSYS/*ALL) OBJTYPE(*PGM)` |
-| `DSPOBJD` | Muestra descripcion y metadatos de un objeto. | `DSPOBJD OBJ(QGPL/MYPGM) OBJTYPE(*PGM)` |
-| `CRTDUPOBJ` | Duplica un objeto dentro de una biblioteca o hacia otra. | `CRTDUPOBJ OBJ(A) FROMLIB(QGPL) OBJTYPE(*PGM) TOLIB(TEST)` |
-| `CPYOBJ` | Copia un objeto preservando metadatos Linux/400. | `CPYOBJ OBJ(QGPL/A) TOOBJ(QGPL/B)` |
-| `DLTOBJ` | Elimina un objeto catalogado. | `DLTOBJ OBJ(QGPL/OLDPGM) OBJTYPE(*PGM) CONFIRM(*YES)` |
-| `RNMOBJ` | Renombra un objeto. | `RNMOBJ OBJ(OLDPGM) NEWNAME(NEWPGM)` |
-| `CHGOBJD` | Cambia texto u otros metadatos de objeto. | `CHGOBJD OBJ(QGPL/MYPGM) TEXT('Demo')` |
-| `WRKOBJOWN` | Lista objetos por propietario. | `WRKOBJOWN USER(QSECOFR)` |
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `WRKSYSSTS` | Implementado | Muestra carga, memoria, uptime y resumen de trabajos. | `WRKSYSSTS` |
+| `WRKSYSVAL` | Implementado | Muestra valores de sistema relevantes para Linux/400. | `WRKSYSVAL` |
+| `DSPLOG` | Implementado | Muestra mensajes recientes del sistema o QHST equivalente. | `DSPLOG` |
+| `DSPAUD` | Implementado | Muestra eventos de auditoria recientes. | `DSPAUD` |
+| `DSPPOLICY` | Implementado | Muestra modo de politica runtime/eBPF. | `DSPPOLICY` |
+| `PWRDWNSYS` | Implementado | Apaga o reinicia con confirmacion y autoridad. | `PWRDWNSYS OPTION(*RESTART) CONFIRM(*YES)` |
+| `WRKCFGSTS` | Objetivo V1 | Trabaja con estado de dispositivos/servicios configurados. | `WRKCFGSTS CFGTYPE(*DEV)` |
+| `DSPMSG` | Objetivo V1 | Muestra mensajes de una cola de mensajes. | `DSPMSG MSGQ(QSYSOPR)` |
+| `SNDMSG` | Objetivo V1 | Envia mensaje a usuario o cola. | `SNDMSG MSG('Backup listo') TOUSR(QSYSOPR)` |
 
-## Autorizaciones
+### Jobs, colas y subsistemas
 
-| Comando | Descripcion | Ejemplo |
-| --- | --- | --- |
-| `DSPOBJAUT` | Muestra autorizaciones de un objeto. | `DSPOBJAUT OBJ(QGPL/MYPGM) OBJTYPE(*PGM)` |
-| `CHKOBJAUT` | Verifica una autorizacion efectiva para usuario/comando. | `CHKOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR) AUT(*USE)` |
-| `CHKOBJINT` | Verifica metadatos minimos e integridad basica de un objeto. | `CHKOBJINT OBJ(QGPL/MYFILE)` |
-| `GRTOBJAUT` | Otorga autorizacion sobre un objeto. | `GRTOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR) AUT(*USE)` |
-| `RVKOBJAUT` | Revoca autorizacion sobre un objeto. | `RVKOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR)` |
-| `DSPPOLICY` | Muestra la matriz runtime/eBPF de politica de seguridad. | `DSPPOLICY` |
-| `DSPAUD` | Muestra los ultimos eventos auditados en QHST/DTAQ. | `DSPAUD` |
-| `CHGOWN` | Cambia propietario logico de un objeto. | `CHGOWN OBJ(QGPL/MYFILE) OWNER(QPGMR)` |
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `WRKACTJOB` | Implementado | Lista trabajos activos o registrados. | `WRKACTJOB SBS(QBATCH) STATUS(ACTIVE)` |
+| `WRKJOB` | Implementado | Muestra detalle de un trabajo. | `WRKJOB JOB(MYJOB)` |
+| `WRKJOBQ` | Implementado | Lista trabajos retenidos o en cola. | `WRKJOBQ JOBQ(QBATCH)` |
+| `SBMJOB` | Implementado | Envia un comando a batch. | `SBMJOB CMD(WRKSYSSTS) JOB(MYSTS) JOBQ(QBATCH)` |
+| `HLDJOB` | Implementado | Retiene un trabajo. | `HLDJOB JOB(MYJOB)` |
+| `RLSJOB` | Implementado | Libera un trabajo retenido. | `RLSJOB JOB(MYJOB)` |
+| `ENDJOB` | Implementado | Finaliza un trabajo con confirmacion. | `ENDJOB PID(1234) CONFIRM(*YES)` |
+| `WRKSBS` | Objetivo V1 | Lista y trabaja con subsistemas. | `WRKSBS` |
+| `STRSBS` | Objetivo V1 | Inicia un subsistema. | `STRSBS SBSD(QINTER)` |
+| `ENDSBS` | Objetivo V1 | Finaliza un subsistema. | `ENDSBS SBS(QBATCH) OPTION(*CNTRLD)` |
+| `HLDJOBQ` | Objetivo V1 | Retiene una cola de trabajos. | `HLDJOBQ JOBQ(QBATCH)` |
+| `RLSJOBQ` | Objetivo V1 | Libera una cola de trabajos. | `RLSJOBQ JOBQ(QBATCH)` |
+
+Subsistemas base:
+
+```text
+QINTER  Sesiones interactivas/TUI
+QBATCH  Trabajos batch
+```
+
+### Spool y output queues
+
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `WRKSPLF` | Implementado | Lista spool files. | `WRKSPLF SELECT(*CURRENT)` |
+| `DSPSPLF` | Implementado | Muestra un spool file. | `DSPSPLF FILE(QPRINT)` |
+| `CHGSPLFA` | Implementado | Cambia atributos basicos de spool. | `CHGSPLFA FILE(QPRINT) STATUS(*HELD)` |
+| `DLTSPLF` | Implementado | Elimina un spool file con confirmacion. | `DLTSPLF FILE(QPRINT) CONFIRM(*YES)` |
+| `WRKOUTQ` | Implementado | Lista output queues. | `WRKOUTQ OUTQ(QPRINT)` |
+| `CRTOUTQ` | Implementado | Crea una output queue `*OUTQ`. | `CRTOUTQ OUTQ(QGPL/QPRINT)` |
+| `DLTOUTQ` | Implementado | Elimina una output queue. | `DLTOUTQ OUTQ(QGPL/QPRINT) CONFIRM(*YES)` |
+| `HLDSPLF` | Objetivo V1 | Retiene un spool file. | `HLDSPLF FILE(QPRINT)` |
+| `RLSSPLF` | Objetivo V1 | Libera un spool file. | `RLSSPLF FILE(QPRINT)` |
+| `HLDOUTQ` | Objetivo V1 | Retiene una output queue. | `HLDOUTQ OUTQ(QGPL/QPRINT)` |
+| `RLSOUTQ` | Objetivo V1 | Libera una output queue. | `RLSOUTQ OUTQ(QGPL/QPRINT)` |
+| `STRPRTWTR` | Objetivo V1 | Inicia writer/exportador de salida. | `STRPRTWTR OUTQ(QGPL/QPRINT)` |
+| `ENDWTR` | Objetivo V1 | Finaliza writer/exportador. | `ENDWTR WTR(QPRINT)` |
+
+### Backup, restore y mantenimiento
+
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `l400-upgrade-check` | Script | Valida metadata, xattrs, persistencia y backup recomendado. | `l400-upgrade-check` |
+| `l400-migrate` | Script | Aplica migraciones versionadas de `/l400`. | `l400-migrate` |
+| `l400-support-report` | Script | Reporta plataforma, loader, BPF, cgroups y xattrs. | `l400-support-report --write` |
+| `SAVSYS` | Objetivo V1 | Respalda el sistema Linux/400 completo. | `SAVSYS DEV('/backup/l400.tar')` |
+| `SAVLIB` | Objetivo V1 | Respalda una biblioteca. | `SAVLIB LIB(QGPL) DEV('/backup/qgpl.tar')` |
+| `SAVOBJ` | Objetivo V1 | Respalda objetos seleccionados. | `SAVOBJ OBJ(MYFILE) LIB(QGPL) DEV('/backup/obj.tar')` |
+| `RSTSYS` | Objetivo V1 | Restaura un backup de sistema. | `RSTSYS DEV('/backup/l400.tar')` |
+| `RSTLIB` | Objetivo V1 | Restaura una biblioteca. | `RSTLIB LIB(QGPL) DEV('/backup/qgpl.tar')` |
+| `RSTOBJ` | Objetivo V1 | Restaura objetos seleccionados. | `RSTOBJ OBJ(MYFILE) LIB(QGPL) DEV('/backup/obj.tar')` |
+| `DSPPTF` | Objetivo V1 | Lista PTFs aplicados o pendientes. | `DSPPTF` |
+| `APYPTF` | Objetivo V1 | Aplica, verifica o revierte un PTF. | `APYPTF LICPGM(L400) SELECT(L4000001) OPTION(*APPLY)` |
+
+Flujo actual recomendado antes de upgrades:
+
+```bash
+l400-upgrade-check
+rsync -aX /l400/ /backup/l400/
+l400-migrate
+```
+
+## Rol: administrador
+
+El administrador define usuarios, seguridad, objetos base, bibliotecas, valores de sistema, comandos catalogados y politica de plataforma.
+
+### Usuarios y perfiles
+
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `WRKUSRPRF` | Parcial | Lista, muestra, crea o desactiva perfiles Linux/400. | `WRKUSRPRF USRPRF(TESTUSR) ACTION(*CREATE)` |
+| `CRTUSRPRF` | Objetivo V1 | Crea un perfil de usuario. | `CRTUSRPRF USRPRF(QPGMR)` |
+| `CHGUSRPRF` | Objetivo V1 | Cambia atributos de un perfil. | `CHGUSRPRF USRPRF(QPGMR) STATUS(*DISABLED)` |
+| `DLTUSRPRF` | Objetivo V1 | Elimina un perfil. | `DLTUSRPRF USRPRF(TESTUSR)` |
+| `DSPUSRPRF` | Objetivo V1 | Muestra detalle de un perfil. | `DSPUSRPRF USRPRF(QSECOFR)` |
+| `CHGPWD` | Objetivo V1 | Cambia password de perfil. | `CHGPWD USRPRF(QPGMR)` |
+| `WRKUSRJOB` | Objetivo V1 | Lista trabajos de un usuario. | `WRKUSRJOB USER(QPGMR)` |
+
+### Autorizaciones y auditoria
+
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `DSPOBJAUT` | Implementado | Muestra autorizaciones de un objeto. | `DSPOBJAUT OBJ(QGPL/MYPGM) OBJTYPE(*PGM)` |
+| `CHKOBJAUT` | Implementado | Verifica autorizacion efectiva. | `CHKOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR) AUT(*USE)` |
+| `GRTOBJAUT` | Implementado | Otorga autorizacion sobre un objeto. | `GRTOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR) AUT(*USE)` |
+| `RVKOBJAUT` | Implementado | Revoca autorizacion sobre un objeto. | `RVKOBJAUT OBJ(QGPL/MYPGM) USER(QPGMR)` |
+| `CHKOBJINT` | Implementado | Verifica metadata e integridad basica de objeto. | `CHKOBJINT OBJ(QGPL/MYFILE)` |
+| `DSPAUD` | Implementado | Muestra auditoria runtime. | `DSPAUD` |
+| `DSPPOLICY` | Implementado | Muestra politica runtime/eBPF. | `DSPPOLICY` |
+| `CHGOWN` | Objetivo V1 | Cambia owner logico de un objeto. | `CHGOWN OBJ(QGPL/MYFILE) OWNER(QPGMR)` |
+| `WRKOBJOWN` | Objetivo V1 | Lista objetos por propietario. | `WRKOBJOWN USER(QSECOFR)` |
+| `CHGAUD` | Objetivo V1 | Cambia atributos de auditoria. | `CHGAUD OBJ(QGPL/MYPGM) AUDLVL(*CHANGE)` |
 
 Autoridades comunes:
 
@@ -92,85 +166,104 @@ Autoridades comunes:
 *EXCLUDE
 ```
 
-## Usuarios y perfiles
+### Bibliotecas, objetos y comandos
 
-| Comando | Descripcion | Ejemplo |
-| --- | --- | --- |
-| `WRKUSRPRF` | Lista, muestra, crea o desactiva perfiles de usuario Linux/400. | `WRKUSRPRF USRPRF(TESTUSR) ACTION(*CREATE)` |
-| `CRTUSRPRF` | Crea un perfil de usuario Linux/400. | `CRTUSRPRF USRPRF(QPGMR)` |
-| `CHGUSRPRF` | Cambia atributos de un perfil. | `CHGUSRPRF USRPRF(QPGMR) STATUS(*DISABLED)` |
-| `DLTUSRPRF` | Elimina un perfil. | `DLTUSRPRF USRPRF(TESTUSR)` |
-| `DSPUSRPRF` | Muestra detalle de un perfil. | `DSPUSRPRF USRPRF(QSECOFR)` |
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `CRTLIB` | Implementado | Crea una biblioteca `*LIB`. | `CRTLIB LIB(MYLIB)` |
+| `DLTLIB` | Implementado | Elimina una biblioteca. | `DLTLIB LIB(MYLIB)` |
+| `ADDLIBLE` | Implementado | Agrega biblioteca a la library list. | `ADDLIBLE LIB(QGPL)` |
+| `CHGCURLIB` | Implementado | Cambia la biblioteca actual. | `CHGCURLIB CURLIB(QGPL)` |
+| `WRKOBJ` | Implementado | Lista objetos por nombre, biblioteca o tipo. | `WRKOBJ OBJ(QSYS/*ALL) OBJTYPE(*PGM)` |
+| `DSPOBJD` | Implementado | Muestra descripcion y metadata de objeto. | `DSPOBJD OBJ(QGPL/MYPGM) OBJTYPE(*PGM)` |
+| `CPYOBJ` | Implementado | Copia objeto preservando metadata. | `CPYOBJ OBJ(QGPL/A) TOOBJ(QGPL/B)` |
+| `DLTOBJ` | Implementado | Elimina un objeto catalogado. | `DLTOBJ OBJ(QGPL/OLDPGM) OBJTYPE(*PGM) CONFIRM(*YES)` |
+| `RNMOBJ` | Implementado | Renombra un objeto. | `RNMOBJ OBJ(OLDPGM) NEWNAME(NEWPGM)` |
+| `CHGOBJD` | Implementado | Cambia texto o atributos de objeto. | `CHGOBJD OBJ(QGPL/MYPGM) TEXT('Demo')` |
+| `DSPCMD` | Implementado | Muestra metadata de un comando. | `DSPCMD CMD(WRKOBJ)` |
+| `WRKCMD` | Implementado | Lista comandos catalogados por nombre/estado/autoridad. | `WRKCMD CMD(WRK*)` |
+| `CRTCMD` | Parcial | Cataloga un comando `*CMD`. | `CRTCMD CMD(QSYS/MYCMD) TEXT('Demo')` |
+| `WRKLIB` | Objetivo V1 | Lista y trabaja con bibliotecas. | `WRKLIB LIB(Q*)` |
+| `DSPLIB` | Objetivo V1 | Muestra informacion de biblioteca. | `DSPLIB LIB(QGPL)` |
+| `DSPLIBL` | Objetivo V1 | Muestra library list actual. | `DSPLIBL` |
+| `RMVLIBLE` | Objetivo V1 | Quita biblioteca de la library list. | `RMVLIBLE LIB(QGPL)` |
+| `CRTDUPOBJ` | Objetivo V1 | Duplica un objeto con semantica AS/400. | `CRTDUPOBJ OBJ(A) FROMLIB(QGPL) OBJTYPE(*PGM) TOLIB(TEST)` |
+| `WRKOBJLCK` | Objetivo V1 | Muestra locks de objeto. | `WRKOBJLCK OBJ(QGPL/MYFILE) OBJTYPE(*FILE)` |
 
-## Trabajos y subsistemas
+### Valores de sistema y plataforma
 
-| Comando | Descripcion | Ejemplo |
-| --- | --- | --- |
-| `WRKACTJOB` | Lista trabajos activos o registrados; permite filtrar y ver detalle. | `WRKACTJOB SBS(QBATCH) STATUS(ACTIVE)` |
-| `WRKACTJOB OPTION(*DETAIL)` | Muestra detalle de un trabajo por `PID` o `JOB`. | `WRKACTJOB JOB(MYJOB) OPTION(*DETAIL)` |
-| `WRKACTJOB OPTION(*END)` | Termina un trabajo activo por `PID` o `JOB`. | `WRKACTJOB PID(1234) OPTION(*END)` |
-| `SBMJOB` | Envia un comando ejecutable a batch. | `SBMJOB CMD(WRKSYSSTS) JOB(MYJOB) JOBQ(QBATCH)` |
-| `WRKJOBQ` | Lista trabajos retenidos o en cola. | `WRKJOBQ` |
-| `HLDJOB` | Retiene un trabajo por nombre o PID. | `HLDJOB JOB(MYJOB)` |
-| `RLSJOB` | Libera un trabajo retenido. | `RLSJOB JOB(MYJOB)` |
-| `WRKJOB` | Muestra detalle de un trabajo. | `WRKJOB JOB(1234/QSECOFR/MYJOB)` |
-| `ENDJOB` | Finaliza un trabajo. | `ENDJOB PID(1234) CONFIRM(*YES)` |
-| `WRKJOBQ` | Trabaja con colas de trabajos. | `WRKJOBQ JOBQ(QBATCH)` |
-| `WRKSBS` | Lista subsistemas. | `WRKSBS` |
-| `STRSBS` | Inicia un subsistema. | `STRSBS SBSD(QINTER)` |
-| `ENDSBS` | Finaliza un subsistema. | `ENDSBS SBS(QBATCH) OPTION(*CNTRLD)` |
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `WRKSYSVAL` | Implementado | Lista valores de sistema conocidos. | `WRKSYSVAL` |
+| `CHGSYSVAL` | Objetivo V1 | Cambia un valor de sistema. | `CHGSYSVAL SYSVAL(QAUTOCFG) VALUE(*NO)` |
+| `l400-bootstrap` | Script | Inicializa bibliotecas y objetos base. | `l400-bootstrap --root /l400` |
+| `l400-loader` | Script | Carga la politica eBPF LSM. | `l400-loader --mode full --once` |
+| `l400-loader --mode degraded` | Script | Intenta cargar politica y continua si no puede. | `l400-loader --mode degraded --once` |
+| `l400-loader --mode dev` | Script | Modo tolerante para desarrollo local. | `l400-loader --mode dev --once` |
+| `l400-support-report` | Script | Muestra modo efectivo y capacidades. | `l400-support-report` |
 
-Subsistemas base:
+## Rol: programador
 
-```text
-QINTER  Sesiones interactivas/TUI
-QBATCH  Trabajos batch
-```
+El programador trabaja con miembros fuente, compilacion, programas, PF/LF, DTAQ, SQL y ejecucion interactiva/batch.
 
-## Archivos PF/LF
+### Desarrollo interactivo
 
-| Comando | Descripcion | Ejemplo |
-| --- | --- | --- |
-| `CRTPF` | Crea un archivo fisico `*FILE PF`. | `CRTPF FILE(QGPL/CUSTOMERS) RCDLEN(128)` |
-| `CRTLF` | Crea un archivo logico `*FILE LF` sobre un PF. | `CRTLF FILE(QGPL/CUSTBYNAME) SRCFILE(QGPL/CUSTOMERS)` |
-| `DSPPFM` | Muestra miembros o registros de un PF. | `DSPPFM FILE(QGPL/CUSTOMERS)` |
-| `CLRPFM` | Limpia un miembro de PF. | `CLRPFM FILE(QGPL/CUSTOMERS)` |
-| `ADDPFM` | Agrega un miembro a un PF. | `ADDPFM FILE(QGPL/CUSTOMERS) MBR(JAN2026)` |
-| `WRTPFM` | Escribe un registro en un PF por clave o con RRN automatico. | `WRTPFM FILE(QGPL/CUSTOMERS) KEY(C001) DATA(ALICE)` |
-| `DLTMBR` | Elimina un miembro con confirmacion. | `DLTMBR FILE(QGPL/QCLSRC) MBR(OLD.CLP) CONFIRM(*YES)` |
-| `CPYMBR` | Copia un miembro. | `CPYMBR FILE(QGPL/QCLSRC) MBR(A.CLP) TOMBR(B.CLP)` |
-| `CHGMBRD` | Cambia texto de un miembro. | `CHGMBRD FILE(QGPL/QCLSRC) MBR(A.CLP) TEXT(Demo)` |
-| `CPYF` | Copia registros entre archivos. | `CPYF FROMFILE(QGPL/A) TOFILE(QGPL/B)` |
-| `RUNQRY` | Ejecuta una consulta simple sobre un archivo. | `RUNQRY QRYFILE(QGPL/CUSTOMERS)` |
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `STRPDM` | Implementado | Abre el Programming Development Manager. | `STRPDM` |
+| `WRKMBRPDM` | Implementado | Lista miembros de un source file. | `WRKMBRPDM FILE(QGPL/QCLSRC)` |
+| `STRSEU` | Implementado | Edita o muestra un miembro fuente. | `STRSEU FILE(QGPL/QCLSRC) MBR(HELLO.CLP)` |
+| `STRSQL` | Parcial | Abre SQL o ejecuta `SELECT/INSERT/UPDATE/DELETE/CREATE TABLE` minimo. | `STRSQL "SELECT * FROM QGPL/CUSTOMERS"` |
+| `DLTMBR` | Implementado | Elimina un miembro con confirmacion. | `DLTMBR FILE(QGPL/QCLSRC) MBR(OLD.CLP) CONFIRM(*YES)` |
+| `CPYMBR` | Implementado | Copia un miembro. | `CPYMBR FILE(QGPL/QCLSRC) MBR(A.CLP) TOMBR(B.CLP)` |
+| `CHGMBRD` | Implementado | Cambia texto de un miembro. | `CHGMBRD FILE(QGPL/QCLSRC) MBR(A.CLP) TEXT(Demo)` |
+| `DSPFD` | Objetivo V1 | Muestra descripcion de archivo. | `DSPFD FILE(QGPL/CUSTOMERS)` |
+| `DSPFFD` | Objetivo V1 | Muestra descripcion de campos. | `DSPFFD FILE(QGPL/CUSTOMERS)` |
 
-## Source members y desarrollo
+### Compilacion y programas
 
-| Comando | Descripcion | Ejemplo |
-| --- | --- | --- |
-| `STRPDM` | Abre el Programming Development Manager. | `STRPDM` |
-| `WRKMBRPDM` | Lista miembros de un source file. | `WRKMBRPDM FILE(QGPL/QCLSRC)` |
-| `STRSEU` | Edita o muestra un miembro fuente. | `STRSEU FILE(QGPL/QCLSRC) MBR(HELLO.CLP)` |
-| `STRSQL` | Abre SQL por stdin o ejecuta una sentencia `SELECT/INSERT/UPDATE/DELETE/CREATE TABLE`. | `STRSQL "SELECT * FROM QGPL/CUSTOMERS WHERE KEY='C001'"` |
-| `CRTCLPGM` | Compila un miembro CL como `*PGM`. | `CRTCLPGM PGM(QGPL/HELLO) SRCFILE(QGPL/QCLSRC) SRCMBR(HELLO)` |
-| `CRTPGM` | Cataloga o crea un objeto programa `*PGM`. | `CRTPGM PGM(QGPL/HELLO)` |
-| `DLTPGM` | Elimina un programa. | `DLTPGM PGM(QGPL/HELLO)` |
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `CRTCLPGM` | Implementado | Compila un miembro CL como `*PGM`. | `CRTCLPGM PGM(QGPL/HELLO) SRCFILE(QGPL/QCLSRC) SRCMBR(HELLO)` |
+| `CRTPGM` | Implementado | Cataloga o crea un objeto programa `*PGM`. | `CRTPGM PGM(QGPL/HELLO)` |
+| `CALL` | Implementado | Ejecuta un programa catalogado. | `CALL PGM(QGPL/HELLO)` |
+| `SBMJOB` | Implementado | Ejecuta un comando/programa en batch. | `SBMJOB CMD(CALL PGM(QGPL/HELLO)) JOB(HELLO)` |
+| `DLTPGM` | Objetivo V1 | Elimina un programa con semantica AS/400. | `DLTPGM PGM(QGPL/HELLO)` |
+| `DSPPGM` | Objetivo V1 | Muestra descripcion de programa. | `DSPPGM PGM(QGPL/HELLO)` |
+| `CRTRPGPGM` | Objetivo V2 | Compila RPG como `*PGM`. | `CRTRPGPGM PGM(QGPL/INVOICE) SRCFILE(QGPL/QRPGSRC)` |
+| `CRTSQLRPGI` | Objetivo V2 | Compila RPG con SQL embebido. | `CRTSQLRPGI OBJ(QGPL/INVOICE) SRCFILE(QGPL/QRPGLESRC)` |
+| `CRTSQLCI` | Objetivo V2 | Compila C con SQL embebido. | `CRTSQLCI OBJ(QGPL/MYSQLC) SRCFILE(QGPL/QCSRC)` |
 
-Comandos de compilador disponibles desde shell de desarrollo:
+Compiladores disponibles desde shell de desarrollo:
 
 ```bash
 clc --input tests/prueba.clp --output /l400/QSYS/HELLOCL
 c400c --input tests/hola_mundo.c --output /l400/QSYS/HELLOC
 ```
 
-## Data queues
+### Archivos PF/LF y datos
 
-| Comando | Descripcion | Ejemplo |
-| --- | --- | --- |
-| `CRTDTAQ` | Crea una data queue `*DTAQ`. | `CRTDTAQ DTAQ(QUSRSYS/QEZJOBLOG)` |
-| `DLTDTAQ` | Elimina una data queue. | `DLTDTAQ DTAQ(QUSRSYS/QEZJOBLOG)` |
-| `SNDDTAQ` | Envia un mensaje a una data queue. | `SNDDTAQ DTAQ(QUSRSYS/QEZJOBLOG) MSG(JobStarted)` |
-| `RCVDTAQ` | Recibe un mensaje de una data queue. | `RCVDTAQ DTAQ(QUSRSYS/QEZJOBLOG) WAIT(0)` |
-| `DSPDTAQ` | Muestra contenido de una data queue. | `DSPDTAQ DTAQ(QUSRSYS/QEZJOBLOG)` |
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `CRTPF` | Implementado | Crea un archivo fisico `*FILE PF`. | `CRTPF FILE(QGPL/CUSTOMERS) RCDLEN(128)` |
+| `CRTLF` | Implementado | Crea un archivo logico `*FILE LF` sobre un PF. | `CRTLF FILE(QGPL/CUSTBYNAME) SRCFILE(QGPL/CUSTOMERS)` |
+| `DSPPFM` | Implementado | Muestra miembros o registros de un PF. | `DSPPFM FILE(QGPL/CUSTOMERS)` |
+| `CLRPFM` | Implementado | Limpia un miembro de PF. | `CLRPFM FILE(QGPL/CUSTOMERS) CONFIRM(*YES)` |
+| `ADDPFM` | Implementado | Agrega un miembro a un PF. | `ADDPFM FILE(QGPL/CUSTOMERS) MBR(JAN2026)` |
+| `WRTPFM` | Implementado | Escribe un registro por clave o RRN automatico. | `WRTPFM FILE(QGPL/CUSTOMERS) KEY(C001) DATA(ALICE)` |
+| `CPYF` | Objetivo V1 | Copia registros entre archivos. | `CPYF FROMFILE(QGPL/A) TOFILE(QGPL/B)` |
+| `RUNQRY` | Objetivo V1 | Ejecuta una consulta simple sobre archivo. | `RUNQRY QRYFILE(QGPL/CUSTOMERS)` |
+| `OPNQRYF` | Objetivo V2 | Abre vista/query estilo AS/400. | `OPNQRYF FILE((QGPL/CUSTOMERS)) QRYSLT('KEY *EQ C001')` |
+
+### Data queues
+
+| Comando | Estado | Descripcion | Ejemplo |
+| --- | --- | --- | --- |
+| `CRTDTAQ` | Implementado | Crea una data queue `*DTAQ`. | `CRTDTAQ DTAQ(QUSRSYS/QEZJOBLOG)` |
+| `SNDDTAQ` | Implementado | Envia un mensaje a una data queue. | `SNDDTAQ DTAQ(QUSRSYS/QEZJOBLOG) MSG(JobStarted)` |
+| `RCVDTAQ` | Implementado | Recibe un mensaje desde una data queue. | `RCVDTAQ DTAQ(QUSRSYS/QEZJOBLOG) WAIT(0)` |
+| `DSPDTAQ` | Implementado | Muestra contenido de una data queue. | `DSPDTAQ DTAQ(QUSRSYS/QEZJOBLOG)` |
+| `DLTDTAQ` | Objetivo V1 | Elimina una data queue. | `DLTDTAQ DTAQ(QUSRSYS/QEZJOBLOG)` |
 
 ## Opciones TUI utiles
 
@@ -186,37 +279,6 @@ c400c --input tests/hola_mundo.c --output /l400/QSYS/HELLOC
 | `SpoolOutq` | `5` | Muestra el primer spool file disponible. |
 | `STRSQL` | `F7/F8` | Desplaza columnas de resultados. |
 
-## Output queues y spool
-
-| Comando | Descripcion | Ejemplo |
-| --- | --- | --- |
-| `WRKOUTQ` | Lista o trabaja con output queues. | `WRKOUTQ OUTQ(QPRINT)` |
-| `CRTOUTQ` | Crea una output queue `*OUTQ`. | `CRTOUTQ OUTQ(QGPL/QPRINT)` |
-| `DLTOUTQ` | Elimina una output queue. | `DLTOUTQ OUTQ(QGPL/QPRINT)` |
-| `WRKSPLF` | Lista spool files. | `WRKSPLF SELECT(*CURRENT)` |
-| `DSPSPLF` | Muestra un spool file. | `DSPSPLF FILE(QPRINT)` |
-| `DLTSPLF` | Elimina un spool file. | `DLTSPLF FILE(QPRINT)` |
-
-## Loader y politica de objetos
-
-| Comando | Descripcion | Ejemplo |
-| --- | --- | --- |
-| `l400-loader` | Carga la politica eBPF LSM. | `l400-loader --mode full --once` |
-| `l400-loader --mode degraded` | Intenta cargar politica y continua si no puede. | `l400-loader --mode degraded --once` |
-| `l400-loader --mode dev` | Modo tolerante para desarrollo. | `l400-loader --mode dev --once` |
-| `l400-support-report` | Muestra modo efectivo y capacidades de enforcement. | `l400-support-report` |
-| `l400-upgrade-check` | Valida version metadata, xattrs, persistencia y backup recomendado. | `l400-upgrade-check` |
-| `l400-migrate` | Aplica migraciones versionadas de `/l400`. | `l400-migrate` |
-
-## Operacion diaria guiada
-
-1. Iniciar sesion en la TUI y entrar a `GO MAIN`.
-2. Revisar salud con `WRKSYSSTS` y `l400-support-report --write`.
-3. Trabajar objetos con `WRKOBJ`, usando `5=Display`, `8=Authorities` y `4=Delete`.
-4. Revisar jobs con `WRKACTJOB`; usar `9=Log` para diagnosticar batch.
-5. Revisar salidas con `WRKSPLF` o la opcion de menu `Spool files`.
-6. Antes de upgrade: `l400-upgrade-check`, backup con `rsync -aX`, luego `l400-migrate`.
-
 ## Variables de entorno utiles
 
 | Variable | Descripcion | Ejemplo |
@@ -227,3 +289,29 @@ c400c --input tests/hola_mundo.c --output /l400/QSYS/HELLOC
 | `L400_LIBLIST` | Lista de bibliotecas de busqueda. | `export L400_LIBLIST=QGPL:QSYS` |
 | `L400_STORAGE_BACKEND` | Backend para PF/LF/DTAQ. | `export L400_STORAGE_BACKEND=sled` |
 | `L400_BPF_PATH` | Ruta al artefacto eBPF. | `export L400_BPF_PATH=/opt/l400/hooks/l400-ebpf` |
+
+## Operacion diaria guiada por rol
+
+Operador:
+
+1. Entrar a `GO MAIN`.
+2. Revisar salud con `WRKSYSSTS`, `DSPLOG` y `DSPPOLICY`.
+3. Revisar jobs con `WRKACTJOB` y `WRKJOBQ`.
+4. Revisar salidas con `WRKSPLF` y `WRKOUTQ`.
+5. Antes de mantenimiento: `l400-upgrade-check` y backup con `rsync -aX`.
+
+Administrador:
+
+1. Crear bibliotecas con `CRTLIB`.
+2. Gestionar perfiles con `WRKUSRPRF` y, cuando esten disponibles, `CRTUSRPRF`/`CHGUSRPRF`.
+3. Asignar autoridad con `GRTOBJAUT` y revisar con `DSPOBJAUT`.
+4. Revisar auditoria con `DSPAUD`.
+5. Verificar integridad con `CHKOBJINT`.
+
+Programador:
+
+1. Crear o abrir source members con `STRPDM`, `WRKMBRPDM` y `STRSEU`.
+2. Crear PF/LF con `CRTPF` y `CRTLF`.
+3. Compilar CL con `CRTCLPGM`.
+4. Ejecutar con `CALL` o enviar a batch con `SBMJOB`.
+5. Consultar datos con `STRSQL` y revisar resultados con `DSPPFM`.
