@@ -273,15 +273,17 @@ impl Screen for WorkManagement {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4),
-                Constraint::Min(0),
-                Constraint::Length(3),
+                Constraint::Length(4),      // Header
+                Constraint::Min(0),          // Jobs table
+                Constraint::Length(1),      // Ruler line
+                Constraint::Length(3),      // Help
             ])
             .split(crate::screens::screen_area(frame));
 
         self.render_header(frame, chunks[0]);
         self.render_jobs(frame, chunks[1]);
-        self.render_help(frame, chunks[2]);
+        render_ruler(frame, chunks[2]);
+        self.render_help(frame, chunks[3]);
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {

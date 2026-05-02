@@ -226,17 +226,19 @@ impl Screen for WrkUsrPrf {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4),
-                Constraint::Min(0),
-                Constraint::Length(3),
-                Constraint::Length(3),
+                Constraint::Length(4),      // Header
+                Constraint::Min(0),          // Table
+                Constraint::Length(1),       // Ruler line
+                Constraint::Length(3),       // Status
+                Constraint::Length(3),       // Help
             ])
             .split(crate::screens::screen_area(frame));
 
         self.render_header(frame, chunks[0]);
         self.table.render(frame, chunks[1]);
-        self.render_status(frame, chunks[2]);
-        self.render_help(frame, chunks[3]);
+        render_ruler(frame, chunks[2]);
+        self.render_status(frame, chunks[3]);
+        self.render_help(frame, chunks[4]);
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {

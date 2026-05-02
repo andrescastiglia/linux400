@@ -307,11 +307,7 @@ impl Screen for MainMenu {
 
 impl MainMenu {
     fn render_ruler(&self, frame: &mut Frame, area: Rect) {
-        let ruler: String = "=".repeat(area.width as usize);
-        frame.render_widget(
-            Paragraph::new(ruler).style(STYLE_RULER),
-            area,
-        );
+        render_ruler(frame, area);
     }
 
     fn render_command_line(&self, frame: &mut Frame, area: Rect) {

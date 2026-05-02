@@ -1,4 +1,8 @@
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::{
+    style::{Color, Modifier, Style},
+    Frame,
+    layout::Rect,
+};
 
 pub const COLOR_SCREEN_BG: Color = Color::Black;
 pub const COLOR_HEADER_BG: Color = Color::Black;
@@ -71,6 +75,15 @@ pub const STYLE_SUBFILE_SEPARATOR: Style = Style::new().bg(COLOR_SCREEN_BG).fg(C
 
 /// Ruler line (5250 style).
 pub const STYLE_RULER: Style = Style::new().bg(COLOR_SCREEN_BG).fg(COLOR_NORMAL);
+
+/// Render a 5250-style ruler line (=======) in the given area.
+pub fn render_ruler(frame: &mut Frame, area: Rect) {
+    let ruler: String = "=".repeat(area.width as usize);
+    frame.render_widget(
+        ratatui::widgets::Paragraph::new(ruler).style(STYLE_RULER),
+        area,
+    );
+}
 
 // -- Status bar styles --
 

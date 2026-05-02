@@ -146,15 +146,16 @@ impl Screen for SignOnScreen {
         let sections = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(2),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Min(2),
-                Constraint::Length(1),
+                Constraint::Length(2),      // System info
+                Constraint::Length(1),      // Ruler line (top)
+                Constraint::Length(1),      // User field
+                Constraint::Length(1),      // Password field
+                Constraint::Length(1),      // Current library field
+                Constraint::Length(1),      // Initial menu field
+                Constraint::Length(1),      // Ruler line (bottom)
+                Constraint::Length(1),      // Status line
+                Constraint::Min(2),         // Message area
+                Constraint::Length(1),      // Help line
             ])
             .split(inner);
 
@@ -164,6 +165,9 @@ impl Screen for SignOnScreen {
                 .alignment(Alignment::Left),
             sections[0],
         );
+
+        // Top ruler line
+        render_ruler(frame, sections[1]);
 
         for (offset, field_id) in [
             ActiveField::User,
@@ -176,12 +180,15 @@ impl Screen for SignOnScreen {
         {
             let field = &mut self.fields[offset];
             field.active = *field_id == self.active_field;
-            field.render(frame, sections[1 + offset]);
+            field.render(frame, sections[2 + offset]);
         }
+
+        // Bottom ruler line
+        render_ruler(frame, sections[6]);
 
         frame.render_widget(
             Paragraph::new("System mode shown in global status line.").style(STYLE_DIM),
-            sections[5],
+            sections[7],
         );
 
         let message = self
@@ -193,7 +200,7 @@ impl Screen for SignOnScreen {
         } else {
             STYLE_NORMAL
         };
-        frame.render_widget(Paragraph::new(message).style(message_style), sections[7]);
+        frame.render_widget(Paragraph::new(message).style(message_style), sections[8]);
 
         frame.render_widget(
             Paragraph::new("F3=Exit   Tab=Next field   Enter=Sign on")
@@ -205,7 +212,7 @@ impl Screen for SignOnScreen {
                         .border_style(STYLE_BORDER)
                         .style(STYLE_HELP),
                 ),
-            sections[8],
+            sections[9],
         );
     }
 

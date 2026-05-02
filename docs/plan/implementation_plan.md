@@ -82,10 +82,10 @@ Objetivo: Establecer las bases de la interfaz tipo OS/400 y corregir los problem
 - [x] Variable `L400_PWRDWNSYS_DRY_RUN=1` mantiene el modo prueba para desarrollo.
 
 ### 1.5 Estilo 5250 base
-- [ ] Paleta de colores idéntica a OS/400: verde claro sobre fondo negro, campos activos en verde brillante, campos protegidos en verde apagado.
-- [ ] Ruler lines (`========`) en todas las pantallas, como AS/400.
-- [ ] Indicador de cursor visible (subrayado o inverso) en todos los campos de entrada.
-- [ ] Definir constantes de estilo en `style.rs` para mantener consistencia.
+- [x] Paleta de colores idéntica a OS/400: verde claro sobre fondo negro, campos activos en verde brillante, campos protegidos en verde apagado.
+- [x] Ruler lines (`========`) en todas las pantallas, como AS/400.
+- [x] Indicador de cursor visible (subrayado o inverso) en todos los campos de entrada.
+- [x] Definir constantes de estilo en `style.rs` para mantener consistencia.
 
 Criterio de cierre Fase 1:
 - [ ] Backspace y navegación de texto funcionan en todos los campos.

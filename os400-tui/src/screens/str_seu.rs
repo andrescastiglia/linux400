@@ -633,10 +633,10 @@ mod tests {
         seu.cursor_col = 0;
 
         // Simulate typing lowercase in CL program
-        let result = seu.handle_key(KeyEvent::from(KeyCode::Char('p')));
-        let result = seu.handle_key(KeyEvent::from(KeyCode::Char('g')));
-        let result = seu.handle_key(KeyEvent::from(KeyCode::Char('m')));
-
+        seu.handle_key(KeyEvent::from(KeyCode::Char('p')));
+        seu.handle_key(KeyEvent::from(KeyCode::Char('g')));
+        seu.handle_key(KeyEvent::from(KeyCode::Char('m')));
+        
         assert_eq!(seu.lines[0], "PGM");
     }
 
@@ -654,10 +654,10 @@ mod tests {
         seu.cursor_col = 0;
 
         // Simulate typing in C source - should remain lowercase
-        let result = seu.handle_key(KeyEvent::from(KeyCode::Char('i')));
-        let result = seu.handle_key(KeyEvent::from(KeyCode::Char('n')));
-        let result = seu.handle_key(KeyEvent::from(KeyCode::Char('t')));
-
+        seu.handle_key(KeyEvent::from(KeyCode::Char('i')));
+        seu.handle_key(KeyEvent::from(KeyCode::Char('n')));
+        seu.handle_key(KeyEvent::from(KeyCode::Char('t')));
+        
         assert_eq!(seu.lines[0], "int");
     }
 }
