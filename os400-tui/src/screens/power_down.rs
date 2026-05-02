@@ -142,6 +142,10 @@ impl Screen for PowerDownSystem {
         }
 
         match key.code {
+            KeyCode::Enter => {
+                self.execute();
+                ScreenResult::none()
+            }
             KeyCode::F(3) | KeyCode::F(12) | KeyCode::Esc => ScreenResult::back(),
             _ => ScreenResult::none(),
         }

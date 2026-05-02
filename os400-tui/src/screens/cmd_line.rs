@@ -315,15 +315,21 @@ impl CommandLine {
             if let Some(meta) = metadata
                 && let Some(param) = meta.parameters.iter().find(|p| p.name == field.name)
                 && !field.value.trim().is_empty()
-                && (param.values.contains('|') || param.values.contains(','))
+                && !param.values.is_empty()
+                && param.values.contains('*')
             {
-                let separators = ['|', ','];
-                let valid_values: Vec<&str> = param
-                    .values
-                    .split(|c| separators.contains(&c))
-                    .map(|v| v.trim())
-                    .collect();
                 let value = field.value.trim();
+                let valid_values: Vec<&str> =
+                    if param.values.contains('|') || param.values.contains(',') {
+                        let separators = ['|', ','];
+                        param
+                            .values
+                            .split(|c| separators.contains(&c))
+                            .map(|v| v.trim())
+                            .collect()
+                    } else {
+                        vec![param.values.trim()]
+                    };
                 if !valid_values.contains(&value) && !value.starts_with('*') {
                     self.prompt_error = Some(format!(
                         "CPF0002: Valor inválido para {}. Valores válidos: {}",
@@ -438,7 +444,7 @@ impl CommandLine {
                     .unwrap_or_else(|| "*NO".to_string());
                 Some(ScreenResult::with_data(
                     ScreenId::PowerDown,
-                    format!("{} {}", option, confirm),
+                    format!("OPTION({}) CONFIRM({})", option, confirm),
                 ))
             }
             "WRKACTJOB" => Some(ScreenResult::goto(ScreenId::WorkManagement)),

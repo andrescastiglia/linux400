@@ -88,12 +88,24 @@ fn current_owner_name() -> Option<String> {
 }
 
 fn current_owner_uid() -> String {
-    if let Some(name) = current_owner_name() {
-        let name_cstr = std::ffi::CString::new(name).ok();
-        if let Some(cstr) = name_cstr
-            && let Some(pw) = unsafe { libc::getpwnam(cstr.as_ptr()).as_ref() }
-        {
-            return pw.pw_uid.to_string();
+    if let Some(name) = current_owner_name()
+        && let Ok(cname) = std::ffi::CString::new(name)
+    {
+        let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+        let buflen: usize = 4096;
+        let mut buf = vec![0u8; buflen];
+        let mut result: *mut libc::passwd = std::ptr::null_mut();
+        let status = unsafe {
+            libc::getpwnam_r(
+                cname.as_ptr(),
+                &mut pwd,
+                buf.as_mut_ptr() as *mut libc::c_char,
+                buflen,
+                &mut result,
+            )
+        };
+        if status == 0 && !result.is_null() && result == &mut pwd {
+            return pwd.pw_uid.to_string();
         }
     }
     unsafe { libc::geteuid().to_string() }

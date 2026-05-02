@@ -343,7 +343,13 @@ impl MainMenu {
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
 
         if self.command_input.active {
-            let cursor_x = area.x + prefix_len as u16 + self.command_input.cursor as u16;
+            let cursor_chars = self.command_input.value[..self.command_input.cursor]
+                .chars()
+                .count();
+            let visible_cursor = cursor_chars
+                .saturating_sub(value_chars.saturating_sub(available))
+                .min(available);
+            let cursor_x = area.x + prefix_len as u16 + visible_cursor as u16;
             if cursor_x < area.x + area.width {
                 frame.set_cursor_position((cursor_x, area.y));
             }
