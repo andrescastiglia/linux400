@@ -256,4 +256,97 @@ mod tests {
         // Should match at least WRKOBJ from COMMAND_METADATA
         assert!(input.value.starts_with("WRKOBJ"));
     }
+
+    #[test]
+    fn delete_removes_char_at_cursor() {
+        let mut input = CommandInput::new();
+        input.value = "ABC".to_string();
+        input.cursor = 1;
+        input.handle_key(key(KeyCode::Delete));
+        assert_eq!(input.value, "AC");
+    }
+
+    #[test]
+    fn delete_at_end_does_nothing() {
+        let mut input = CommandInput::new();
+        input.value = "ABC".to_string();
+        input.cursor = 3;
+        input.handle_key(key(KeyCode::Delete));
+        assert_eq!(input.value, "ABC");
+    }
+
+    #[test]
+    fn left_arrow_moves_cursor_left() {
+        let mut input = CommandInput::new();
+        input.value = "ABC".to_string();
+        input.cursor = 2;
+        input.handle_key(key(KeyCode::Left));
+        assert_eq!(input.cursor, 1);
+    }
+
+    #[test]
+    fn right_arrow_moves_cursor_right() {
+        let mut input = CommandInput::new();
+        input.value = "ABC".to_string();
+        input.cursor = 1;
+        input.handle_key(key(KeyCode::Right));
+        assert_eq!(input.cursor, 2);
+    }
+
+    #[test]
+    fn left_arrow_at_beginning_stays() {
+        let mut input = CommandInput::new();
+        input.value = "ABC".to_string();
+        input.cursor = 0;
+        input.handle_key(key(KeyCode::Left));
+        assert_eq!(input.cursor, 0);
+    }
+
+    #[test]
+    fn right_arrow_at_end_stays() {
+        let mut input = CommandInput::new();
+        input.value = "ABC".to_string();
+        input.cursor = 3;
+        input.handle_key(key(KeyCode::Right));
+        assert_eq!(input.cursor, 3);
+    }
+
+    #[test]
+    fn home_moves_cursor_to_beginning() {
+        let mut input = CommandInput::new();
+        input.value = "ABC".to_string();
+        input.cursor = 2;
+        input.handle_key(key(KeyCode::Home));
+        assert_eq!(input.cursor, 0);
+    }
+
+    #[test]
+    fn end_moves_cursor_to_end() {
+        let mut input = CommandInput::new();
+        input.value = "ABC".to_string();
+        input.cursor = 1;
+        input.handle_key(key(KeyCode::End));
+        assert_eq!(input.cursor, 3);
+    }
+
+    #[test]
+    fn insert_char_in_middle() {
+        let mut input = CommandInput::new();
+        input.value = "ABC".to_string();
+        input.cursor = 1;
+        input.handle_key(key(KeyCode::Char('X')));
+        assert_eq!(input.value, "AXBC");
+        assert_eq!(input.cursor, 2);
+    }
+
+    #[test]
+    fn backspace_clears_candidates() {
+        let mut input = CommandInput::new();
+        input.value = "WRK".to_string();
+        input.cursor = 3;
+        input.handle_key(key(KeyCode::Tab)); // Populate candidates
+        assert!(!input.candidates.is_empty());
+        input.handle_key(key(KeyCode::Backspace)); // Should clear candidates
+        assert!(input.candidates.is_empty());
+    }
 }

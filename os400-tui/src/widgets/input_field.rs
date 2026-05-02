@@ -256,4 +256,87 @@ mod tests {
         assert_eq!(field.value, "");
         assert_eq!(field.cursor, 0);
     }
+
+    #[test]
+    fn home_moves_cursor_to_beginning() {
+        let mut field = InputField::new("F", 10).with_value("hello");
+        field.cursor = 3;
+        field.move_home();
+        assert_eq!(field.cursor, 0);
+    }
+
+    #[test]
+    fn end_moves_cursor_to_end() {
+        let mut field = InputField::new("F", 10).with_value("hello");
+        field.cursor = 2;
+        field.move_end();
+        assert_eq!(field.cursor, 5);
+    }
+
+    #[test]
+    fn left_arrow_moves_cursor_left() {
+        let mut field = InputField::new("F", 10).with_value("hello");
+        field.cursor = 3;
+        field.move_left();
+        assert_eq!(field.cursor, 2);
+    }
+
+    #[test]
+    fn right_arrow_moves_cursor_right() {
+        let mut field = InputField::new("F", 10).with_value("hello");
+        field.cursor = 2;
+        field.move_right();
+        assert_eq!(field.cursor, 3);
+    }
+
+    #[test]
+    fn left_arrow_at_beginning_stays() {
+        let mut field = InputField::new("F", 10).with_value("hello");
+        field.cursor = 0;
+        field.move_left();
+        assert_eq!(field.cursor, 0);
+    }
+
+    #[test]
+    fn right_arrow_at_end_stays() {
+        let mut field = InputField::new("F", 10).with_value("hello");
+        field.cursor = 5;
+        field.move_right();
+        assert_eq!(field.cursor, 5);
+    }
+
+    #[test]
+    fn backspace_at_beginning_does_nothing() {
+        let mut field = InputField::new("F", 10).with_value("hello");
+        field.cursor = 0;
+        field.delete_back();
+        assert_eq!(field.value, "hello");
+        assert_eq!(field.cursor, 0);
+    }
+
+    #[test]
+    fn delete_at_end_does_nothing() {
+        let mut field = InputField::new("F", 10).with_value("hello");
+        field.cursor = 5;
+        field.delete_forward();
+        assert_eq!(field.value, "hello");
+    }
+
+    #[test]
+    fn insert_char_in_middle() {
+        let mut field = InputField::new("F", 10).with_value("hello");
+        field.cursor = 2;
+        field.insert_char('X');
+        assert_eq!(field.value, "heXllo");
+        assert_eq!(field.cursor, 3);
+    }
+
+    #[test]
+    fn uppercase_field_converts_to_uppercase() {
+        let mut field = InputField::new("F", 10).uppercase().with_value("hello");
+        field.cursor = 5;
+        field.insert_char('w');
+        assert_eq!(field.value, "helloW");
+        assert_eq!(field.cursor, 6);
+    }
 }

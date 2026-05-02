@@ -448,7 +448,12 @@ impl Screen for StrSeu {
             }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.begin_edit();
-                self.lines[self.cursor_row].insert(self.cursor_col, c);
+                let ch = if self.member_type() == "CLP" {
+                    c.to_ascii_uppercase()
+                } else {
+                    c
+                };
+                self.lines[self.cursor_row].insert(self.cursor_col, ch);
                 self.cursor_col += 1;
                 ScreenResult::none()
             }
@@ -612,5 +617,47 @@ mod tests {
                 .expect("compile command")
                 .starts_with("CRTPGM")
         );
+    }
+
+    #[test]
+    fn cl_content_auto_uppercases() {
+        let mut seu = StrSeu::from_member_spec(
+            "QGPL",
+            "QCLSRC",
+            "TEST.CLP",
+            ScreenId::WrkMbrPdm,
+            Some("QGPL/QCLSRC".to_string()),
+        );
+        seu.lines = vec!["".to_string()];
+        seu.cursor_row = 0;
+        seu.cursor_col = 0;
+
+        // Simulate typing lowercase in CL program
+        let result = seu.handle_key(KeyEvent::from(KeyCode::Char('p')));
+        let result = seu.handle_key(KeyEvent::from(KeyCode::Char('g')));
+        let result = seu.handle_key(KeyEvent::from(KeyCode::Char('m')));
+
+        assert_eq!(seu.lines[0], "PGM");
+    }
+
+    #[test]
+    fn c_content_does_not_auto_uppercase() {
+        let mut seu = StrSeu::from_member_spec(
+            "QGPL",
+            "QCSRC",
+            "TEST.C",
+            ScreenId::WrkMbrPdm,
+            Some("QGPL/QCSRC".to_string()),
+        );
+        seu.lines = vec!["".to_string()];
+        seu.cursor_row = 0;
+        seu.cursor_col = 0;
+
+        // Simulate typing in C source - should remain lowercase
+        let result = seu.handle_key(KeyEvent::from(KeyCode::Char('i')));
+        let result = seu.handle_key(KeyEvent::from(KeyCode::Char('n')));
+        let result = seu.handle_key(KeyEvent::from(KeyCode::Char('t')));
+
+        assert_eq!(seu.lines[0], "int");
     }
 }

@@ -55,10 +55,10 @@ Estado: **En progreso para 0.2.0**
 Objetivo: Establecer las bases de la interfaz tipo OS/400 y corregir los problemas de usabilidad críticos.
 
 ### 1.1 Corrección de manejo de entrada de texto
-- [ ] Backspace funciona correctamente en `InputField`, `CommandInput` y editor SEU.
-- [ ] Soporte para teclas Delete, Arrow Left/Right, Home/End en campos de texto.
-- [ ] Auto-uppercase en campos de nombres de objetos, comandos y rutas (como OS/400).
-- [ ] Test automatizado de entrada de texto para todos los widgets.
+- [x] Backspace funciona correctamente en `InputField`, `CommandInput` y editor SEU.
+- [x] Soporte para teclas Delete, Arrow Left/Right, Home/End en campos de texto.
+- [x] Auto-uppercase en campos de nombres de objetos, comandos y rutas (como OS/400).
+- [x] Test automatizado de entrada de texto para todos los widgets.
 
 ### 1.2 Implementación de F4 Prompt de comandos
 - [ ] Al presionar F4 en la línea de comandos o ejecutar un comando, se muestra el prompt de parámetros del *CMD correspondiente.
