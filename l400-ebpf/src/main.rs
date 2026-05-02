@@ -281,10 +281,16 @@ fn lookup_file_uid_auth_allows(file: *mut c_void, uid: u32) -> bool {
                 if remaining >= 4 && &auth[..4] == b"*ALL" {
                     return true;
                 }
+                if remaining >= 7 && &auth[..7] == b"*CHANGE" {
+                    return true;
+                }
                 if remaining >= 3 && &auth[..3] == b"USE" {
                     return true;
                 }
                 if remaining >= 3 && &auth[..3] == b"ALL" {
+                    return true;
+                }
+                if remaining >= 6 && &auth[..6] == b"CHANGE" {
                     return true;
                 }
             }

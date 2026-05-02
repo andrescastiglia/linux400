@@ -88,6 +88,14 @@ fn current_owner_name() -> Option<String> {
 }
 
 fn current_owner_uid() -> String {
+    if let Some(name) = current_owner_name() {
+        let name_cstr = std::ffi::CString::new(name).ok();
+        if let Some(cstr) = name_cstr
+            && let Some(pw) = unsafe { libc::getpwnam(cstr.as_ptr()).as_ref() }
+        {
+            return pw.pw_uid.to_string();
+        }
+    }
     unsafe { libc::geteuid().to_string() }
 }
 
