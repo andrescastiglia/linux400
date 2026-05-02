@@ -106,9 +106,9 @@ Objetivo: Implementar stack de navegación real, pantallas faltantes y widgets r
 - [x] Límite de 16 entradas en el stack para evitar fugas.
 
 ### 2.2 Widgets reutilizables
-- [ ] `SubfileTable`: tabla paginada con scroll vertical, opciones numéricas por fila.
-- [ ] `ConfirmDialog`: popup modal estándar para acciones destructivas.
-- [ ] `StatusBar`: barra inferior con reloj, usuario, biblioteca actual, job y estado del sistema.
+- [x] `SubfileTable`: tabla paginada con scroll vertical, opciones numéricas por fila.
+- [x] `ConfirmDialog`: popup modal estándar para acciones destructivas.
+- [x] `StatusBar`: barra inferior con reloj, usuario, biblioteca actual, job y estado del sistema.
 
 ### 2.3 Pantallas faltantes
 - [ ] `WRKLIB` dedicado con opciones de crear/borrar/renombrar bibliotecas.
