@@ -88,11 +88,11 @@ Objetivo: Establecer las bases de la interfaz tipo OS/400 y corregir los problem
 - [x] Definir constantes de estilo en `style.rs` para mantener consistencia.
 
 Criterio de cierre Fase 1:
-- [ ] Backspace y navegación de texto funcionan en todos los campos.
-- [ ] F4 muestra el prompt de parámetros para comandos *CMD válidos.
-- [ ] Menú principal replica el layout básico de OS/400.
-- [ ] `PWRDWNSYS` apaga/reinicia el sistema real con autorización válida.
-- [ ] `cargo test -p os400-tui` pasa sin regresiones, con tests de usabilidad y fidelidad AS/400.
+- [x] Backspace y navegación de texto funcionan en todos los campos.
+- [x] F4 muestra el prompt de parámetros para comandos *CMD válidos.
+- [x] Menú principal replica el layout básico de OS/400.
+- [x] `PWRDWNSYS` apaga/reinicia el sistema real con autorización válida.
+- [x] `cargo test -p os400-tui` pasa sin regresiones, con tests de usabilidad y fidelidad AS/400.
 
 ---
 
