@@ -69,6 +69,9 @@ pub const STYLE_INPUT_PROTECTED: Style = Style::new().bg(Color::Black).fg(COLOR_
 /// Subfile separator line.
 pub const STYLE_SUBFILE_SEPARATOR: Style = Style::new().bg(COLOR_SCREEN_BG).fg(COLOR_BORDER);
 
+/// Ruler line (5250 style).
+pub const STYLE_RULER: Style = Style::new().bg(COLOR_SCREEN_BG).fg(COLOR_NORMAL);
+
 // -- Status bar styles --
 
 /// Global status bar background.

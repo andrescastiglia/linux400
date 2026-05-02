@@ -67,13 +67,13 @@ Objetivo: Establecer las bases de la interfaz tipo OS/400 y corregir los problem
 - [x] F4 funciona en todos los comandos catalogados en `COMMAND_METADATA`.
 
 ### 1.3 Rediseño del menú principal estilo OS/400
-- [ ] Rediseñar `MainMenu` para replicar el layout 5250 clásico:
+- [x] Rediseñar `MainMenu` para replicar el layout 5250 clásico:
   - Ruler line superior con nombre del sistema, usuario y fecha/hora.
   - Opciones numeradas con descripción corta y mapeo a F-keys.
   - Ruler line inferior con F-keys estándar (F3=Salir, F4=Prompt, F12=Cancelar, F24=More keys).
   - Línea de comandos persistente (`===>`) en la parte inferior de la pantalla.
-- [ ] Navegación coherente: F3 cierra sesión, F12 vuelve a la pantalla anterior, Enter ejecuta la opción seleccionada.
-- [ ] Opciones del menú mapeadas a comandos reales, no stubs.
+- [x] Navegación coherente: F3 cierra sesión, F12 vuelve a la pantalla anterior, Enter ejecuta la opción seleccionada.
+- [x] Opciones del menú mapeadas a comandos reales, no stubs.
 
 ### 1.4 Comandos funcionales: PWRDWNSYS
 - [ ] `PWRDWNSYS` ejecuta apagado (`poweroff`) o reinicio (`reboot`) real del sistema, validando privilegios de root/autoridad *ALLOBJ.
