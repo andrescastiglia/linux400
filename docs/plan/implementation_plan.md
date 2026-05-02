@@ -111,9 +111,9 @@ Objetivo: Implementar stack de navegación real, pantallas faltantes y widgets r
 - [x] `StatusBar`: barra inferior con reloj, usuario, biblioteca actual, job y estado del sistema.
 
 ### 2.3 Pantallas faltantes
-- [ ] `WRKLIB` dedicado con opciones de crear/borrar/renombrar bibliotecas.
-- [ ] `DSPOBJD` con layout de campos estilo OS/400, no texto plano.
-- [ ] `WRKSYSVAL` editable con F4 prompt para valores.
+- [x] `WRKLIB` dedicado con opciones de crear/borrar/renombrar bibliotecas.
+- [x] `DSPOBJD` con layout de campos estilo OS/400, no texto plano.
+- [x] `WRKSYSVAL` editable con F4 prompt para valores.
 
 ---
 
