@@ -101,9 +101,9 @@ Estado: **Pendiente**
 Objetivo: Implementar stack de navegación real, pantallas faltantes y widgets reutilizables.
 
 ### 2.1 Stack de navegación
-- [ ] Reemplazar `previous_screen: Option<ScreenId>` con `Vec<NavEntry>` (stack LIFO).
-- [ ] F3/F12 hacen pop del stack, manteniendo contexto de retorno.
-- [ ] Límite de 16 entradas en el stack para evitar fugas.
+- [x] Reemplazar `previous_screen: Option<ScreenId>` con `Vec<NavEntry>` (stack LIFO).
+- [x] F3/F12 hacen pop del stack, manteniendo contexto de retorno.
+- [x] Límite de 16 entradas en el stack para evitar fugas.
 
 ### 2.2 Widgets reutilizables
 - [ ] `SubfileTable`: tabla paginada con scroll vertical, opciones numéricas por fila.
