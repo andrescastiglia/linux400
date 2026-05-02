@@ -636,7 +636,7 @@ mod tests {
         seu.handle_key(KeyEvent::from(KeyCode::Char('p')));
         seu.handle_key(KeyEvent::from(KeyCode::Char('g')));
         seu.handle_key(KeyEvent::from(KeyCode::Char('m')));
-        
+
         assert_eq!(seu.lines[0], "PGM");
     }
 
@@ -657,7 +657,7 @@ mod tests {
         seu.handle_key(KeyEvent::from(KeyCode::Char('i')));
         seu.handle_key(KeyEvent::from(KeyCode::Char('n')));
         seu.handle_key(KeyEvent::from(KeyCode::Char('t')));
-        
+
         assert_eq!(seu.lines[0], "int");
     }
 }

@@ -118,7 +118,6 @@ impl SignOnScreen {
             ActiveField::InitialMenu => &mut self.fields[3],
         }
     }
-
 }
 
 impl Screen for SignOnScreen {
@@ -146,16 +145,16 @@ impl Screen for SignOnScreen {
         let sections = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(2),      // System info
-                Constraint::Length(1),      // Ruler line (top)
-                Constraint::Length(1),      // User field
-                Constraint::Length(1),      // Password field
-                Constraint::Length(1),      // Current library field
-                Constraint::Length(1),      // Initial menu field
-                Constraint::Length(1),      // Ruler line (bottom)
-                Constraint::Length(1),      // Status line
-                Constraint::Min(2),         // Message area
-                Constraint::Length(1),      // Help line
+                Constraint::Length(2), // System info
+                Constraint::Length(1), // Ruler line (top)
+                Constraint::Length(1), // User field
+                Constraint::Length(1), // Password field
+                Constraint::Length(1), // Current library field
+                Constraint::Length(1), // Initial menu field
+                Constraint::Length(1), // Ruler line (bottom)
+                Constraint::Length(1), // Status line
+                Constraint::Min(2),    // Message area
+                Constraint::Length(1), // Help line
             ])
             .split(inner);
 

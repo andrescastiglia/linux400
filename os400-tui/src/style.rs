@@ -1,7 +1,7 @@
 use ratatui::{
-    style::{Color, Modifier, Style},
     Frame,
     layout::Rect,
+    style::{Color, Modifier, Style},
 };
 
 pub const COLOR_SCREEN_BG: Color = Color::Black;

@@ -273,10 +273,10 @@ impl Screen for WorkManagement {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4),      // Header
-                Constraint::Min(0),          // Jobs table
-                Constraint::Length(1),      // Ruler line
-                Constraint::Length(3),      // Help
+                Constraint::Length(4), // Header
+                Constraint::Min(0),    // Jobs table
+                Constraint::Length(1), // Ruler line
+                Constraint::Length(3), // Help
             ])
             .split(crate::screens::screen_area(frame));
 

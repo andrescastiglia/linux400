@@ -226,11 +226,11 @@ impl Screen for WrkUsrPrf {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4),      // Header
-                Constraint::Min(0),          // Table
-                Constraint::Length(1),       // Ruler line
-                Constraint::Length(3),       // Status
-                Constraint::Length(3),       // Help
+                Constraint::Length(4), // Header
+                Constraint::Min(0),    // Table
+                Constraint::Length(1), // Ruler line
+                Constraint::Length(3), // Status
+                Constraint::Length(3), // Help
             ])
             .split(crate::screens::screen_area(frame));
 

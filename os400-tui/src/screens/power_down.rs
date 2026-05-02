@@ -16,11 +16,10 @@ pub struct PowerDownSystem {
     confirm: Option<ConfirmDialog>,
     message: String,
     option: String,
-    confirm_param: String,
 }
 
 impl PowerDownSystem {
-    pub fn with_params(session: SessionContext, option: String, confirm_param: String) -> Self {
+    pub fn with_option(session: SessionContext, option: String, confirm_param: String) -> Self {
         Self {
             session,
             confirm: if confirm_param == "*YES" {
@@ -33,7 +32,6 @@ impl PowerDownSystem {
             },
             message: "Enter=Confirm   F12=Cancel".to_string(),
             option,
-            confirm_param,
         }
     }
 }
@@ -48,7 +46,6 @@ impl PowerDownSystem {
             )),
             message: "Enter=Confirm   F12=Cancel".to_string(),
             option: "POWEROFF".to_string(),
-            confirm_param: "*NO".to_string(),
         }
     }
 

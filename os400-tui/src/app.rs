@@ -207,7 +207,7 @@ impl App {
                     .and_then(|p| p.strip_suffix(')'))
                     .unwrap_or("*NO")
                     .to_string();
-                Box::new(PowerDownSystem::with_params(
+                Box::new(PowerDownSystem::with_option(
                     self.session.clone(),
                     option,
                     confirm,

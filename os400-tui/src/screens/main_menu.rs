@@ -225,11 +225,11 @@ impl Screen for MainMenu {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4),     // Header with ruler
-                Constraint::Min(0),     // Menu
-                Constraint::Length(1),     // Ruler line
-                Constraint::Length(1),     // Command line (===>)
-                Constraint::Length(1),     // F-keys
+                Constraint::Length(4), // Header with ruler
+                Constraint::Min(0),    // Menu
+                Constraint::Length(1), // Ruler line
+                Constraint::Length(1), // Command line (===>)
+                Constraint::Length(1), // F-keys
             ])
             .split(area);
 
@@ -318,21 +318,30 @@ impl MainMenu {
         let value = &self.command_input.value;
         let value_chars = value.chars().count();
         let display = if value_chars > available {
-            value.chars().skip(value_chars.saturating_sub(available)).collect::<String>()
+            value
+                .chars()
+                .skip(value_chars.saturating_sub(available))
+                .collect::<String>()
         } else {
             value.clone()
         };
         let display_chars = display.chars().count();
         let padding = available.saturating_sub(display_chars);
-        
+
         let spans = vec![
             Span::styled(prefix, STYLE_NORMAL),
-            Span::styled(format!("{}{}", display, " ".repeat(padding)), 
-                        if self.command_input.active { STYLE_INPUT_ACTIVE } else { STYLE_INPUT_PROTECTED }),
+            Span::styled(
+                format!("{}{}", display, " ".repeat(padding)),
+                if self.command_input.active {
+                    STYLE_INPUT_ACTIVE
+                } else {
+                    STYLE_INPUT_PROTECTED
+                },
+            ),
         ];
-        
+
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
-        
+
         if self.command_input.active {
             let cursor_x = area.x + prefix_len as u16 + self.command_input.cursor as u16;
             if cursor_x < area.x + area.width {
