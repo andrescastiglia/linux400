@@ -23,10 +23,7 @@ enum ActiveField {
 type AuthValidator = fn(&str, &str) -> Result<(), String>;
 
 pub struct SignOnScreen {
-    user: String,
-    password: String,
-    current_library: String,
-    initial_menu: String,
+    fields: Vec<InputField>,
     active_field: ActiveField,
     message: Option<String>,
     validator: AuthValidator,
@@ -35,10 +32,24 @@ pub struct SignOnScreen {
 impl SignOnScreen {
     pub fn new() -> Self {
         Self {
-            user: DEFAULT_SIGNON_USER.to_string(),
-            password: DEFAULT_SIGNON_PASSWORD.to_string(),
-            current_library: "QGPL".to_string(),
-            initial_menu: "MAIN".to_string(),
+            fields: vec![
+                InputField::new("User  . . . . . . . . . .", 16)
+                    .with_value(DEFAULT_SIGNON_USER)
+                    .uppercase()
+                    .required(),
+                InputField::new("Password  . . . . . . . .", 16)
+                    .with_value(DEFAULT_SIGNON_PASSWORD)
+                    .masked()
+                    .required(),
+                InputField::new("Current library . . . . .", 16)
+                    .with_value("QGPL")
+                    .uppercase()
+                    .required(),
+                InputField::new("Initial menu . . . . . .", 16)
+                    .with_value("MAIN")
+                    .uppercase()
+                    .required(),
+            ],
             active_field: ActiveField::User,
             message: None,
             validator: authenticate_linux_user,
@@ -54,7 +65,9 @@ impl SignOnScreen {
     }
 
     fn attempt_sign_on(&mut self) -> ScreenResult {
-        let user = self.user.trim().to_uppercase();
+        let user = self.fields[0].value.trim().to_uppercase();
+        let password = &self.fields[1].value;
+
         if user.is_empty() {
             self.message = Some("Enter a user profile.".to_string());
             self.active_field = ActiveField::User;
@@ -63,25 +76,25 @@ impl SignOnScreen {
 
         if user.eq_ignore_ascii_case("ROOT") {
             self.message = Some("Profile ROOT is not available on Linux/400.".to_string());
-            self.password.clear();
+            self.fields[1].clear();
             self.active_field = ActiveField::User;
             return ScreenResult::none();
         }
 
-        if self.password.is_empty() {
+        if password.is_empty() {
             self.message = Some("Enter a password.".to_string());
             self.active_field = ActiveField::Password;
             return ScreenResult::none();
         }
 
-        match (self.validator)(&user, &self.password) {
+        match (self.validator)(&user, password) {
             Ok(()) => {
                 self.message = None;
                 ScreenResult::with_data(ScreenId::MainMenu, user)
             }
             Err(error) => {
                 self.message = Some(error);
-                self.password.clear();
+                self.fields[1].clear();
                 self.active_field = ActiveField::Password;
                 ScreenResult::none()
             }
@@ -97,20 +110,12 @@ impl SignOnScreen {
         };
     }
 
-    fn active_buffer(&mut self) -> &mut String {
+    fn active_field_mut(&mut self) -> &mut InputField {
         match self.active_field {
-            ActiveField::User => &mut self.user,
-            ActiveField::Password => &mut self.password,
-            ActiveField::CurrentLibrary => &mut self.current_library,
-            ActiveField::InitialMenu => &mut self.initial_menu,
-        }
-    }
-
-    fn push_char(&mut self, c: char) {
-        if self.active_field != ActiveField::Password {
-            self.active_buffer().push(c.to_ascii_uppercase());
-        } else {
-            self.active_buffer().push(c);
+            ActiveField::User => &mut self.fields[0],
+            ActiveField::Password => &mut self.fields[1],
+            ActiveField::CurrentLibrary => &mut self.fields[2],
+            ActiveField::InitialMenu => &mut self.fields[3],
         }
     }
 }
@@ -140,15 +145,16 @@ impl Screen for SignOnScreen {
         let sections = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(2),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Min(2),
-                Constraint::Length(1),
+                Constraint::Length(2), // System info
+                Constraint::Length(1), // Ruler line (top)
+                Constraint::Length(1), // User field
+                Constraint::Length(1), // Password field
+                Constraint::Length(1), // Current library field
+                Constraint::Length(1), // Initial menu field
+                Constraint::Length(1), // Ruler line (bottom)
+                Constraint::Length(1), // Status line
+                Constraint::Min(2),    // Message area
+                Constraint::Length(1), // Help line
             ])
             .split(inner);
 
@@ -159,45 +165,29 @@ impl Screen for SignOnScreen {
             sections[0],
         );
 
-        let fields = [
-            (
-                ActiveField::User,
-                InputField::new("User  . . . . . . . . . .", 16)
-                    .with_value(&self.user)
-                    .uppercase()
-                    .required(),
-            ),
-            (
-                ActiveField::Password,
-                InputField::new("Password  . . . . . . . .", 16)
-                    .with_value(&self.password)
-                    .masked()
-                    .required(),
-            ),
-            (
-                ActiveField::CurrentLibrary,
-                InputField::new("Current library . . . . .", 16)
-                    .with_value(&self.current_library)
-                    .uppercase()
-                    .required(),
-            ),
-            (
-                ActiveField::InitialMenu,
-                InputField::new("Initial menu . . . . . .", 16)
-                    .with_value(&self.initial_menu)
-                    .uppercase()
-                    .required(),
-            ),
-        ];
+        // Top ruler line
+        render_ruler(frame, sections[1]);
 
-        for (offset, (field_id, mut field)) in fields.into_iter().enumerate() {
-            field.active = self.active_field == field_id;
-            field.render(frame, sections[1 + offset]);
+        for (offset, field_id) in [
+            ActiveField::User,
+            ActiveField::Password,
+            ActiveField::CurrentLibrary,
+            ActiveField::InitialMenu,
+        ]
+        .iter()
+        .enumerate()
+        {
+            let field = &mut self.fields[offset];
+            field.active = *field_id == self.active_field;
+            field.render(frame, sections[2 + offset]);
         }
+
+        // Bottom ruler line
+        render_ruler(frame, sections[6]);
 
         frame.render_widget(
             Paragraph::new("System mode shown in global status line.").style(STYLE_DIM),
-            sections[5],
+            sections[7],
         );
 
         let message = self
@@ -209,7 +199,7 @@ impl Screen for SignOnScreen {
         } else {
             STYLE_NORMAL
         };
-        frame.render_widget(Paragraph::new(message).style(message_style), sections[7]);
+        frame.render_widget(Paragraph::new(message).style(message_style), sections[8]);
 
         frame.render_widget(
             Paragraph::new("F3=Exit   Tab=Next field   Enter=Sign on")
@@ -221,7 +211,7 @@ impl Screen for SignOnScreen {
                         .border_style(STYLE_BORDER)
                         .style(STYLE_HELP),
                 ),
-            sections[8],
+            sections[9],
         );
     }
 
@@ -234,15 +224,36 @@ impl Screen for SignOnScreen {
             }
             KeyCode::Enter => self.attempt_sign_on(),
             KeyCode::Backspace => {
-                self.active_buffer().pop();
+                self.active_field_mut().delete_back();
                 self.message = None;
+                ScreenResult::none()
+            }
+            KeyCode::Delete => {
+                self.active_field_mut().delete_forward();
+                self.message = None;
+                ScreenResult::none()
+            }
+            KeyCode::Left => {
+                self.active_field_mut().move_left();
+                ScreenResult::none()
+            }
+            KeyCode::Right => {
+                self.active_field_mut().move_right();
+                ScreenResult::none()
+            }
+            KeyCode::Home => {
+                self.active_field_mut().move_home();
+                ScreenResult::none()
+            }
+            KeyCode::End => {
+                self.active_field_mut().move_end();
                 ScreenResult::none()
             }
             KeyCode::Char(c)
                 if !key.modifiers.contains(KeyModifiers::CONTROL)
                     && !key.modifiers.contains(KeyModifiers::ALT) =>
             {
-                self.push_char(c);
+                self.active_field_mut().insert_char(c);
                 self.message = None;
                 ScreenResult::none()
             }
@@ -307,7 +318,8 @@ mod tests {
     #[test]
     fn root_profile_is_rejected() {
         let mut screen = SignOnScreen::with_validator(ok_validator);
-        screen.user = "ROOT".to_string();
+        screen.fields[0].value = "ROOT".to_string();
+        screen.fields[0].cursor = screen.fields[0].value.len();
         let result = screen.handle_key(key(KeyCode::Enter));
 
         assert_eq!(result.next, None);
@@ -320,11 +332,62 @@ mod tests {
     #[test]
     fn invalid_credentials_clear_password() {
         let mut screen = SignOnScreen::with_validator(err_validator);
-        screen.password = "badpass".to_string();
+        screen.fields[1].value = "badpass".to_string();
+        screen.fields[1].cursor = screen.fields[1].value.len();
 
         let result = screen.handle_key(key(KeyCode::Enter));
 
         assert_eq!(result.next, None);
-        assert!(screen.password.is_empty());
+        assert!(screen.fields[1].value.is_empty());
+    }
+
+    #[test]
+    fn backspace_deletes_char_in_active_field() {
+        let mut screen = SignOnScreen::new();
+        screen.fields[0].value = "QSECOFR".to_string();
+        screen.fields[0].cursor = screen.fields[0].value.len();
+        screen.active_field = ActiveField::User;
+
+        screen.handle_key(key(KeyCode::Backspace));
+        assert_eq!(screen.fields[0].value, "QSECOF");
+    }
+
+    #[test]
+    fn delete_forward_removes_char() {
+        let mut screen = SignOnScreen::new();
+        screen.fields[0].value = "QSECOFR".to_string();
+        screen.fields[0].cursor = 3;
+        screen.active_field = ActiveField::User;
+
+        screen.handle_key(key(KeyCode::Delete));
+        assert_eq!(screen.fields[0].value, "QSEOFR");
+    }
+
+    #[test]
+    fn arrow_keys_move_cursor() {
+        let mut screen = SignOnScreen::new();
+        screen.fields[0].value = "QSECOFR".to_string();
+        screen.fields[0].cursor = 4;
+        screen.active_field = ActiveField::User;
+
+        screen.handle_key(key(KeyCode::Left));
+        assert_eq!(screen.fields[0].cursor, 3);
+
+        screen.handle_key(key(KeyCode::Right));
+        assert_eq!(screen.fields[0].cursor, 4);
+    }
+
+    #[test]
+    fn home_end_keys_work() {
+        let mut screen = SignOnScreen::new();
+        screen.fields[0].value = "QSECOFR".to_string();
+        screen.fields[0].cursor = 4;
+        screen.active_field = ActiveField::User;
+
+        screen.handle_key(key(KeyCode::Home));
+        assert_eq!(screen.fields[0].cursor, 0);
+
+        screen.handle_key(key(KeyCode::End));
+        assert_eq!(screen.fields[0].cursor, 7);
     }
 }

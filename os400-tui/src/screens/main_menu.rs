@@ -3,7 +3,7 @@ use l400::read_loader_status;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    text::{Line, Text},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
@@ -221,26 +221,31 @@ impl MainMenu {
 
 impl Screen for MainMenu {
     fn render(&mut self, frame: &mut Frame) {
+        let area = crate::screens::screen_area(frame);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4),
-                Constraint::Min(0),
-                Constraint::Length(1),
-                Constraint::Length(3),
+                Constraint::Length(4), // Header with ruler
+                Constraint::Min(0),    // Menu
+                Constraint::Length(1), // Ruler line
+                Constraint::Length(1), // Command line (===>)
+                Constraint::Length(1), // F-keys
             ])
-            .split(crate::screens::screen_area(frame));
+            .split(area);
 
         self.render_header(frame, chunks[0]);
         self.render_menu(frame, chunks[1]);
-        self.command_input.active = true;
-        self.command_input.render(frame, chunks[2]);
-        self.render_help(frame, chunks[3]);
+        self.render_ruler(frame, chunks[2]);
+        self.render_command_line(frame, chunks[3]);
+        self.render_help(frame, chunks[4]);
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ScreenResult {
         match key.code {
-            KeyCode::F(3) => ScreenResult::goto(ScreenId::SignOn),
+            KeyCode::F(3) => {
+                self.pending_option.clear();
+                ScreenResult::goto(ScreenId::SignOn)
+            }
             KeyCode::F(4) => {
                 self.pending_option.clear();
                 ScreenResult::goto(ScreenId::CommandLine)
@@ -252,6 +257,10 @@ impl Screen for MainMenu {
                 } else {
                     ScreenResult::back()
                 }
+            }
+            KeyCode::F(24) => {
+                self.pending_option.clear();
+                ScreenResult::none()
             }
             KeyCode::Up => {
                 self.pending_option.clear();
@@ -297,6 +306,56 @@ impl Screen for MainMenu {
 }
 
 impl MainMenu {
+    fn render_ruler(&self, frame: &mut Frame, area: Rect) {
+        render_ruler(frame, area);
+    }
+
+    fn render_command_line(&self, frame: &mut Frame, area: Rect) {
+        let prefix = "===> ";
+        let prefix_len = prefix.len();
+        let width = area.width as usize;
+        let available = width.saturating_sub(prefix_len);
+        let value = &self.command_input.value;
+        let value_chars = value.chars().count();
+        let display = if value_chars > available {
+            value
+                .chars()
+                .skip(value_chars.saturating_sub(available))
+                .collect::<String>()
+        } else {
+            value.clone()
+        };
+        let display_chars = display.chars().count();
+        let padding = available.saturating_sub(display_chars);
+
+        let spans = vec![
+            Span::styled(prefix, STYLE_NORMAL),
+            Span::styled(
+                format!("{}{}", display, " ".repeat(padding)),
+                if self.command_input.active {
+                    STYLE_INPUT_ACTIVE
+                } else {
+                    STYLE_INPUT_PROTECTED
+                },
+            ),
+        ];
+
+        frame.render_widget(Paragraph::new(Line::from(spans)), area);
+
+        if self.command_input.active {
+            let cursor_chars = self.command_input.value[..self.command_input.cursor]
+                .chars()
+                .count();
+            let visible_cursor = cursor_chars
+                .saturating_sub(value_chars.saturating_sub(available))
+                .min(available);
+            let cursor_x = area.x + prefix_len as u16 + visible_cursor as u16;
+            if cursor_x < area.x + area.width {
+                frame.set_cursor_position((cursor_x, area.y));
+            }
+        }
+    }
+
     fn render_header(&self, frame: &mut Frame, area: Rect) {
         let title = Line::from(vec![format!(" {} ", self.title()).into()]);
         let session = self.session.snapshot();

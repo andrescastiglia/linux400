@@ -171,6 +171,10 @@ impl Screen for WrkSysVal {
         }
         match key.code {
             KeyCode::F(3) | KeyCode::F(12) | KeyCode::Esc => ScreenResult::back(),
+            KeyCode::F(4) => {
+                self.begin_change();
+                ScreenResult::none()
+            }
             KeyCode::F(5) => {
                 self.refresh();
                 ScreenResult::none()
