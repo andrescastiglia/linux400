@@ -16,12 +16,15 @@ pub fn set_last_cpf(code: &str) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn l400_set_cpf(code: *const c_char) {
+/// # Safety
+/// `code` must be either null or a valid pointer to a null-terminated C string.
+pub unsafe extern "C" fn l400_set_cpf(code: *const c_char) {
     if code.is_null() {
         clear_last_cpf();
         return;
     }
-    let code = unsafe { CStr::from_ptr(code) }.to_string_lossy();
+    let code_str = unsafe { CStr::from_ptr(code) };
+    let code = code_str.to_string_lossy();
     set_last_cpf(&code);
 }
 

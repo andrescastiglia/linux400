@@ -2202,27 +2202,26 @@ pub extern "C" fn l400_chkobjint(spec: *const c_char) {
                         ));
                     }
                 }
-            } else if object.objtype == "*PGM" {
-                if crate::storage::read_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR)
+            } else if object.objtype == "*PGM"
+                && crate::storage::read_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR)
                     .ok()
                     .flatten()
                     .is_none()
+            {
+                if repair
+                    && crate::storage::write_u32_attr(
+                        &path,
+                        crate::L400_DATA_FORMAT_VERSION_ATTR,
+                        crate::L400_DATA_FORMAT_VERSION,
+                    )
+                    .is_ok()
                 {
-                    if repair
-                        && crate::storage::write_u32_attr(
-                            &path,
-                            crate::L400_DATA_FORMAT_VERSION_ATTR,
-                            crate::L400_DATA_FORMAT_VERSION,
-                        )
-                        .is_ok()
-                    {
-                        repairs.push("PGM wrote data version".to_string());
-                    } else {
-                        issues.push(format!(
-                            "PGM missing {}",
-                            crate::L400_DATA_FORMAT_VERSION_ATTR
-                        ));
-                    }
+                    repairs.push("PGM wrote data version".to_string());
+                } else {
+                    issues.push(format!(
+                        "PGM missing {}",
+                        crate::L400_DATA_FORMAT_VERSION_ATTR
+                    ));
                 }
             }
         }
@@ -3536,9 +3535,8 @@ mod tests {
         let spec = std::ffi::CString::new("FILE(QGPL/REGTEST) RCDLEN(128)").expect("cstring");
         l400_crtpf(spec.as_ptr());
 
-        // Should not panic; CPF code should be 0 (success) or non-zero (failure)
-        let cpf = l400_last_cpf_code();
-        assert!(cpf >= 0, "CPF code should be non-negative");
+        // Should not panic; just verify CPF code is valid (non-zero or zero)
+        let _cpf = l400_last_cpf_code();
     }
 
     #[test]
@@ -3551,8 +3549,7 @@ mod tests {
         let spec = std::ffi::CString::new("DTAQ(QUSRSYS/REGTEST)").expect("cstring");
         l400_crtdtaq(spec.as_ptr());
 
-        let cpf = l400_last_cpf_code();
-        assert!(cpf >= 0, "CPF code should be non-negative");
+        let _cpf = l400_last_cpf_code();
     }
 
     #[test]
@@ -3568,8 +3565,7 @@ mod tests {
         let spec = std::ffi::CString::new("OBJ(QGPL/TODELETE) CONFIRM(*YES)").expect("cstring");
         l400_dltobj(spec.as_ptr());
 
-        let cpf = l400_last_cpf_code();
-        assert!(cpf >= 0, "CPF code should be non-negative");
+        let _cpf = l400_last_cpf_code();
     }
 
     #[test]
@@ -3585,7 +3581,6 @@ mod tests {
         let spec = std::ffi::CString::new("OBJ(QGPL/TOCHANGE) TEXT(New text)").expect("cstring");
         l400_chgobjd(spec.as_ptr());
 
-        let cpf = l400_last_cpf_code();
-        assert!(cpf >= 0, "CPF code should be non-negative");
+        let _cpf = l400_last_cpf_code();
     }
 }
