@@ -1585,6 +1585,14 @@ pub extern "C" fn l400_dltobj(spec: *const c_char) {
             return;
         }
         Err(error) => {
+            // Map NotFound to CPF9801 (object not found) instead of CPF0001
+            if let crate::auth::AuthError::Io(ref io_err) = error {
+                if io_err.kind() == std::io::ErrorKind::NotFound {
+                    emit_status("CPF9801", Some(&path), "Object not found");
+                    println!("[DLTOBJ] Objeto no encontrado: {}", path.display());
+                    return;
+                }
+            }
             emit_status("CPF0001", Some(&path), &error.to_string());
             println!("[DLTOBJ] Error verificando autoridad: {}", error);
             return;
@@ -2338,6 +2346,14 @@ pub extern "C" fn l400_crtpf(spec: *const c_char) {
             return;
         }
         Err(error) => {
+            // Map NotFound to CPF9801 (object not found) instead of CPF0001
+            if let crate::auth::AuthError::Io(ref io_err) = error {
+                if io_err.kind() == std::io::ErrorKind::NotFound {
+                    emit_status("CPF9801", Some(&lib_path), "Library not found");
+                    println!("[CRTPF] Biblioteca no encontrada: {}", lib_path.display());
+                    return;
+                }
+            }
             emit_status("CPF0001", Some(&lib_path), &error.to_string());
             println!("[CRTPF] Error verificando autoridad: {}", error);
             return;
@@ -2406,6 +2422,14 @@ pub extern "C" fn l400_crtlf(spec: *const c_char) {
             return;
         }
         Err(error) => {
+            // Map NotFound to CPF9801 (object not found) instead of CPF0001
+            if let crate::auth::AuthError::Io(ref io_err) = error {
+                if io_err.kind() == std::io::ErrorKind::NotFound {
+                    emit_status("CPF9801", Some(&lib_path), "Library not found");
+                    println!("[CRTLF] Biblioteca no encontrada: {}", lib_path.display());
+                    return;
+                }
+            }
             emit_status("CPF0001", Some(&lib_path), &error.to_string());
             println!("[CRTLF] Error verificando autoridad: {}", error);
             return;
