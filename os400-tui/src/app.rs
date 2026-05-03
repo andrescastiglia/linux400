@@ -11,6 +11,7 @@ use crate::screens::dsp_log::DspLog;
 use crate::screens::dsp_pfm::DspPfm;
 use crate::screens::dsp_policy::DspPolicy;
 use crate::screens::dtaq_viewer::DataQueueViewer;
+use crate::screens::install_summary::InstallSummary;
 use crate::screens::main_menu::MainMenu;
 use crate::screens::object_authority::ObjectAuthority;
 use crate::screens::object_browser::ObjectBrowser;
@@ -55,9 +56,23 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
+        // Check boot mode - show install summary if mode is "install"
+        let boot_mode = crate::screens::install_summary::detect_boot_mode();
+        let (screen, screen_id) = if boot_mode == "install" {
+            (
+                Box::new(InstallSummary::new()) as Box<dyn Screen>,
+                ScreenId::InstallSummary,
+            )
+        } else {
+            (
+                Box::new(SignOnScreen::new()) as Box<dyn Screen>,
+                ScreenId::SignOn,
+            )
+        };
+
         Self {
-            current_screen: Box::new(SignOnScreen::new()),
-            current_screen_id: ScreenId::SignOn,
+            current_screen: screen,
+            current_screen_id: screen_id,
             current_screen_data: None,
             should_exit: false,
             nav_stack: Vec::new(),
@@ -295,6 +310,7 @@ impl App {
                 data.unwrap_or_else(|| "WRKSYSSTS".to_string()),
                 self.session.clone(),
             )),
+            ScreenId::InstallSummary => Box::new(InstallSummary::new()),
             ScreenId::Exit | ScreenId::Back => {
                 // Exit is handled in switch_screen; Back is handled in handle_key.
                 // This branch should not be reached.

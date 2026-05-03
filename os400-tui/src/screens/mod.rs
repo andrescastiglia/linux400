@@ -4,6 +4,7 @@ pub mod dsp_log;
 pub mod dsp_pfm;
 pub mod dsp_policy;
 pub mod dtaq_viewer;
+pub mod install_summary;
 pub mod main_menu;
 pub mod object_authority;
 pub mod object_browser;
@@ -68,6 +69,7 @@ pub enum ScreenId {
     PolicyAudit,
     SpoolOutq,
     SystemPanel,
+    InstallSummary,
     Exit,
     /// Pop the navigation stack to return to the previous screen.
     Back,
