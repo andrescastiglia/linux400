@@ -2214,12 +2214,25 @@ pub extern "C" fn l400_crtusrprf(spec: *const c_char) {
         return;
     }
     
-    match crate::usrprf::create_user_profile(usrprf_name, Some(text)) {
-        Ok(_) => {
-            emit_status("CPF0000", None, &format!("User profile {} created", usrprf_name));
+    // Check authorization
+    let path = crate::usrprf::get_usrprf_path(usrprf_name);
+    let current_user = crate::audit::current_l400_user();
+    match crate::auth::check_command_authority(&path, &current_user, "CRTUSRPRF") {
+        Ok(true) => {
+            match crate::usrprf::create_user_profile(usrprf_name, Some(text)) {
+                Ok(_) => {
+                    emit_status("CPF0000", None, &format!("User profile {} created", usrprf_name));
+                }
+                Err(e) => {
+                    emit_status("CPF0001", None, &format!("Create failed: {}", e));
+                }
+            }
+        }
+        Ok(false) => {
+            emit_status("CPF0001", None, &format!("Not authorized to create user profile {}", usrprf_name));
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Create failed: {}", e));
+            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
         }
     }
 }
@@ -2243,20 +2256,33 @@ pub extern "C" fn l400_chgusrprf(spec: *const c_char) {
         return;
     }
     
-    match crate::usrprf::change_user_profile(
-        usrprf_name,
-        text,
-        status,
-        password,
-        home_library,
-        current_library,
-        group_profiles,
-    ) {
-        Ok(_) => {
-            emit_status("CPF0000", None, &format!("User profile {} changed", usrprf_name));
+    // Check authorization
+    let path = crate::usrprf::get_usrprf_path(usrprf_name);
+    let current_user = crate::audit::current_l400_user();
+    match crate::auth::check_command_authority(&path, &current_user, "CHGUSRPRF") {
+        Ok(true) => {
+            match crate::usrprf::change_user_profile(
+                usrprf_name,
+                text,
+                status,
+                password,
+                home_library,
+                current_library,
+                group_profiles,
+            ) {
+                Ok(_) => {
+                    emit_status("CPF0000", None, &format!("User profile {} changed", usrprf_name));
+                }
+                Err(e) => {
+                    emit_status("CPF0001", None, &format!("Change failed: {}", e));
+                }
+            }
+        }
+        Ok(false) => {
+            emit_status("CPF0001", None, &format!("Not authorized to change user profile {}", usrprf_name));
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Change failed: {}", e));
+            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
         }
     }
 }
@@ -2274,15 +2300,28 @@ pub extern "C" fn l400_dltusrprf(spec: *const c_char) {
         return;
     }
     
-    // Check if we should keep the system user
-    let keep_system = fields.get("OWNSOBJ").map(|s| s == "*KEEP").unwrap_or(false);
-    
-    match crate::usrprf::delete_user_profile(usrprf_name, keep_system) {
-        Ok(_) => {
-            emit_status("CPF0000", None, &format!("User profile {} deleted", usrprf_name));
+    // Check authorization
+    let path = crate::usrprf::get_usrprf_path(usrprf_name);
+    let current_user = crate::audit::current_l400_user();
+    match crate::auth::check_command_authority(&path, &current_user, "DLTUSRPRF") {
+        Ok(true) => {
+            // Check if we should keep the system user
+            let keep_system = fields.get("OWNSOBJ").map(|s| s == "*KEEP").unwrap_or(false);
+            
+            match crate::usrprf::delete_user_profile(usrprf_name, keep_system) {
+                Ok(_) => {
+                    emit_status("CPF0000", None, &format!("User profile {} deleted", usrprf_name));
+                }
+                Err(e) => {
+                    emit_status("CPF0001", None, &format!("Delete failed: {}", e));
+                }
+            }
+        }
+        Ok(false) => {
+            emit_status("CPF0001", None, &format!("Not authorized to delete user profile {}", usrprf_name));
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Delete failed: {}", e));
+            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
         }
     }
 }
@@ -2300,30 +2339,43 @@ pub extern "C" fn l400_dspusrprf(spec: *const c_char) {
         return;
     }
     
-    match crate::usrprf::display_user_profile(usrprf_name) {
-        Ok(info) => {
-            let mut output = String::new();
-            output.push_str(&format!("User profile . . . . . . . . . : {}\n", info.name));
-            output.push_str(&format!("Description . . . . . . . . . : {}\n", info.description));
-            output.push_str(&format!("Status . . . . . . . . . . . : {}\n", info.status));
-            output.push_str(&format!("User ID  . . . . . . . . . . : {}\n", info.uid));
-            output.push_str(&format!("Owner . . . . . . . . . . . : {}\n", info.owner));
-            output.push_str(&format!("Creation date . . . . . . . . : {}\n", info.creation_date));
-            
-            if let Some(ref lib) = info.home_library {
-                output.push_str(&format!("Home library  . . . . . . . : {}\n", lib));
+    // Check authorization
+    let path = crate::usrprf::get_usrprf_path(usrprf_name);
+    let current_user = crate::audit::current_l400_user();
+    match crate::auth::check_command_authority(&path, &current_user, "DSPUSRPRF") {
+        Ok(true) => {
+            match crate::usrprf::display_user_profile(usrprf_name) {
+                Ok(info) => {
+                    let mut output = String::new();
+                    output.push_str(&format!("User profile . . . . . . . . . : {}\n", info.name));
+                    output.push_str(&format!("Description . . . . . . . . . : {}\n", info.description));
+                    output.push_str(&format!("Status . . . . . . . . . . . : {}\n", info.status));
+                    output.push_str(&format!("User ID  . . . . . . . . . . : {}\n", info.uid));
+                    output.push_str(&format!("Owner . . . . . . . . . . . : {}\n", info.owner));
+                    output.push_str(&format!("Creation date . . . . . . . . : {}\n", info.creation_date));
+                    
+                    if let Some(ref lib) = info.home_library {
+                        output.push_str(&format!("Home library  . . . . . . . : {}\n", lib));
+                    }
+                    if let Some(ref lib) = info.current_library {
+                        output.push_str(&format!("Current library . . . . . . : {}\n", lib));
+                    }
+                    if !info.group_profiles.is_empty() {
+                        output.push_str(&format!("Group profiles . . . . . . .: {}\n", info.group_profiles.join(", ")));
+                    }
+                    
+                    emit_status("CPF0000", None, &output);
+                }
+                Err(e) => {
+                    emit_status("CPF0001", None, &format!("Display failed: {}", e));
+                }
             }
-            if let Some(ref lib) = info.current_library {
-                output.push_str(&format!("Current library . . . . . . : {}\n", lib));
-            }
-            if !info.group_profiles.is_empty() {
-                output.push_str(&format!("Group profiles . . . . . . .: {}\n", info.group_profiles.join(", ")));
-            }
-            
-            emit_status("CPF0000", None, &output);
+        }
+        Ok(false) => {
+            emit_status("CPF0001", None, &format!("Not authorized to display user profile {}", usrprf_name));
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Display failed: {}", e));
+            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
         }
     }
 }

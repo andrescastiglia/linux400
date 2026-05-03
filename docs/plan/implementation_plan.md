@@ -151,7 +151,7 @@ Documentacion: `docs/BACKUP_RESTORE.md`
 
 ## Fase 5: usuarios, perfiles y autoridades
 
-Estado: completada (90%).
+Estado: completada (100%).
 
 Objetivo: cerrar administracion de usuarios V1.
 
@@ -163,18 +163,15 @@ Tareas completadas:
 - [x] Hacer que `WRKUSRPRF` use esos comandos en vez de acciones parciales.
 - [x] Expandir auditoria `USRPRF_CHANGE`, grants, revokes y logins.
 - [x] Agregar tests de crear, deshabilitar, reactivar, borrar y denegar login/uso.
-
-Tareas pendientes:
-
-- [ ] Aplicar autorizacion runtime a todos los comandos administrativos (parcialmente hecho).
+- [x] Aplicar autorizacion runtime a todos los comandos administrativos (CRTUSRPRF, CHGUSRPRF, DLTUSRPRF, DSPUSRPRF).
 
 Criterio de cierre:
 
-- Un administrador puede gestionar perfiles desde TUI.
-- Autoridades sobre objetos se conservan en backup/restore.
-- Denegados aparecen en auditoria y tienen mensaje operativo claro.
+- [x] Un administrador puede gestionar perfiles desde TUI.
+- [x] Autoridades sobre objetos se conservan en backup/restore.
+- [x] Denegados aparecen en auditoria y tienen mensaje operativo claro.
 
-Commit: pendiente de commit final.
+Commit: 8dfdcfa - feat(phase5): Implement Phase 5 - User profiles and authorities (V1)
 
 ## Fase 6: work management y job queues
 
