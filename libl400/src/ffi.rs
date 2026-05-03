@@ -15,6 +15,16 @@ pub fn set_last_cpf(code: &str) {
     LAST_CPF_CODE.store(numeric, Ordering::SeqCst);
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_set_cpf(code: *const c_char) {
+    if code.is_null() {
+        clear_last_cpf();
+        return;
+    }
+    let code = unsafe { CStr::from_ptr(code) }.to_string_lossy();
+    set_last_cpf(&code);
+}
+
 pub fn clear_last_cpf() {
     LAST_CPF_CODE.store(0, Ordering::SeqCst);
 }

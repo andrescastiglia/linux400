@@ -102,6 +102,7 @@ fn ensure_library_with_text(
     let existed = root.join(name).exists();
     let path = ensure_library(root, name)?;
     catalog_object(&path, "*LIB", Some("LIB"), Some(text))?;
+    let _ = write_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR, &crate::L400_DATA_FORMAT_VERSION.to_string());
     if existed {
         report.existing(format!("{name} *LIB"));
     } else {
@@ -128,11 +129,13 @@ fn ensure_object(
     if path.exists() {
         match describe_object(&path) {
             Ok(object) if object.objtype == objtype => {
+                let _ = write_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR, &crate::L400_DATA_FORMAT_VERSION.to_string());
                 report.existing(marker);
                 return Ok(());
             }
             _ => {
                 catalog_object(&path, objtype, Some(attr), Some(text))?;
+                let _ = write_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR, &crate::L400_DATA_FORMAT_VERSION.to_string());
                 report.existing(marker);
                 return Ok(());
             }
@@ -140,6 +143,7 @@ fn ensure_object(
     }
 
     create_object_with_metadata(lib, name, objtype, Some(attr), Some(text))?;
+    let _ = write_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR, &crate::L400_DATA_FORMAT_VERSION.to_string());
     report.created(marker);
     Ok(())
 }
@@ -158,12 +162,39 @@ fn ensure_data_queue(
     if path.exists() {
         catalog_object(&path, "*DTAQ", Some("DTAQ"), Some("Job log data queue"))?;
         let _ = DataQueue::open(&path)?;
+        let _ = write_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR, &crate::L400_DATA_FORMAT_VERSION.to_string());
         report.existing(marker);
         return Ok(());
     }
 
     crtdtaq(lib, name)?;
     catalog_object(&path, "*DTAQ", Some("DTAQ"), Some("Job log data queue"))?;
+    let _ = write_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR, &crate::L400_DATA_FORMAT_VERSION.to_string());
+    report.created(marker);
+    Ok(())
+}
+
+fn ensure_outq(
+    lib: &Path,
+    name: &str,
+    text: &str,
+    report: &mut BootstrapReport,
+) -> Result<(), BootstrapError> {
+    let path = lib.join(name);
+    let marker = format!(
+        "{}/{} *OUTQ",
+        lib.file_name().unwrap_or_default().to_string_lossy(),
+        name
+    );
+    if path.exists() {
+        catalog_object(&path, "*OUTQ", Some("OUTQ"), Some(text))?;
+        let _ = write_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR, &crate::L400_DATA_FORMAT_VERSION.to_string());
+        report.existing(marker);
+        return Ok(());
+    }
+
+    create_object_with_metadata(lib, name, "*OUTQ", Some("OUTQ"), Some(text))?;
+    let _ = write_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR, &crate::L400_DATA_FORMAT_VERSION.to_string());
     report.created(marker);
     Ok(())
 }
@@ -217,6 +248,12 @@ pub fn bootstrap_l400_root(root: &Path) -> Result<BootstrapReport, BootstrapErro
     ensure_source_member_file(&qgpl, "QCLSRC", "HELLO.CLP", HELLO_CL, &mut report)?;
 
     ensure_data_queue(&qusrsys, "QEZJOBLOG", &mut report)?;
+    ensure_outq(
+        &qusrsys,
+        "QPRINT",
+        "Default output queue",
+        &mut report,
+    )?;
     ensure_object(
         &qsys,
         "QBATCH",

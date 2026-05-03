@@ -824,6 +824,24 @@ pub extern "C" fn l400_crtoutq(spec: *const c_char) {
     let (library, name, _path) =
         resolve_object_spec(&root, &outq, fields.get("LIB").map(String::as_str));
     let lib_path = root.join(&library);
+    let user = runtime_user();
+    match crate::auth::check_authority(&lib_path, &user, crate::auth::L400Authority::Change) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&lib_path), "authority insufficient for create");
+            println!(
+                "[CRTOUTQ] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
+                user,
+                lib_path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&lib_path), &error.to_string());
+            println!("[CRTOUTQ] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     let text = fields
         .get("TEXT")
         .map(String::as_str)
@@ -901,6 +919,24 @@ pub extern "C" fn l400_dltoutq(spec: *const c_char) {
     let root = crate::object::resolve_l400_root();
     let (_library, _name, path) =
         resolve_object_spec(&root, &outq, fields.get("LIB").map(String::as_str));
+    let user = runtime_user();
+    match crate::auth::check_authority(&path, &user, crate::auth::L400Authority::All) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&path), "authority insufficient for delete");
+            println!(
+                "[DLTOUTQ] Denegado por autoridad: usuario {} no tiene *ALL sobre {}.",
+                user,
+                path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&path), &error.to_string());
+            println!("[DLTOUTQ] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     match crate::object::delete_object(&path) {
         Ok(_) => println!("[DLTOUTQ] {} eliminado.", outq),
         Err(error) => {
@@ -983,6 +1019,24 @@ pub extern "C" fn l400_dltsplf(spec: *const c_char) {
         return;
     }
     let path = resolve_spool_file(&fields);
+    let user = runtime_user();
+    match crate::auth::check_authority(&path, &user, crate::auth::L400Authority::All) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&path), "authority insufficient for delete");
+            println!(
+                "[DLTSPLF] Denegado por autoridad: usuario {} no tiene *ALL sobre {}.",
+                user,
+                path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&path), &error.to_string());
+            println!("[DLTSPLF] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     match std::fs::remove_file(&path) {
         Ok(_) => println!("[DLTSPLF] {} eliminado.", path.display()),
         Err(error) => {
@@ -1010,6 +1064,24 @@ pub extern "C" fn l400_chgsplfa(spec: *const c_char) {
         return;
     }
     let path = resolve_spool_file(&fields);
+    let user = runtime_user();
+    match crate::auth::check_authority(&path, &user, crate::auth::L400Authority::Change) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&path), "authority insufficient for change");
+            println!(
+                "[CHGSPLFA] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
+                user,
+                path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&path), &error.to_string());
+            println!("[CHGSPLFA] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     match OpenOptions::new().append(true).open(&path) {
         Ok(mut file) => {
             let _ = writeln!(file, "status={} changed_at={}", status, now_epoch_string());
@@ -1205,6 +1277,24 @@ pub extern "C" fn l400_crtcmd(spec: *const c_char) {
         .map(String::as_str)
         .unwrap_or("User command");
     let lib_path = root.join(&library);
+    let user = runtime_user();
+    match crate::auth::check_authority(&lib_path, &user, crate::auth::L400Authority::Change) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&lib_path), "authority insufficient for create");
+            println!(
+                "[CRTCMD] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
+                user,
+                lib_path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&lib_path), &error.to_string());
+            println!("[CRTCMD] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     match crate::object::create_object_with_metadata(
         &lib_path,
         &name,
@@ -1466,6 +1556,24 @@ pub extern "C" fn l400_dltobj(spec: *const c_char) {
     let root = crate::object::resolve_l400_root();
     let (_library, object, path) =
         resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    let user = runtime_user();
+    match crate::auth::check_authority(&path, &user, crate::auth::L400Authority::All) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&path), "authority insufficient for delete");
+            println!(
+                "[DLTOBJ] Denegado por autoridad: usuario {} no tiene *ALL sobre {}.",
+                user,
+                path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&path), &error.to_string());
+            println!("[DLTOBJ] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     match crate::object::delete_object(&path) {
         Ok(_) => println!("[DLTOBJ] {} eliminado.", object),
         Err(error) => {
@@ -1563,6 +1671,24 @@ pub extern "C" fn l400_chgobjd(spec: *const c_char) {
     };
     let root = crate::object::resolve_l400_root();
     let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    let user = runtime_user();
+    match crate::auth::check_authority(&path, &user, crate::auth::L400Authority::Change) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&path), "authority insufficient for change");
+            println!(
+                "[CHGOBJD] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
+                user,
+                path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&path), &error.to_string());
+            println!("[CHGOBJD] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     match crate::object::describe_object(&path) {
         Ok(object) => {
             let text = fields
@@ -2003,6 +2129,93 @@ pub extern "C" fn l400_chkobjint(spec: *const c_char) {
                         ));
                     }
                 }
+            } else if object.objtype == "*JOBQ" {
+                if crate::storage::read_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    if repair
+                        && crate::storage::write_u32_attr(
+                            &path,
+                            crate::L400_DATA_FORMAT_VERSION_ATTR,
+                            crate::L400_DATA_FORMAT_VERSION,
+                        )
+                        .is_ok()
+                    {
+                        repairs.push("JOBQ wrote data version".to_string());
+                    } else {
+                        issues.push(format!(
+                            "JOBQ missing {}",
+                            crate::L400_DATA_FORMAT_VERSION_ATTR
+                        ));
+                    }
+                }
+            } else if object.objtype == "*USRPRF" {
+                if crate::storage::read_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    if repair
+                        && crate::storage::write_u32_attr(
+                            &path,
+                            crate::L400_DATA_FORMAT_VERSION_ATTR,
+                            crate::L400_DATA_FORMAT_VERSION,
+                        )
+                        .is_ok()
+                    {
+                        repairs.push("USRPRF wrote data version".to_string());
+                    } else {
+                        issues.push(format!(
+                            "USRPRF missing {}",
+                            crate::L400_DATA_FORMAT_VERSION_ATTR
+                        ));
+                    }
+                }
+                if crate::storage::read_string_attr(&path, crate::auth::L400_AUTH_VERSION_ATTR)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    if repair
+                        && crate::storage::write_string_attr(
+                            &path,
+                            crate::auth::L400_AUTH_VERSION_ATTR,
+                            &crate::L400_AUTH_MANIFEST_VERSION.to_string(),
+                        )
+                        .is_ok()
+                    {
+                        repairs.push("USRPRF wrote auth version".to_string());
+                    } else {
+                        issues.push(format!(
+                            "USRPRF missing {}",
+                            crate::auth::L400_AUTH_VERSION_ATTR
+                        ));
+                    }
+                }
+            } else if object.objtype == "*PGM" {
+                if crate::storage::read_string_attr(&path, crate::L400_DATA_FORMAT_VERSION_ATTR)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    if repair
+                        && crate::storage::write_u32_attr(
+                            &path,
+                            crate::L400_DATA_FORMAT_VERSION_ATTR,
+                            crate::L400_DATA_FORMAT_VERSION,
+                        )
+                        .is_ok()
+                    {
+                        repairs.push("PGM wrote data version".to_string());
+                    } else {
+                        issues.push(format!(
+                            "PGM missing {}",
+                            crate::L400_DATA_FORMAT_VERSION_ATTR
+                        ));
+                    }
+                }
             }
         }
         Err(error) => {
@@ -2093,6 +2306,23 @@ pub extern "C" fn l400_crtpf(spec: *const c_char) {
     let (library, name, _path) =
         resolve_object_spec(&root, file, fields.get("LIB").map(String::as_str));
     let lib_path = root.join(&library);
+    let user = runtime_user();
+    match crate::auth::check_authority(&lib_path, &user, crate::auth::L400Authority::Change) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&lib_path), "authority insufficient for create");
+            println!(
+                "[CRTPF] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
+                user, lib_path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&lib_path), &error.to_string());
+            println!("[CRTPF] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     match crate::db::create_pf(&lib_path, &name, record_len) {
         Ok(pf) => {
             let schema = crate::db::PfSchema {
@@ -2139,6 +2369,24 @@ pub extern "C" fn l400_crtlf(spec: *const c_char) {
     let (_src_library, _src_name, src_path) =
         resolve_object_spec(&root, srcfile, fields.get("SRCLIB").map(String::as_str));
     let lib_path = root.join(&library);
+    let user = runtime_user();
+    match crate::auth::check_authority(&lib_path, &user, crate::auth::L400Authority::Change) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&lib_path), "authority insufficient for create");
+            println!(
+                "[CRTLF] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
+                user,
+                lib_path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&lib_path), &error.to_string());
+            println!("[CRTLF] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     match crate::db::PhysicalFile::open(&src_path).and_then(|pf| {
         crate::db::create_lf_filtered(
             &lib_path,
@@ -2325,6 +2573,25 @@ pub extern "C" fn l400_crtdtaq(spec: *const c_char) {
     let root = crate::object::resolve_l400_root();
     let (library, name, _path) =
         resolve_object_spec(&root, dtaq, fields.get("LIB").map(String::as_str));
+    let lib_path = root.join(&library);
+    let user = runtime_user();
+    match crate::auth::check_authority(&lib_path, &user, crate::auth::L400Authority::Change) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&lib_path), "authority insufficient for create");
+            println!(
+                "[CRTDTAQ] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
+                user,
+                lib_path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&lib_path), &error.to_string());
+            println!("[CRTDTAQ] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     match crate::dtaq::crtdtaq(&root.join(&library), &name) {
         Ok(_) => println!("[CRTDTAQ] {}/{} creado.", library, name),
         Err(error) => {
@@ -2440,6 +2707,24 @@ fn parse_pf_fields(spec: &str) -> Vec<crate::db::PfField> {
 pub extern "C" fn l400_crtlib(lib: *const c_char) {
     let name = c_str_to_string(lib);
     let root = crate::object::resolve_l400_root();
+    let user = runtime_user();
+    match crate::auth::check_authority(&root, &user, crate::auth::L400Authority::Change) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&root), "authority insufficient for create");
+            println!(
+                "[CRTLIB] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
+                user,
+                root.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&root), &error.to_string());
+            println!("[CRTLIB] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     match crate::object::create_library(&root, &name) {
         Ok(path) => println!("[CRTLIB] Biblioteca {} creada en {}", name, path.display()),
         Err(e) => println!("[CRTLIB] Error creando {}: {}", name, e),
@@ -2452,6 +2737,24 @@ pub extern "C" fn l400_dltlib(lib: *const c_char) {
     let name = c_str_to_string(lib);
     let root = crate::object::resolve_l400_root();
     let path = root.join(&name);
+    let user = runtime_user();
+    match crate::auth::check_authority(&path, &user, crate::auth::L400Authority::All) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&path), "authority insufficient for delete");
+            println!(
+                "[DLTLIB] Denegado por autoridad: usuario {} no tiene *ALL sobre {}.",
+                user,
+                path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&path), &error.to_string());
+            println!("[DLTLIB] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     match crate::object::delete_object(&path) {
         Ok(_) => println!("[DLTLIB] Biblioteca {} eliminada.", name),
         Err(e) => println!("[DLTLIB] Error eliminando {}: {}", name, e),
@@ -2505,7 +2808,26 @@ pub extern "C" fn l400_rnmobj(obj: *const c_char, newname: *const c_char) {
 pub extern "C" fn l400_crtpgm(pgm: *const c_char) {
     let name = c_str_to_string(pgm);
     let root = crate::object::resolve_l400_root();
-    let (_library, object, path) = resolve_object_spec(&root, &name, None);
+    let (library, object, path) = resolve_object_spec(&root, &name, None);
+    let lib_path = root.join(&library);
+    let user = runtime_user();
+    match crate::auth::check_authority(&lib_path, &user, crate::auth::L400Authority::Change) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&lib_path), "authority insufficient for create");
+            println!(
+                "[CRTPGM] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
+                user,
+                lib_path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&lib_path), &error.to_string());
+            println!("[CRTPGM] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     match crate::object::catalog_object(&path, "*PGM", Some("CL"), Some("CL Program")) {
         Ok(_) => println!("[CRTPGM] {} catalogado como *PGM.", object),
         Err(e) => println!("[CRTPGM] Error catalogando {}: {}", object, e),
@@ -2660,6 +2982,25 @@ pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcm
     let srcmbr = c_str_to_string(srcmbr);
     let root = crate::object::resolve_l400_root();
     let (pgm_library, pgm_name, output_path) = resolve_object_spec(&root, &pgm, None);
+    let pgm_lib_path = root.join(&pgm_library);
+    let user = runtime_user();
+    match crate::auth::check_authority(&pgm_lib_path, &user, crate::auth::L400Authority::Change) {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_status("CPF2204", Some(&pgm_lib_path), "authority insufficient for create");
+            println!(
+                "[CRTCLPGM] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
+                user,
+                pgm_lib_path.display()
+            );
+            return;
+        }
+        Err(error) => {
+            emit_status("CPF0001", Some(&pgm_lib_path), &error.to_string());
+            println!("[CRTCLPGM] Error verificando autoridad: {}", error);
+            return;
+        }
+    }
     let (src_library, src_file) = resolve_file_spec(&srcfile);
     let src_lib_path = root.join(&src_library);
     let source_path = crate::object::member_path(&src_lib_path, &src_file, &srcmbr).or_else(|_| {
@@ -2842,11 +3183,38 @@ pub extern "C" fn l400_dltmbr(spec: *const c_char) {
     }
     let (library, file_name) = resolve_file_spec(file);
     let lib_path = crate::object::resolve_l400_root().join(&library);
-    match crate::object::member_path(&lib_path, &file_name, member).and_then(|path| {
-        std::fs::remove_file(&path)?;
-        Ok(path)
-    }) {
-        Ok(path) => println!("[DLTMBR] {} eliminado.", path.display()),
+    match crate::object::member_path(&lib_path, &file_name, member) {
+        Ok(path) => {
+            let user = runtime_user();
+            match crate::auth::check_authority(&path, &user, crate::auth::L400Authority::All) {
+                Ok(true) => {}
+                Ok(false) => {
+                    emit_status("CPF2204", Some(&path), "authority insufficient for delete");
+                    println!(
+                        "[DLTMBR] Denegado por autoridad: usuario {} no tiene *ALL sobre {}.",
+                        user,
+                        path.display()
+                    );
+                    return;
+                }
+                Err(error) => {
+                    emit_status("CPF0001", Some(&path), &error.to_string());
+                    println!("[DLTMBR] Error verificando autoridad: {}", error);
+                    return;
+                }
+            }
+            match std::fs::remove_file(&path) {
+                Ok(_) => println!("[DLTMBR] {} eliminado.", path.display()),
+                Err(error) => {
+                    emit_status(
+                        "CPF9801",
+                        Some(&lib_path.join(&file_name)),
+                        &error.to_string(),
+                    );
+                    println!("[DLTMBR] Error: {}", error);
+                }
+            }
+        }
         Err(error) => {
             emit_status(
                 "CPF9801",
@@ -2902,14 +3270,43 @@ pub extern "C" fn l400_chgmbrd(spec: *const c_char) {
     };
     let (library, file_name) = resolve_file_spec(file);
     let lib_path = crate::object::resolve_l400_root().join(&library);
-    match crate::object::member_path(&lib_path, &file_name, member).and_then(|path| {
-        crate::storage::write_string_attr(&path, "user.l400.text", text)
-            .map_err(|error| crate::object::ObjectError::Fs(std::io::Error::other(error)))
-    }) {
-        Ok(_) => println!(
-            "[CHGMBRD] {}/{}/{} actualizado.",
-            library, file_name, member
-        ),
+    match crate::object::member_path(&lib_path, &file_name, member) {
+        Ok(path) => {
+            let user = runtime_user();
+            match crate::auth::check_authority(&path, &user, crate::auth::L400Authority::Change) {
+                Ok(true) => {}
+                Ok(false) => {
+                    emit_status("CPF2204", Some(&path), "authority insufficient for change");
+                    println!(
+                        "[CHGMBRD] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
+                        user,
+                        path.display()
+                    );
+                    return;
+                }
+                Err(error) => {
+                    emit_status("CPF0001", Some(&path), &error.to_string());
+                    println!("[CHGMBRD] Error verificando autoridad: {}", error);
+                    return;
+                }
+            }
+            match crate::storage::write_string_attr(&path, "user.l400.text", text)
+                .map_err(|error| crate::object::ObjectError::Fs(std::io::Error::other(error)))
+            {
+                Ok(_) => println!(
+                    "[CHGMBRD] {}/{}/{} actualizado.",
+                    library, file_name, member
+                ),
+                Err(error) => {
+                    emit_status(
+                        "CPF0001",
+                        Some(&lib_path.join(&file_name)),
+                        &error.to_string(),
+                    );
+                    println!("[CHGMBRD] Error: {}", error);
+                }
+            }
+        }
         Err(error) => {
             emit_status(
                 "CPF0001",
@@ -2987,6 +3384,7 @@ mod tests {
     use super::{
         PowerDownAction, confirmed_yes, l400_call, parse_command_fields,
         power_down_option_from_spec, spool_file_status,
+        l400_crtpf, l400_crtdtaq, l400_dltobj, l400_chgobjd,
     };
     use crate::auth::{L400Authority, grant_object_authority};
     use crate::ffi::{l400_clear_status, l400_last_cpf_code};
@@ -3098,5 +3496,68 @@ mod tests {
         l400_call(c_pgm.as_ptr());
 
         assert_eq!(l400_last_cpf_code(), 9898);
+    }
+
+    #[test]
+    fn crtpf_regression_test() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let _root_guard = EnvGuard::set("L400_ROOT", root.path());
+        let _qgpl = ensure_library(root.path(), "QGPL").expect("library");
+
+        l400_clear_status();
+        let spec = std::ffi::CString::new("FILE(QGPL/REGTEST) RCDLEN(128)").expect("cstring");
+        l400_crtpf(spec.as_ptr());
+
+        // Should not panic; CPF code should be 0 (success) or non-zero (failure)
+        let cpf = l400_last_cpf_code();
+        assert!(cpf >= 0, "CPF code should be non-negative");
+    }
+
+    #[test]
+    fn crtdtaq_regression_test() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let _root_guard = EnvGuard::set("L400_ROOT", root.path());
+        let _qusrsys = ensure_library(root.path(), "QUSRSYS").expect("library");
+
+        l400_clear_status();
+        let spec = std::ffi::CString::new("DTAQ(QUSRSYS/REGTEST)").expect("cstring");
+        l400_crtdtaq(spec.as_ptr());
+
+        let cpf = l400_last_cpf_code();
+        assert!(cpf >= 0, "CPF code should be non-negative");
+    }
+
+    #[test]
+    fn dltobj_regression_test() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let _root_guard = EnvGuard::set("L400_ROOT", root.path());
+        let _qgpl = ensure_library(root.path(), "QGPL").expect("library");
+        let obj_path = root.path().join("QGPL").join("TODELETE");
+        std::fs::File::create(&obj_path).expect("create obj");
+        catalog_object(&obj_path, "*FILE", Some("PF"), Some("To delete")).expect("catalog");
+
+        l400_clear_status();
+        let spec = std::ffi::CString::new("OBJ(QGPL/TODELETE) CONFIRM(*YES)").expect("cstring");
+        l400_dltobj(spec.as_ptr());
+
+        let cpf = l400_last_cpf_code();
+        assert!(cpf >= 0, "CPF code should be non-negative");
+    }
+
+    #[test]
+    fn chgobjd_regression_test() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let _root_guard = EnvGuard::set("L400_ROOT", root.path());
+        let _qgpl = ensure_library(root.path(), "QGPL").expect("library");
+        let obj_path = root.path().join("QGPL").join("TOCHANGE");
+        std::fs::File::create(&obj_path).expect("create obj");
+        catalog_object(&obj_path, "*FILE", Some("PF"), Some("Original text")).expect("catalog");
+
+        l400_clear_status();
+        let spec = std::ffi::CString::new("OBJ(QGPL/TOCHANGE) TEXT(New text)").expect("cstring");
+        l400_chgobjd(spec.as_ptr());
+
+        let cpf = l400_last_cpf_code();
+        assert!(cpf >= 0, "CPF code should be non-negative");
     }
 }

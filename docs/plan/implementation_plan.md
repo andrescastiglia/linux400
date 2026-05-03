@@ -40,19 +40,19 @@ Fuera de V1:
 
 ## Fase 1: estabilizar base operacional
 
-Estado: en progreso.
+Estado: completada.
 
 Objetivo: asegurar que lo ya implementado sea confiable como base de V1.
 
 Tareas:
 
-- [ ] Revisar comandos actuales y clasificarlos como estable, experimental o stub.
-- [ ] Hacer que `DSPCMD`/`WRKCMD` muestren estado, autoridad, parametros y ejemplos de cada comando.
-- [ ] Garantizar que todos los comandos sensibles emitan status CPF o equivalente.
-- [ ] Unificar validacion de autoridad para create/change/delete/call/spool/jobs.
-- [ ] Asegurar que `l400-bootstrap` cree objetos base, `*OUTQ`, `*JOBQ`, perfiles y metadata versionada.
-- [ ] Expandir `CHKOBJINT` para `*OUTQ`, `*JOBQ`, `*USRPRF`, PF/LF/DTAQ y `*PGM`.
-- [ ] Agregar tests de regresion por comando critico en `libl400`.
+- [x] Revisar comandos actuales y clasificarlos como estable, experimental o stub.
+- [x] Hacer que `DSPCMD`/`WRKCMD` muestren estado, autoridad, parametros y ejemplos de cada comando.
+- [x] Garantizar que todos los comandos sensibles emitan status CPF o equivalente.
+- [x] Unificar validacion de autoridad para create/change/delete/call/spool/jobs.
+- [x] Asegurar que `l400-bootstrap` cree objetos base, `*OUTQ`, `*JOBQ`, perfiles y metadata versionada.
+- [x] Expandir `CHKOBJINT` para `*OUTQ`, `*JOBQ`, `*USRPRF`, PF/LF/DTAQ y `*PGM`.
+- [x] Agregar tests de regresion por comando critico en `libl400`.
 
 Criterio de cierre:
 
