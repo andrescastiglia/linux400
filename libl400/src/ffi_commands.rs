@@ -1564,14 +1564,14 @@ pub extern "C" fn l400_dltobj(spec: *const c_char) {
     let root = crate::object::resolve_l400_root();
     let (_library, object, path) =
         resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
-    
+
     // Check if object exists; if not, emit CPF9801 "object not found" (idempotent delete scenario)
     if !path.exists() {
         emit_status("CPF9801", Some(&path), "Object not found for delete");
         println!("[DLTOBJ] Objeto no encontrado: {}", path.display());
         return;
     }
-    
+
     let user = runtime_user();
     match crate::auth::check_authority(&path, &user, crate::auth::L400Authority::All) {
         Ok(true) => {}
@@ -1586,12 +1586,12 @@ pub extern "C" fn l400_dltobj(spec: *const c_char) {
         }
         Err(error) => {
             // Map NotFound to CPF9801 (object not found) instead of CPF0001
-            if let crate::auth::AuthError::Io(ref io_err) = error {
-                if io_err.kind() == std::io::ErrorKind::NotFound {
-                    emit_status("CPF9801", Some(&path), "Object not found");
-                    println!("[DLTOBJ] Objeto no encontrado: {}", path.display());
-                    return;
-                }
+            if let crate::auth::AuthError::Io(ref io_err) = error
+                && io_err.kind() == std::io::ErrorKind::NotFound
+            {
+                emit_status("CPF9801", Some(&path), "Object not found");
+                println!("[DLTOBJ] Objeto no encontrado: {}", path.display());
+                return;
             }
             emit_status("CPF0001", Some(&path), &error.to_string());
             println!("[DLTOBJ] Error verificando autoridad: {}", error);
@@ -2347,12 +2347,12 @@ pub extern "C" fn l400_crtpf(spec: *const c_char) {
         }
         Err(error) => {
             // Map NotFound to CPF9801 (object not found) instead of CPF0001
-            if let crate::auth::AuthError::Io(ref io_err) = error {
-                if io_err.kind() == std::io::ErrorKind::NotFound {
-                    emit_status("CPF9801", Some(&lib_path), "Library not found");
-                    println!("[CRTPF] Biblioteca no encontrada: {}", lib_path.display());
-                    return;
-                }
+            if let crate::auth::AuthError::Io(ref io_err) = error
+                && io_err.kind() == std::io::ErrorKind::NotFound
+            {
+                emit_status("CPF9801", Some(&lib_path), "Library not found");
+                println!("[CRTPF] Biblioteca no encontrada: {}", lib_path.display());
+                return;
             }
             emit_status("CPF0001", Some(&lib_path), &error.to_string());
             println!("[CRTPF] Error verificando autoridad: {}", error);
@@ -2423,12 +2423,12 @@ pub extern "C" fn l400_crtlf(spec: *const c_char) {
         }
         Err(error) => {
             // Map NotFound to CPF9801 (object not found) instead of CPF0001
-            if let crate::auth::AuthError::Io(ref io_err) = error {
-                if io_err.kind() == std::io::ErrorKind::NotFound {
-                    emit_status("CPF9801", Some(&lib_path), "Library not found");
-                    println!("[CRTLF] Biblioteca no encontrada: {}", lib_path.display());
-                    return;
-                }
+            if let crate::auth::AuthError::Io(ref io_err) = error
+                && io_err.kind() == std::io::ErrorKind::NotFound
+            {
+                emit_status("CPF9801", Some(&lib_path), "Library not found");
+                println!("[CRTLF] Biblioteca no encontrada: {}", lib_path.display());
+                return;
             }
             emit_status("CPF0001", Some(&lib_path), &error.to_string());
             println!("[CRTLF] Error verificando autoridad: {}", error);
@@ -3556,7 +3556,10 @@ mod tests {
 
         // Should emit CPF9898 (no toolchain manifest) or CPF2204 (authority denied)
         let cpf = l400_last_cpf_code();
-        assert!(cpf == 9898 || cpf == 2204, "CALL should fail with CPF9898 or CPF2204");
+        assert!(
+            cpf == 9898 || cpf == 2204,
+            "CALL should fail with CPF9898 or CPF2204"
+        );
     }
 
     #[test]
