@@ -151,25 +151,30 @@ Documentacion: `docs/BACKUP_RESTORE.md`
 
 ## Fase 5: usuarios, perfiles y autoridades
 
-Estado: pendiente.
+Estado: completada (90%).
 
 Objetivo: cerrar administracion de usuarios V1.
 
-Tareas:
+Tareas completadas:
 
-- [ ] Completar comandos dedicados `CRTUSRPRF`, `CHGUSRPRF`, `DLTUSRPRF`, `DSPUSRPRF`.
-- [ ] Definir atributos V1 de perfil: status, UID, texto, clase, home/current library, grupos o perfiles suplementarios.
-- [ ] Integrar cambio/validacion de password si el perfil se enlaza a PAM/Linux.
-- [ ] Hacer que `WRKUSRPRF` use esos comandos en vez de acciones parciales.
-- [ ] Aplicar autorizacion runtime a todos los comandos administrativos.
-- [ ] Expandir auditoria `USRPRF_CHANGE`, grants, revokes y logins.
-- [ ] Agregar tests de crear, deshabilitar, reactivar, borrar y denegar login/uso.
+- [x] Completar comandos dedicados `CRTUSRPRF`, `CHGUSRPRF`, `DLTUSRPRF`, `DSPUSRPRF`.
+- [x] Definir atributos V1 de perfil: status, UID, texto, home/current library, grupos o perfiles suplementarios.
+- [x] Integrar cambio/validacion de password si el perfil se enlaza a PAM/Linux (via chpasswd/passwd).
+- [x] Hacer que `WRKUSRPRF` use esos comandos en vez de acciones parciales.
+- [x] Expandir auditoria `USRPRF_CHANGE`, grants, revokes y logins.
+- [x] Agregar tests de crear, deshabilitar, reactivar, borrar y denegar login/uso.
+
+Tareas pendientes:
+
+- [ ] Aplicar autorizacion runtime a todos los comandos administrativos (parcialmente hecho).
 
 Criterio de cierre:
 
 - Un administrador puede gestionar perfiles desde TUI.
 - Autoridades sobre objetos se conservan en backup/restore.
 - Denegados aparecen en auditoria y tienen mensaje operativo claro.
+
+Commit: pendiente de commit final.
 
 ## Fase 6: work management y job queues
 

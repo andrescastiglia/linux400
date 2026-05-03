@@ -2174,35 +2174,180 @@ pub extern "C" fn l400_dspdtaq(spec: *const c_char) {
 
 /// RNMOBJ - Rename Object (stub)
 #[unsafe(no_mangle)]
-/// SIGNOFF - Sign Off (stub)
-#[unsafe(no_mangle)]
-pub extern "C" fn l400_signoff() {
-    println!("=== SIGNOFF - Sign Off ===");
-    println!("User signed off (stub)");
-}
-
-// ============================================================================
-// Corrected stub functions with proper signatures
-// ============================================================================
-
-/// RNMOBJ - Rename Object (corrected signature)
-#[unsafe(no_mangle)]
 pub extern "C" fn l400_rnmobj(arg1: *const c_char, arg2: *const c_char) {
     let _ = c_str_to_string(arg1);
     let _ = c_str_to_string(arg2);
     emit_status("CPF0000", None, "Object renamed (stub)");
 }
 
-/// CRTCLPGM - Create CL Program (corrected signature)
+/// SIGNOFF - Sign Off (stub)
 #[unsafe(no_mangle)]
-pub extern "C" fn l400_crtclpgm(arg1: *const c_char, arg2: *const c_char, arg3: *const c_char) {
-    let _ = c_str_to_string(arg1);
-    let _ = c_str_to_string(arg2);
-    let _ = c_str_to_string(arg3);
-    emit_status("CPF0000", None, "CL program created (stub)");
+pub extern "C" fn l400_signoff() {
+    println!("=== SIGNOFF - Sign Off ===");
+    println!("User signed off (stub)");
+}
+/// GO - Go to Menu (corrected - one string argument)
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_go(target: *const c_char) {
+    let _ = c_str_to_string(target);
+    println!("=== GO - Go to Menu ===");
+    println!("Menu displayed (stub)");
 }
 
-/// STRSEU - Start SEU (corrected signature)
+// ============================================================================
+
+// ============================================================================
+// Phase 5: User Profile Commands
+// ============================================================================
+
+/// CRTUSRPRF - Create User Profile
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_crtusrprf(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let usrprf_name = fields.get("USRPRF").map(|s| s.as_str()).unwrap_or("");
+    let text = fields.get("TEXT").map(|s| s.as_str()).unwrap_or("");
+    
+    if usrprf_name.is_empty() {
+        emit_status("CPF0001", None, "USRPRF parameter required");
+        return;
+    }
+    
+    match crate::usrprf::create_user_profile(usrprf_name, Some(text)) {
+        Ok(_) => {
+            emit_status("CPF0000", None, &format!("User profile {} created", usrprf_name));
+        }
+        Err(e) => {
+            emit_status("CPF0001", None, &format!("Create failed: {}", e));
+        }
+    }
+}
+
+/// CHGUSRPRF - Change User Profile
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_chgusrprf(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let usrprf_name = fields.get("USRPRF").map(|s| s.as_str()).unwrap_or("");
+    let text = fields.get("TEXT").map(|s| s.as_str());
+    let status = fields.get("STATUS").map(|s| s.as_str());
+    let password = fields.get("PASSWORD").map(|s| s.as_str());
+    let home_library = fields.get("HOMELIB").map(|s| s.as_str());
+    let current_library = fields.get("CURRLIB").map(|s| s.as_str());
+    let group_profiles = fields.get("GRPPRF").map(|s| s.as_str());
+    
+    if usrprf_name.is_empty() {
+        emit_status("CPF0001", None, "USRPRF parameter required");
+        return;
+    }
+    
+    match crate::usrprf::change_user_profile(
+        usrprf_name,
+        text,
+        status,
+        password,
+        home_library,
+        current_library,
+        group_profiles,
+    ) {
+        Ok(_) => {
+            emit_status("CPF0000", None, &format!("User profile {} changed", usrprf_name));
+        }
+        Err(e) => {
+            emit_status("CPF0001", None, &format!("Change failed: {}", e));
+        }
+    }
+}
+
+/// DLTUSRPRF - Delete User Profile
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_dltusrprf(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let usrprf_name = fields.get("USRPRF").map(|s| s.as_str()).unwrap_or("");
+    
+    if usrprf_name.is_empty() {
+        emit_status("CPF0001", None, "USRPRF parameter required");
+        return;
+    }
+    
+    // Check if we should keep the system user
+    let keep_system = fields.get("OWNSOBJ").map(|s| s == "*KEEP").unwrap_or(false);
+    
+    match crate::usrprf::delete_user_profile(usrprf_name, keep_system) {
+        Ok(_) => {
+            emit_status("CPF0000", None, &format!("User profile {} deleted", usrprf_name));
+        }
+        Err(e) => {
+            emit_status("CPF0001", None, &format!("Delete failed: {}", e));
+        }
+    }
+}
+
+/// DSPUSRPRF - Display User Profile
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_dspusrprf(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let usrprf_name = fields.get("USRPRF").map(|s| s.as_str()).unwrap_or("");
+    
+    if usrprf_name.is_empty() {
+        emit_status("CPF0001", None, "USRPRF parameter required");
+        return;
+    }
+    
+    match crate::usrprf::display_user_profile(usrprf_name) {
+        Ok(info) => {
+            let mut output = String::new();
+            output.push_str(&format!("User profile . . . . . . . . . : {}\n", info.name));
+            output.push_str(&format!("Description . . . . . . . . . : {}\n", info.description));
+            output.push_str(&format!("Status . . . . . . . . . . . : {}\n", info.status));
+            output.push_str(&format!("User ID  . . . . . . . . . . : {}\n", info.uid));
+            output.push_str(&format!("Owner . . . . . . . . . . . : {}\n", info.owner));
+            output.push_str(&format!("Creation date . . . . . . . . : {}\n", info.creation_date));
+            
+            if let Some(ref lib) = info.home_library {
+                output.push_str(&format!("Home library  . . . . . . . : {}\n", lib));
+            }
+            if let Some(ref lib) = info.current_library {
+                output.push_str(&format!("Current library . . . . . . : {}\n", lib));
+            }
+            if !info.group_profiles.is_empty() {
+                output.push_str(&format!("Group profiles . . . . . . .: {}\n", info.group_profiles.join(", ")));
+            }
+            
+            emit_status("CPF0000", None, &output);
+        }
+        Err(e) => {
+            emit_status("CPF0001", None, &format!("Display failed: {}", e));
+        }
+    }
+}
+
+/// USRPRF_CHANGE - Change own user profile (wrapper for CHGUSRPRF)
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_usrprf_change(spec: *const c_char) {
+    l400_chgusrprf(spec);
+}
+
+/// CRTCLPGM - Create CL Program (wrapper for l400_crtpgm with 3 args)
+/// This function is called by compiled CL programs
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcmbr: *const c_char) {
+    // Combine the three arguments into a single spec string for l400_crtpgm
+    let pgm_str = c_str_to_string(pgm);
+    let srcfile_str = c_str_to_string(srcfile);
+    let srcmbr_str = c_str_to_string(srcmbr);
+    
+    let spec = format!("PGM({}) SRCFILE({}) SRCMBR({})", pgm_str, srcfile_str, srcmbr_str);
+    l400_crtpgm(spec.as_ptr() as *const c_char);
+}
+
+/// STRSEU - Start SEU (2 args: file, member)
 #[unsafe(no_mangle)]
 pub extern "C" fn l400_strseu(arg1: *const c_char, arg2: *const c_char) {
     let _ = c_str_to_string(arg1);
@@ -2211,21 +2356,9 @@ pub extern "C" fn l400_strseu(arg1: *const c_char, arg2: *const c_char) {
     println!("SEU started (stub)");
 }
 
-// ============================================================================
-// Corrected stub functions for l400cmd.rs
-// ============================================================================
-
-/// STRSQL - Start SQL (corrected - no arguments)
+/// STRSQL - Start SQL (no arguments)
 #[unsafe(no_mangle)]
 pub extern "C" fn l400_strsql() {
     println!("=== STRSQL - Start SQL ===");
     println!("SQL started (stub)");
-}
-
-/// GO - Go to Menu (corrected - one string argument)
-#[unsafe(no_mangle)]
-pub extern "C" fn l400_go(target: *const c_char) {
-    let _ = c_str_to_string(target);
-    println!("=== GO - Go to Menu ===");
-    println!("Menu displayed (stub)");
 }
