@@ -15,19 +15,6 @@ pub fn set_last_cpf(code: &str) {
     LAST_CPF_CODE.store(numeric, Ordering::SeqCst);
 }
 
-#[unsafe(no_mangle)]
-/// # Safety
-/// `code` must be either null or a valid pointer to a null-terminated C string.
-pub unsafe extern "C" fn l400_set_cpf(code: *const c_char) {
-    if code.is_null() {
-        clear_last_cpf();
-        return;
-    }
-    let code_str = unsafe { CStr::from_ptr(code) };
-    let code = code_str.to_string_lossy();
-    set_last_cpf(&code);
-}
-
 pub fn clear_last_cpf() {
     LAST_CPF_CODE.store(0, Ordering::SeqCst);
 }
