@@ -3580,8 +3580,7 @@ mod tests {
 
         l400_clear_status();
         // Use KEY=VALUE format (not KEY(VALUE))
-        let spec =
-            std::ffi::CString::new("OBJ=QGPL/TODELETE CONFIRM=*YES").expect("cstring");
+        let spec = std::ffi::CString::new("OBJ=QGPL/TODELETE CONFIRM=*YES").expect("cstring");
         l400_dltobj(spec.as_ptr());
 
         let cpf = l400_last_cpf_code();
@@ -3601,8 +3600,7 @@ mod tests {
 
         l400_clear_status();
         // Use KEY=VALUE format (not KEY(VALUE))
-        let spec =
-            std::ffi::CString::new("OBJ=QGPL/TOCHANGE TEXT=New text").expect("cstring");
+        let spec = std::ffi::CString::new("OBJ=QGPL/TOCHANGE TEXT=New text").expect("cstring");
         l400_chgobjd(spec.as_ptr());
 
         let cpf = l400_last_cpf_code();
