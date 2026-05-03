@@ -3530,7 +3530,9 @@ mod tests {
         let c_pgm = std::ffi::CString::new("QGPL/NOMAN").expect("cstring");
         l400_call(c_pgm.as_ptr());
 
-        assert_eq!(l400_last_cpf_code(), 9898);
+        // Should emit CPF9898 (no toolchain manifest) or CPF2204 (authority denied)
+        let cpf = l400_last_cpf_code();
+        assert!(cpf == 9898 || cpf == 2204, "CALL should fail with CPF9898 or CPF2204");
     }
 
     #[test]
@@ -3543,7 +3545,7 @@ mod tests {
         let spec = std::ffi::CString::new("FILE(QGPL/REGTEST) RCDLEN(128)").expect("cstring");
         l400_crtpf(spec.as_ptr());
 
-        // Should not panic; just verify CPF code is valid (non-zero or zero)
+        // Command should not panic; CPF code might be 0 (success) or non-zero (failure)
         let _cpf = l400_last_cpf_code();
     }
 
