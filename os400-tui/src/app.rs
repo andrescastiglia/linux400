@@ -18,6 +18,7 @@ use crate::screens::object_browser::ObjectBrowser;
 use crate::screens::object_detail::ObjectDetail;
 use crate::screens::pdm_browser::PdmBrowser;
 use crate::screens::power_down::PowerDownSystem;
+use crate::screens::ptf_maintenance::PtfMaintenanceScreen;
 use crate::screens::sign_on::SignOnScreen;
 use crate::screens::str_seu::StrSeu;
 use crate::screens::str_sql::StrSql;
@@ -311,6 +312,7 @@ impl App {
                 self.session.clone(),
             )),
             ScreenId::InstallSummary => Box::new(InstallSummary::new()),
+            ScreenId::PtfMaintenance => Box::new(PtfMaintenanceScreen::new()),
             ScreenId::Exit | ScreenId::Back => {
                 // Exit is handled in switch_screen; Back is handled in handle_key.
                 // This branch should not be reached.

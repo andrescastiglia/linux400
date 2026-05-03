@@ -11,6 +11,7 @@ pub mod object_browser;
 pub mod object_detail;
 pub mod pdm_browser;
 pub mod power_down;
+pub mod ptf_maintenance;
 pub mod sign_on;
 pub mod str_seu;
 pub mod str_sql;
@@ -70,6 +71,7 @@ pub enum ScreenId {
     SpoolOutq,
     SystemPanel,
     InstallSummary,
+    PtfMaintenance,
     Exit,
     /// Pop the navigation stack to return to the previous screen.
     Back,

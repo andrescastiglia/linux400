@@ -325,8 +325,8 @@ fn record_audit(ptf_id: &str, action: &str, result: &str, build_id: &str) -> Res
 mod tests {
     use super::*;
     use std::fs;
-    use std::path::Path;
     use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
 
     fn setup_test_dir() -> String {
         let test_dir = "/tmp/l400_ptf_test".to_string();
@@ -340,24 +340,26 @@ mod tests {
     fn create_fake_ptf_package(test_dir: &str, id: &str, version: &str) -> String {
         let ptf_dir = Path::new(test_dir).join(id);
         fs::create_dir_all(&ptf_dir).expect("Failed to create PTF dir");
-        
+
         // Create manifest
         let manifest = format!(
             "[package]\nid = \"{}\"\nname = \"Test PTF\"\nversion = \"{}\"\norigin_version = \"0.0.0\"\nrelease_date = \"2026-05-03\"\n",
             id, version
         );
         fs::write(ptf_dir.join("manifest.toml"), manifest).expect("Failed to write manifest");
-        
+
         // Create a test file
         let files_dir = ptf_dir.join("files");
         fs::create_dir_all(&files_dir).expect("Failed to create files dir");
         fs::write(files_dir.join("test.txt"), "test content").expect("Failed to write test file");
-        
+
         // Set permissions
-        let mut perms = fs::metadata(files_dir.join("test.txt")).unwrap().permissions();
+        let mut perms = fs::metadata(files_dir.join("test.txt"))
+            .unwrap()
+            .permissions();
         perms.set_mode(0o644);
         fs::set_permissions(files_dir.join("test.txt"), perms).ok();
-        
+
         ptf_dir.to_string_lossy().to_string()
     }
 
@@ -365,13 +367,13 @@ mod tests {
     fn test_apply_ptf_success() {
         let test_dir = setup_test_dir();
         let ptf_path = create_fake_ptf_package(&test_dir, "PTF0001", "0.2.1");
-        
+
         // apply_ptf requires confirm=true to actually apply
         let result = apply_ptf(&ptf_path, true);
         // This might fail if /var/cache/l400/ptf doesn't exist or l400-upgrade-check fails
         // Just verify it doesn't panic with valid input
         let _ = result;
-        
+
         // Cleanup
         fs::remove_dir_all(&test_dir).ok();
     }
@@ -380,13 +382,13 @@ mod tests {
     fn test_apply_ptf_with_precheck() {
         let test_dir = setup_test_dir();
         let ptf_path = create_fake_ptf_package(&test_dir, "PTF0002", "0.2.1");
-        
+
         // This test assumes l400-upgrade-check exists or will skip
         let result = apply_ptf(&ptf_path, true);
         // We don't assert OK here because l400-upgrade-check might not exist in test env
         // Just verify it doesn't panic
         let _ = result;
-        
+
         fs::remove_dir_all(&test_dir).ok();
     }
 
@@ -394,33 +396,33 @@ mod tests {
     fn test_rollback_ptf() {
         let test_dir = setup_test_dir();
         let ptf_path = create_fake_ptf_package(&test_dir, "PTF0003", "0.2.1");
-        
+
         // First apply (with confirm=true)
         let apply_result = apply_ptf(&ptf_path, true);
         // Apply might fail in test env, that's ok
         let _ = apply_result;
-        
+
         // Then rollback (with confirm=true)
         // This will fail if PTF wasn't applied, but shouldn't panic
         let rollback_result = rollback_ptf("PTF0003", true);
         let _ = rollback_result;
-        
+
         fs::remove_dir_all(&test_dir).ok();
     }
 
     #[test]
     fn test_downgrade_rejected() {
         let test_dir = setup_test_dir();
-        
+
         // Create PTF with lower version than current
         let ptf_path = create_fake_ptf_package(&test_dir, "PTF0004", "0.1.0");
-        
+
         // Attempt to apply (should fail if current version is higher)
         let result = apply_ptf(&ptf_path, false);
         // This might succeed or fail depending on current version
         // At minimum, it should not panic
         let _ = result;
-        
+
         fs::remove_dir_all(&test_dir).ok();
     }
 
@@ -444,10 +446,10 @@ mod tests {
         let ptf_dir = Path::new(&test_dir).join("PTF0007");
         fs::create_dir_all(&ptf_dir).expect("Failed to create PTF dir");
         // Don't create manifest.toml
-        
+
         let result = apply_ptf(ptf_dir.to_str().unwrap(), false);
         assert!(result.is_err(), "Should fail without manifest");
-        
+
         fs::remove_dir_all(&test_dir).ok();
     }
 }
