@@ -2,7 +2,6 @@ use clap::Parser;
 use l400::cgroup::{
     JobStatus, WorkloadType, assign_to_workload, job_log_path, register_job, update_job_status,
 };
-use l400::ffi::set_last_cpf;
 use std::env;
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
@@ -122,7 +121,7 @@ fn main() {
             "SBMJOB Error: JOBQ({}) no soportada; use JOBQ(QBATCH).",
             jobq
         );
-        set_last_cpf("CPF0006");
+        eprintln!("CPF:0006");
         std::process::exit(2);
     }
 
@@ -133,12 +132,11 @@ fn main() {
         // 1. Asignar este daemon al cgroup QBATCH
         if let Err(e) = assign_to_workload(pid, WorkloadType::Batch) {
             eprintln!("SBMJOB Error: No se pudo asignar a QBATCH: {}", e);
-            set_last_cpf("CPF9898");
+            eprintln!("CPF:9898");
             // Ignoramos el error para permitir ejecución fallback en sistemas sin cgroups
         }
 
         let cmd_str = format!("{} {}", args.cmd, args.args.join(" "));
-
         // 2. Registrar el trabajo en el Job Registry como JOBQ y luego ACTIVE.
         if let Err(e) = register_job(
             pid,
@@ -149,7 +147,7 @@ fn main() {
             &cmd_str,
         ) {
             eprintln!("SBMJOB Error: No se pudo registrar el job: {}", e);
-            set_last_cpf("CPF0001");
+            eprintln!("CPF:0001");
         }
         let _ = update_job_status(pid, JobStatus::Active);
 

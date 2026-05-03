@@ -40,6 +40,7 @@ pub struct BootstrapReport {
     pub root: PathBuf,
     pub created: Vec<String>,
     pub existing: Vec<String>,
+    pub issues: Vec<String>,
 }
 
 impl BootstrapReport {
@@ -48,6 +49,7 @@ impl BootstrapReport {
             root: root.to_path_buf(),
             created: Vec::new(),
             existing: Vec::new(),
+            issues: Vec::new(),
         }
     }
 
@@ -102,11 +104,16 @@ fn ensure_library_with_text(
     let existed = root.join(name).exists();
     let path = ensure_library(root, name)?;
     catalog_object(&path, "*LIB", Some("LIB"), Some(text))?;
-    let _ = write_string_attr(
+    if let Err(e) = write_string_attr(
         &path,
         crate::L400_DATA_FORMAT_VERSION_ATTR,
         &crate::L400_DATA_FORMAT_VERSION.to_string(),
-    );
+    ) {
+        report.issues.push(format!(
+            "Failed to write {} for {name}: {e}",
+            crate::L400_DATA_FORMAT_VERSION_ATTR
+        ));
+    }
     if existed {
         report.existing(format!("{name} *LIB"));
     } else {
@@ -133,21 +140,35 @@ fn ensure_object(
     if path.exists() {
         match describe_object(&path) {
             Ok(object) if object.objtype == objtype => {
-                let _ = write_string_attr(
+                if let Err(e) = write_string_attr(
                     &path,
                     crate::L400_DATA_FORMAT_VERSION_ATTR,
                     &crate::L400_DATA_FORMAT_VERSION.to_string(),
-                );
+                ) {
+                    report.issues.push(format!(
+                        "Failed to write {} for {}: {}",
+                        crate::L400_DATA_FORMAT_VERSION_ATTR,
+                        marker,
+                        e
+                    ));
+                }
                 report.existing(marker);
                 return Ok(());
             }
             _ => {
                 catalog_object(&path, objtype, Some(attr), Some(text))?;
-                let _ = write_string_attr(
+                if let Err(e) = write_string_attr(
                     &path,
                     crate::L400_DATA_FORMAT_VERSION_ATTR,
                     &crate::L400_DATA_FORMAT_VERSION.to_string(),
-                );
+                ) {
+                    report.issues.push(format!(
+                        "Failed to write {} for {}: {}",
+                        crate::L400_DATA_FORMAT_VERSION_ATTR,
+                        marker,
+                        e
+                    ));
+                }
                 report.existing(marker);
                 return Ok(());
             }
@@ -155,11 +176,18 @@ fn ensure_object(
     }
 
     create_object_with_metadata(lib, name, objtype, Some(attr), Some(text))?;
-    let _ = write_string_attr(
+    if let Err(e) = write_string_attr(
         &path,
         crate::L400_DATA_FORMAT_VERSION_ATTR,
         &crate::L400_DATA_FORMAT_VERSION.to_string(),
-    );
+    ) {
+        report.issues.push(format!(
+            "Failed to write {} for {}: {}",
+            crate::L400_DATA_FORMAT_VERSION_ATTR,
+            marker,
+            e
+        ));
+    }
     report.created(marker);
     Ok(())
 }
@@ -178,22 +206,32 @@ fn ensure_data_queue(
     if path.exists() {
         catalog_object(&path, "*DTAQ", Some("DTAQ"), Some("Job log data queue"))?;
         let _ = DataQueue::open(&path)?;
-        let _ = write_string_attr(
+        if let Err(e) = write_string_attr(
             &path,
             crate::L400_DATA_FORMAT_VERSION_ATTR,
             &crate::L400_DATA_FORMAT_VERSION.to_string(),
-        );
+        ) {
+            report.issues.push(format!(
+                "Failed to write {} for {marker}: {e}",
+                crate::L400_DATA_FORMAT_VERSION_ATTR
+            ));
+        }
         report.existing(marker);
         return Ok(());
     }
 
     crtdtaq(lib, name)?;
     catalog_object(&path, "*DTAQ", Some("DTAQ"), Some("Job log data queue"))?;
-    let _ = write_string_attr(
+    if let Err(e) = write_string_attr(
         &path,
         crate::L400_DATA_FORMAT_VERSION_ATTR,
         &crate::L400_DATA_FORMAT_VERSION.to_string(),
-    );
+    ) {
+        report.issues.push(format!(
+            "Failed to write {} for {marker}: {e}",
+            crate::L400_DATA_FORMAT_VERSION_ATTR
+        ));
+    }
     report.created(marker);
     Ok(())
 }
@@ -212,21 +250,31 @@ fn ensure_outq(
     );
     if path.exists() {
         catalog_object(&path, "*OUTQ", Some("OUTQ"), Some(text))?;
-        let _ = write_string_attr(
+        if let Err(e) = write_string_attr(
             &path,
             crate::L400_DATA_FORMAT_VERSION_ATTR,
             &crate::L400_DATA_FORMAT_VERSION.to_string(),
-        );
+        ) {
+            report.issues.push(format!(
+                "Failed to write {} for {marker}: {e}",
+                crate::L400_DATA_FORMAT_VERSION_ATTR
+            ));
+        }
         report.existing(marker);
         return Ok(());
     }
 
     create_object_with_metadata(lib, name, "*OUTQ", Some("OUTQ"), Some(text))?;
-    let _ = write_string_attr(
+    if let Err(e) = write_string_attr(
         &path,
         crate::L400_DATA_FORMAT_VERSION_ATTR,
         &crate::L400_DATA_FORMAT_VERSION.to_string(),
-    );
+    ) {
+        report.issues.push(format!(
+            "Failed to write {} for {marker}: {e}",
+            crate::L400_DATA_FORMAT_VERSION_ATTR
+        ));
+    }
     report.created(marker);
     Ok(())
 }
