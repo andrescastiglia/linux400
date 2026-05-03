@@ -84,26 +84,28 @@ Commit: 4e5df62 - feat(phase2): Implement Phase 2 - Installation and first boot
 
 ## Fase 3: actualizacion y PTFs
 
-Estado: pendiente.
+Estado: completado (90% - TUI screen pendiente).
 
 Objetivo: introducir mantenimiento versionado estilo PTF.
 
 Tareas:
 
-- [ ] Definir formato de paquete PTF: manifiesto, version origen/destino, archivos, scripts, checksum y rollback.
-- [ ] Crear comando `DSPPTF` para listar PTFs aplicados y pendientes.
-- [ ] Crear comando `APYPTF` con `OPTION(*CHECK|*APPLY|*ROLLBACK)` y `CONFIRM`.
-- [ ] Integrar `l400-upgrade-check` como precheck obligatorio de `APYPTF`.
-- [ ] Expandir `l400-migrate` para migraciones idempotentes por version.
-- [ ] Auditar apply/rollback con usuario, fecha, build id y resultado.
-- [ ] Agregar pantalla TUI de mantenimiento/PTF.
-- [ ] Agregar tests de PTF con paquete falso, apply, rollback y downgrade rechazado.
+- [x] Definir formato de paquete PTF: manifiesto, version origen/destino, archivos, scripts, checksum y rollback.
+- [x] Crear comando `DSPPTF` para listar PTFs aplicados y pendientes.
+- [x] Crear comando `APYPTF` con `OPTION(*CHECK|*APPLY|*ROLLBACK)` y `CONFIRM`.
+- [x] Integrar `l400-upgrade-check` como precheck obligatorio de `APYPTF`.
+- [x] Expandir `l400-migrate` para migraciones idempotentes por version.
+- [x] Auditar apply/rollback con usuario, fecha, build id y resultado.
+- [ ] Agregar pantalla TUI de mantenimiento/PTF (Tarea 7 pendiente).
+- [x] Agregar tests de PTF con paquete falso, apply, rollback y downgrade rechazado.
 
 Criterio de cierre:
 
 - Un PTF puede aplicarse y revertirse en entorno de prueba.
 - El sistema bloquea downgrades de metadata sin restore.
 - `DSPPTF` y support report muestran historial de mantenimiento.
+
+Commit: 82c1e71 - feat(phase3): Implement Phase 3 - PTFs y Actualización (SERVICE option)
 
 ## Fase 4: backup, restore e integridad
 
