@@ -1564,6 +1564,14 @@ pub extern "C" fn l400_dltobj(spec: *const c_char) {
     let root = crate::object::resolve_l400_root();
     let (_library, object, path) =
         resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+    
+    // Check if object exists; if not, emit CPF9801 "object not found" (idempotent delete scenario)
+    if !path.exists() {
+        emit_status("CPF9801", Some(&path), "Object not found for delete");
+        println!("[DLTOBJ] Objeto no encontrado: {}", path.display());
+        return;
+    }
+    
     let user = runtime_user();
     match crate::auth::check_authority(&path, &user, crate::auth::L400Authority::All) {
         Ok(true) => {}
