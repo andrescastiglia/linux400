@@ -828,7 +828,11 @@ pub extern "C" fn l400_crtoutq(spec: *const c_char) {
     match crate::auth::check_authority(&lib_path, &user, crate::auth::L400Authority::Change) {
         Ok(true) => {}
         Ok(false) => {
-            emit_status("CPF2204", Some(&lib_path), "authority insufficient for create");
+            emit_status(
+                "CPF2204",
+                Some(&lib_path),
+                "authority insufficient for create",
+            );
             println!(
                 "[CRTOUTQ] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
                 user,
@@ -1281,7 +1285,11 @@ pub extern "C" fn l400_crtcmd(spec: *const c_char) {
     match crate::auth::check_authority(&lib_path, &user, crate::auth::L400Authority::Change) {
         Ok(true) => {}
         Ok(false) => {
-            emit_status("CPF2204", Some(&lib_path), "authority insufficient for create");
+            emit_status(
+                "CPF2204",
+                Some(&lib_path),
+                "authority insufficient for create",
+            );
             println!(
                 "[CRTCMD] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
                 user,
@@ -2310,10 +2318,15 @@ pub extern "C" fn l400_crtpf(spec: *const c_char) {
     match crate::auth::check_authority(&lib_path, &user, crate::auth::L400Authority::Change) {
         Ok(true) => {}
         Ok(false) => {
-            emit_status("CPF2204", Some(&lib_path), "authority insufficient for create");
+            emit_status(
+                "CPF2204",
+                Some(&lib_path),
+                "authority insufficient for create",
+            );
             println!(
                 "[CRTPF] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
-                user, lib_path.display()
+                user,
+                lib_path.display()
             );
             return;
         }
@@ -2373,7 +2386,11 @@ pub extern "C" fn l400_crtlf(spec: *const c_char) {
     match crate::auth::check_authority(&lib_path, &user, crate::auth::L400Authority::Change) {
         Ok(true) => {}
         Ok(false) => {
-            emit_status("CPF2204", Some(&lib_path), "authority insufficient for create");
+            emit_status(
+                "CPF2204",
+                Some(&lib_path),
+                "authority insufficient for create",
+            );
             println!(
                 "[CRTLF] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
                 user,
@@ -2578,7 +2595,11 @@ pub extern "C" fn l400_crtdtaq(spec: *const c_char) {
     match crate::auth::check_authority(&lib_path, &user, crate::auth::L400Authority::Change) {
         Ok(true) => {}
         Ok(false) => {
-            emit_status("CPF2204", Some(&lib_path), "authority insufficient for create");
+            emit_status(
+                "CPF2204",
+                Some(&lib_path),
+                "authority insufficient for create",
+            );
             println!(
                 "[CRTDTAQ] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
                 user,
@@ -2814,7 +2835,11 @@ pub extern "C" fn l400_crtpgm(pgm: *const c_char) {
     match crate::auth::check_authority(&lib_path, &user, crate::auth::L400Authority::Change) {
         Ok(true) => {}
         Ok(false) => {
-            emit_status("CPF2204", Some(&lib_path), "authority insufficient for create");
+            emit_status(
+                "CPF2204",
+                Some(&lib_path),
+                "authority insufficient for create",
+            );
             println!(
                 "[CRTPGM] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
                 user,
@@ -2987,7 +3012,11 @@ pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcm
     match crate::auth::check_authority(&pgm_lib_path, &user, crate::auth::L400Authority::Change) {
         Ok(true) => {}
         Ok(false) => {
-            emit_status("CPF2204", Some(&pgm_lib_path), "authority insufficient for create");
+            emit_status(
+                "CPF2204",
+                Some(&pgm_lib_path),
+                "authority insufficient for create",
+            );
             println!(
                 "[CRTCLPGM] Denegado por autoridad: usuario {} no tiene *CHANGE sobre {}.",
                 user,
@@ -3382,9 +3411,8 @@ pub extern "C" fn l400_strsql() {
 #[cfg(test)]
 mod tests {
     use super::{
-        PowerDownAction, confirmed_yes, l400_call, parse_command_fields,
-        power_down_option_from_spec, spool_file_status,
-        l400_crtpf, l400_crtdtaq, l400_dltobj, l400_chgobjd,
+        PowerDownAction, confirmed_yes, l400_call, l400_chgobjd, l400_crtdtaq, l400_crtpf,
+        l400_dltobj, parse_command_fields, power_down_option_from_spec, spool_file_status,
     };
     use crate::auth::{L400Authority, grant_object_authority};
     use crate::ffi::{l400_clear_status, l400_last_cpf_code};
