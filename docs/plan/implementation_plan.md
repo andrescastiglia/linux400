@@ -62,23 +62,25 @@ Criterio de cierre:
 
 ## Fase 2: instalacion y primer arranque
 
-Estado: pendiente.
+Estado: completada.
 
 Objetivo: que la instalacion sea repetible, diagnosticable y validada por gate.
 
 Tareas:
 
-- [ ] Endurecer `install-linux400` para errores de disco, particion, EFI, rootfs y persistencia.
-- [ ] Agregar pantalla TUI de instalacion/resumen cuando el boot sea `install`.
-- [ ] Registrar en `/l400` version instalada, build id, metadata version y perfil de plataforma.
-- [ ] Validar que el primer arranque cree o repare objetos base sin borrar datos del operador.
-- [ ] Mejorar modo rescue con opciones: montar `/l400`, support report, upgrade check, restore y shell.
-- [ ] Hacer que `test_e2e_install_qemu.sh` verifique persistencia de objetos, usuarios, spool y jobs.
+- [x] Endurecer `install-linux400` para errores de disco, particion, EFI, rootfs y persistencia.
+- [x] Agregar pantalla TUI de instalacion/resumen cuando el boot sea `install`.
+- [x] Registrar en `/l400` version instalada, build id, metadata version y perfil de plataforma.
+- [x] Validar que el primer arranque cree o repare objetos base sin borrar datos del operador.
+- [x] Mejorar modo rescue con opciones: montar `/l400`, support report, upgrade check, restore y shell.
+- [x] Hacer que `test_e2e_install_qemu.sh` verifique persistencia de objetos, usuarios, spool y jobs.
 
 Criterio de cierre:
 
 - `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh` instala, reinicia y valida persistencia.
 - El operador puede reconocer modo live/install/installed desde TUI o support report.
+
+Commit: 4e5df62 - feat(phase2): Implement Phase 2 - Installation and first boot
 
 ## Fase 3: actualizacion y PTFs
 

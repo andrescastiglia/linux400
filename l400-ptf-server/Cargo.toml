@@ -1,0 +1,9 @@
+[package]
+name = "l400-ptf-server"
+version = "0.2.0"
+edition = "2021"
+description = "Linux/400 PTF Server (SERVICE option, no tapes)"
+authors = ["Linux/400 Team"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]

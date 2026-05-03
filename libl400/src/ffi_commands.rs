@@ -2287,6 +2287,117 @@ pub extern "C" fn l400_dspaudit() {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn l400_dspptf(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    let option = fields
+        .get("OPTION")
+        .map(|v| v.to_uppercase())
+        .unwrap_or_else(|| "ALL".to_string());
+
+    println!("=== DSPPTF - PTF Maintenance History ===");
+
+    // Read audit log to show PTF history
+    let audit_path = Path::new("/var/log/l400/ptf-audit.log");
+    if !audit_path.exists() {
+        println!("  No hay registros de PTF aplicados.");
+        println!("========================================");
+        return;
+    }
+
+    // Filter by option
+    let show_applied = option == "*ALL" || option == "*APPLIED";
+    let show_pending = option == "*ALL" || option == "*PENDING";
+
+    if show_applied {
+        println!("\nPTFs Aplicados:");
+        println!("  {:12} {:20} {:12} {}", "DATE", "PTF ID", "USER", "RESULT");
+        println!("  {}", "-".repeat(70));
+
+        if let Ok(records) = crate::ptf::read_ptf_history() {
+            for record in records.iter().filter(|r| r.action == "APPLY") {
+                println!(
+                    "  {:12} {:20} {:12} {}",
+                    record.timestamp, record.ptf_id, record.user, record.result
+                );
+            }
+        }
+    }
+
+    if show_pending {
+        println!("\nPTFs Pendientes (en cache):");
+        println!("  {:12} {:30} {}", "PTF ID", "NAME", "VERSION");
+        println!("  {}", "-".repeat(70));
+
+        if let Ok(packages) = crate::ptf::list_pending_ptfs() {
+            for pkg in packages {
+                println!("  {:12} {:30} {}", pkg.id, pkg.name, pkg.target_version);
+            }
+        } else {
+            println!("  No se pudo leer el directorio de PTFs pendientes.");
+        }
+    }
+
+    println!("\n========================================");
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_aptptf(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    let ptf_id = if let Some(id) = fields.get("PTF") {
+        id.trim()
+            .trim_start_matches('"')
+            .trim_end_matches('"')
+            .trim_start_matches("'")
+            .trim_end_matches("'")
+            .to_string()
+    } else {
+        emit_status("CPF0006", None, "APYPTF requiere PTF");
+        println!(
+            "[APYPTF] Uso: APYPTF PTF(PTF0001) OPTION(*APPLY|*CHECK|*ROLLBACK) CONFIRM(*YES|*NO)"
+        );
+        return;
+    };
+
+    let option = fields
+        .get("OPTION")
+        .map(|v| v.to_uppercase())
+        .unwrap_or_else(|| "*CHECK".to_string());
+
+    let confirm = fields
+        .get("CONFIRM")
+        .map(|v| v.to_uppercase())
+        .unwrap_or_else(|| "*NO".to_string());
+
+    let confirm_bool = confirm == "*YES" || confirm == "YES";
+
+    println!("=== APYPTF - Aplicar/Revetir PTF ===");
+
+    let result = match option.as_str() {
+        "*CHECK" | "*CHK" => crate::ptf::check_ptf(&ptf_id),
+        "*APPLY" | "*APL" => crate::ptf::apply_ptf(&ptf_id, confirm_bool),
+        "*ROLLBACK" | "*RLB" => crate::ptf::rollback_ptf(&ptf_id, confirm_bool),
+        _ => {
+            emit_status("CPF0006", None, &format!("OPTION {option} no váido"));
+            println!("[APYPTF] OPTION debe ser *CHECK, *APPLY o *ROLLBACK");
+            return;
+        }
+    };
+
+    match result {
+        Ok(msg) => {
+            println!("[APYPTF] {}", msg);
+            emit_status("   ", None, &msg);
+        }
+        Err(err) => {
+            println!("[APYPTF] Error: {}", err);
+            emit_status("CPF0001", None, &err);
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn l400_crtpf(spec: *const c_char) {
     let spec = c_str_to_string(spec);
     let fields = parse_command_fields(&spec);
