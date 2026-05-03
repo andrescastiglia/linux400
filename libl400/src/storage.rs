@@ -21,6 +21,10 @@ pub const L400_OUTQ_ROUTING_ATTR: &str = "user.l400.outq.routing";
 pub const L400_OUTQ_DEFAULT_STATUS_ATTR: &str = "user.l400.outq.default_status";
 pub const L400_TOOLCHAIN_MANIFEST_ATTR: &str = "user.l400.toolchain.manifest";
 pub const L400_TOOLCHAIN_MANIFEST_VERSION: u32 = 1;
+pub const L400_JOBQ_STATUS_ATTR: &str = "user.l400.jobq.status";
+pub const L400_JOBQ_SUBSYSTEM_ATTR: &str = "user.l400.jobq.subsystem";
+pub const L400_JOBQ_MAX_ACTIVE_ATTR: &str = "user.l400.jobq.max_active";
+pub const L400_JOBQ_PRIORITY_ATTR: &str = "user.l400.jobq.priority";
 static SLED_DB_CACHE: OnceLock<Mutex<HashMap<PathBuf, sled::Db>>> = OnceLock::new();
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

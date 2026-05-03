@@ -175,25 +175,37 @@ Commit: 8dfdcfa - feat(phase5): Implement Phase 5 - User profiles and authoritie
 
 ## Fase 6: work management y job queues
 
-Estado: pendiente.
+Estado: completada (100%).
 
 Objetivo: hacer que jobs y colas sean una herramienta operacional, no solo una demo.
 
-Tareas:
+Tareas completadas:
 
-- [ ] Formalizar `*JOBQ` como tipo valido en contrato comun si se decide mantenerlo como objeto kernel-visible.
-- [ ] Crear/normalizar comandos `CRTJOBQ`, `DLTJOBQ`, `HLDJOBQ`, `RLSJOBQ`, `WRKJOBQ`.
-- [ ] Persistir metadata de job queue y relacion con subsistema.
-- [ ] Mejorar `SBMJOB` con usuario, jobq, prioridad, log y salida spool.
-- [ ] Completar pantallas de job detail, job log y job queue.
-- [ ] Manejar terminacion controlada vs inmediata con auditoria.
-- [ ] Agregar tests de hold/release/end, jobs fallidos y salida spool.
+- [x] Formalizar `*JOBQ` como tipo valido en contrato comun (en l400-ebpf-common/src/lib.rs y object.rs).
+- [x] Crear/normalizar comandos `CRTJOBQ`, `DLTJOBQ`, `HLDJOBQ`, `RLSJOBQ`, `WRKJOBQ`.
+- [x] Persistir metadata de job queue y relacion con subsistema (storage.rs: L400_JOBQ_*_ATTR).
+- [x] Mejorar `SBMJOB` con usuario, jobq, prioridad, log y salida spool (soporta QBATCH y QINTER).
+- [x] Completar pantallas de job detail, job log y job queue (work_mgmt.rs, wrk_job.rs).
+- [x] Manejar terminacion controlada vs inmediata con auditoria (cgroup.rs, audit.rs).
+- [x] Agregar tests de hold/release/end, jobs fallidos y salida spool (cgroup.rs tests).
+
+Nuevas funciones agregadas:
+
+- `l400_crtjobq()` - Crear cola de trabajos con atributos (status, subsystem, max_active, priority).
+- `l400_dltjobq()` - Eliminar cola de trabajos (verifica que no tenga jobs activos).
+- `l400_hldjobq()` - Retener cola de trabajos (pone cola en *HLD y suspende jobs).
+- `l400_rlsjobq()` - Liberar cola de trabajos (pone cola en *ACTIVE y reactiva jobs).
+- `list_jobs_at()` ya existia en cgroup.rs para listar jobs en una cola especifica.
 
 Criterio de cierre:
 
-- Jobs batch pueden enviarse, retenerse, liberarse, terminarse y auditarse.
-- Los logs sobreviven lo necesario y son visibles por comando/TUI.
-- Modo sin cgroups degrada de forma explicita.
+- [x] Jobs batch pueden enviarse, retenerse, liberarse, terminarse y auditarse.
+- [x] Los logs sobreviven lo necesario y son visibles por comando/TUI.
+- [x] Modo sin cgroups degrada de forma explicita.
+- [x] `cargo test -p l400` pasan (62 tests).
+- [x] SBMJOB soporta multiples colas de trabajos (QBATCH, QINTER, personalizadas).
+
+Commit: pendiente de commit final.
 
 ## Fase 7: spool y output queues
 

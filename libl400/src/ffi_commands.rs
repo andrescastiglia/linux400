@@ -2414,3 +2414,261 @@ pub extern "C" fn l400_strsql() {
     println!("=== STRSQL - Start SQL ===");
     println!("SQL started (stub)");
 }
+
+// ============================================================================
+// Phase 6: Job Queue Commands (CRTJOBQ, DLTJOBQ, HLDJOBQ, RLSJOBQ)
+// ============================================================================
+
+/// CRTJOBQ - Create Job Queue
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_crtjobq(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let jobq_name = fields.get("JOBQ").map(|s| s.as_str()).unwrap_or("");
+    let text = fields.get("TEXT").map(|s| s.as_str()).unwrap_or("Job Queue");
+    let subsystem = fields.get("SBS").map(|s| s.as_str()).unwrap_or("QBATCH");
+    let max_active = fields.get("MAXACT").map(|s| s.as_str()).unwrap_or("1");
+    let priority = fields.get("PRIORITY").map(|s| s.as_str()).unwrap_or("5");
+    
+    if jobq_name.is_empty() {
+        emit_status("CPF0001", None, "JOBQ parameter required");
+        return;
+    }
+    
+    // Check authorization
+    let path = crate::object::resolve_l400_root().join("QSYS").join(format!("{}.JOBQ", jobq_name.to_uppercase()));
+    let current_user = crate::audit::current_l400_user();
+    match crate::auth::check_command_authority(&path, &current_user, "CRTJOBQ") {
+        Ok(true) => {
+            match crate::object::create_object_with_metadata(
+                &crate::object::resolve_l400_root().join("QSYS"),
+                jobq_name,
+                "*JOBQ",
+                Some("JOBQ"),
+                Some(text),
+            ) {
+                Ok(_) => {
+                    // Set job queue attributes
+                    let jobq_path = crate::object::resolve_l400_root()
+                        .join("QSYS")
+                        .join(format!("{}.JOBQ", jobq_name.to_uppercase()));
+                    
+                    crate::storage::write_string_attr(&jobq_path, crate::storage::L400_JOBQ_STATUS_ATTR, "*ACTIVE")
+                        .ok();
+                    crate::storage::write_string_attr(&jobq_path, crate::storage::L400_JOBQ_SUBSYSTEM_ATTR, subsystem)
+                        .ok();
+                    crate::storage::write_string_attr(&jobq_path, crate::storage::L400_JOBQ_MAX_ACTIVE_ATTR, max_active)
+                        .ok();
+                    crate::storage::write_string_attr(&jobq_path, crate::storage::L400_JOBQ_PRIORITY_ATTR, priority)
+                        .ok();
+                    
+                    // Log creation
+                    crate::audit::audit_event(
+                        "JOBQ_CREATE",
+                        &current_user,
+                        &jobq_path,
+                        &format!("Job queue {} created", jobq_name)
+                    ).ok();
+                    
+                    emit_status("CPF0000", None, &format!("Job queue {} created", jobq_name));
+                }
+                Err(e) => {
+                    emit_status("CPF0001", None, &format!("Create failed: {}", e));
+                }
+            }
+        }
+        Ok(false) => {
+            emit_status("CPF0001", None, &format!("Not authorized to create job queue {}", jobq_name));
+        }
+        Err(e) => {
+            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+        }
+    }
+}
+
+/// DLTJOBQ - Delete Job Queue
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_dltjobq(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let jobq_name = fields.get("JOBQ").map(|s| s.as_str()).unwrap_or("");
+    
+    if jobq_name.is_empty() {
+        emit_status("CPF0001", None, "JOBQ parameter required");
+        return;
+    }
+    
+    let jobq_path = crate::object::resolve_l400_root()
+        .join("QSYS")
+        .join(format!("{}.JOBQ", jobq_name.to_uppercase()));
+    
+    if !jobq_path.exists() {
+        emit_status("CPF0001", None, &format!("Job queue {} not found", jobq_name));
+        return;
+    }
+    
+    // Check authorization
+    let current_user = crate::audit::current_l400_user();
+    match crate::auth::check_command_authority(&jobq_path, &current_user, "DLTJOBQ") {
+        Ok(true) => {
+            // Check if there are active jobs in this queue
+            let jobs = crate::cgroup::list_jobs_at(&jobq_path).unwrap_or_default();
+            let active_jobs: Vec<_> = jobs.iter().filter(|j| matches!(j.status, crate::cgroup::JobStatus::JobQ | crate::cgroup::JobStatus::Active | crate::cgroup::JobStatus::Held)).collect();
+            
+            if !active_jobs.is_empty() {
+                emit_status("CPF0001", None, &format!("Job queue {} has {} active/held jobs", jobq_name, active_jobs.len()));
+                return;
+            }
+            
+            // Delete the job queue object
+            match std::fs::remove_file(&jobq_path) {
+                Ok(_) => {
+                    // Log deletion
+                    crate::audit::audit_event(
+                        "JOBQ_DELETE",
+                        &current_user,
+                        &jobq_path,
+                        &format!("Job queue {} deleted", jobq_name)
+                    ).ok();
+                    
+                    emit_status("CPF0000", None, &format!("Job queue {} deleted", jobq_name));
+                }
+                Err(e) => {
+                    emit_status("CPF0001", None, &format!("Delete failed: {}", e));
+                }
+            }
+        }
+        Ok(false) => {
+            emit_status("CPF0001", None, &format!("Not authorized to delete job queue {}", jobq_name));
+        }
+        Err(e) => {
+            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+        }
+    }
+}
+
+/// HLDJOBQ - Hold Job Queue
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_hldjobq(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let jobq_name = fields.get("JOBQ").map(|s| s.as_str()).unwrap_or("");
+    
+    if jobq_name.is_empty() {
+        emit_status("CPF0001", None, "JOBQ parameter required");
+        return;
+    }
+    
+    let jobq_path = crate::object::resolve_l400_root()
+        .join("QSYS")
+        .join(format!("{}.JOBQ", jobq_name.to_uppercase()));
+    
+    if !jobq_path.exists() {
+        emit_status("CPF0001", None, &format!("Job queue {} not found", jobq_name));
+        return;
+    }
+    
+    // Check authorization
+    let current_user = crate::audit::current_l400_user();
+    match crate::auth::check_command_authority(&jobq_path, &current_user, "HLDJOBQ") {
+        Ok(true) => {
+            // Set status to *HLD
+            match crate::storage::write_string_attr(&jobq_path, crate::storage::L400_JOBQ_STATUS_ATTR, "*HLD") {
+                Ok(_) => {
+                    // Hold all jobs in this queue
+                    if let Ok(jobs) = crate::cgroup::list_jobs_at(&jobq_path) {
+                        for job in jobs {
+                            if matches!(job.status, crate::cgroup::JobStatus::JobQ | crate::cgroup::JobStatus::Active) {
+                                let _ = crate::cgroup::hold_job(job.pid);
+                            }
+                        }
+                    }
+                    
+                    // Log hold
+                    crate::audit::audit_event(
+                        "JOBQ_HOLD",
+                        &current_user,
+                        &jobq_path,
+                        &format!("Job queue {} held", jobq_name)
+                    ).ok();
+                    
+                    emit_status("CPF0000", None, &format!("Job queue {} held", jobq_name));
+                }
+                Err(e) => {
+                    emit_status("CPF0001", None, &format!("Hold failed: {}", e));
+                }
+            }
+        }
+        Ok(false) => {
+            emit_status("CPF0001", None, &format!("Not authorized to hold job queue {}", jobq_name));
+        }
+        Err(e) => {
+            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+        }
+    }
+}
+
+/// RLSJOBQ - Release Job Queue
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_rlsjobq(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let jobq_name = fields.get("JOBQ").map(|s| s.as_str()).unwrap_or("");
+    
+    if jobq_name.is_empty() {
+        emit_status("CPF0001", None, "JOBQ parameter required");
+        return;
+    }
+    
+    let jobq_path = crate::object::resolve_l400_root()
+        .join("QSYS")
+        .join(format!("{}.JOBQ", jobq_name.to_uppercase()));
+    
+    if !jobq_path.exists() {
+        emit_status("CPF0001", None, &format!("Job queue {} not found", jobq_name));
+        return;
+    }
+    
+    // Check authorization
+    let current_user = crate::audit::current_l400_user();
+    match crate::auth::check_command_authority(&jobq_path, &current_user, "RLSJOBQ") {
+        Ok(true) => {
+            // Set status to *ACTIVE
+            match crate::storage::write_string_attr(&jobq_path, crate::storage::L400_JOBQ_STATUS_ATTR, "*ACTIVE") {
+                Ok(_) => {
+                    // Release all held jobs in this queue
+                    if let Ok(jobs) = crate::cgroup::list_jobs_at(&jobq_path) {
+                        for job in jobs {
+                            if matches!(job.status, crate::cgroup::JobStatus::Held) {
+                                let _ = crate::cgroup::release_job(job.pid);
+                            }
+                        }
+                    }
+                    
+                    // Log release
+                    crate::audit::audit_event(
+                        "JOBQ_RELEASE",
+                        &current_user,
+                        &jobq_path,
+                        &format!("Job queue {} released", jobq_name)
+                    ).ok();
+                    
+                    emit_status("CPF0000", None, &format!("Job queue {} released", jobq_name));
+                }
+                Err(e) => {
+                    emit_status("CPF0001", None, &format!("Release failed: {}", e));
+                }
+            }
+        }
+        Ok(false) => {
+            emit_status("CPF0001", None, &format!("Not authorized to release job queue {}", jobq_name));
+        }
+        Err(e) => {
+            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+        }
+    }
+}

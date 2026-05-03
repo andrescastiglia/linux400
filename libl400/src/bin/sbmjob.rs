@@ -116,21 +116,41 @@ fn main() {
     let args = Args::parse();
     let user = args.user.unwrap_or_else(current_user_name);
     let jobq = args.jobq.trim().to_uppercase();
-    if jobq != "QBATCH" {
+    
+    // Validate that the job queue exists
+    let jobq_path = l400::object::resolve_l400_root()
+        .join("QSYS")
+        .join(format!("{}.JOBQ", jobq));
+    if !jobq_path.exists() {
         eprintln!(
-            "SBMJOB Error: JOBQ({}) no soportada; use JOBQ(QBATCH).",
+            "SBMJOB Error: Job queue {} not found. Use CRTJOBQ first.",
             jobq
         );
-        eprintln!("CPF:0006");
+        eprintln!("CPF:0001");
         std::process::exit(2);
+    }
+    
+    // Check if job queue is held
+    if let Ok(Some(status)) = l400::storage::read_string_attr(&jobq_path, l400::storage::L400_JOBQ_STATUS_ATTR) {
+        if status == "*HLD" {
+            eprintln!("SBMJOB Error: Job queue {} is held.", jobq);
+            eprintln!("CPF:0001");
+            std::process::exit(2);
+        }
     }
 
     if args.daemon {
-        // Somos el proceso daemon que maneja la ejecución real en QBATCH
+        // Somos el proceso daemon que maneja la ejecución real
         let pid = std::process::id() as u64;
-
-        // 1. Asignar este daemon al cgroup QBATCH
-        if let Err(e) = assign_to_workload(pid, WorkloadType::Batch) {
+        
+        // 1. Asignar este daemon al cgroup correspondiente según el job queue
+        let workload_type = if jobq == "QINTER" {
+            WorkloadType::Interactive
+        } else {
+            WorkloadType::Batch
+        };
+        
+        if let Err(e) = assign_to_workload(pid, workload_type) {
             eprintln!("SBMJOB Error: No se pudo asignar a QBATCH: {}", e);
             eprintln!("CPF:9898");
             // Ignoramos el error para permitir ejecución fallback en sistemas sin cgroups
@@ -142,7 +162,7 @@ fn main() {
             pid,
             &args.job,
             &user,
-            WorkloadType::Batch,
+            workload_type,
             JobStatus::Active,
             &cmd_str,
         ) {

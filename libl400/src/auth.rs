@@ -290,6 +290,8 @@ pub fn required_operation_for_command(command: &str) -> L400Operation {
         "WRTPFM" | "SNDDTAQ" | "RCVDTAQ" | "CPYOBJ" => L400Operation::Change,
         "CRTUSRPRF" | "CHGUSRPRF" | "DLTUSRPRF" => L400Operation::Admin,
         "DSPUSRPRF" | "WRKUSRPRF" => L400Operation::Read,
+        "CRTJOBQ" | "DLTJOBQ" | "HLDJOBQ" | "RLSJOBQ" => L400Operation::Admin,
+        "WRKJOBQ" | "WRKACTJOB" | "WRKJOB" => L400Operation::Read,
         _ => L400Operation::Read,
     }
 }
