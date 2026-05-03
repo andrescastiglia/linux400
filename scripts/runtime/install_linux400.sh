@@ -409,6 +409,76 @@ register_install_metadata() {
     info "Metadata de instalación registrada en ${root}"
 }
 
+setup_mega_io() {
+    # Setup mega.io for *SAVF backup/restore operations (Phase 4)
+    # No tapes or optical support - *SAVF only
+    
+    info "Configurando mega.io para backup/restore (*SAVF)..."
+    
+    # Check if mega.io tools are available
+    if ! command -v mega-login >/dev/null 2>&1; then
+        warn "mega.io tools no encontrados. Instalando..."
+        if command -v pip3 >/dev/null 2>&1; then
+            pip3 install mega.py || true
+        elif command -v pip >/dev/null 2>&1; then
+            pip install mega.py || true
+        else
+            warn "No se pudo instalar mega.io. Omitiendo configuración."
+            return 0
+        fi
+    fi
+    
+    # Prompt for mega.io credentials
+    echo ""
+    echo "=== Configuración de mega.io para backup/restore (*SAVF) ==="
+    echo "Ingrese sus credenciales de mega.io (se guardarán en /etc/l400/mega_credentials)"
+    echo ""
+    
+    local username=""
+    local password=""
+    
+    # Read username
+    while [ -z "${username}" ]; do
+        read -p "Usuario mega.io: " username
+    done
+    
+    # Read password (hidden)
+    while [ -z "${password}" ]; do
+        read -sp "Contraseña mega.io: " password
+        echo ""
+    done
+    
+    # Create credentials directory
+    local cred_dir="${TARGET_MNT}/etc/l400"
+    mkdir -p "${cred_dir}"
+    
+    # Store credentials (in production, use encryption)
+    local cred_file="${cred_dir}/mega_credentials"
+    echo "username=${username}" > "${cred_file}"
+    echo "password=${password}" >> "${cred_file}"
+    
+    # Set restrictive permissions
+    chmod 600 "${cred_file}"
+    
+    # Test login
+    if mega-login "${username}" "${password}" 2>/tmp/mega-login.log; then
+        info "Login a mega.io exitoso."
+    else
+        warn "Login a mega.io falló. Verifique credenciales."
+        cat /tmp/mega-login.log >&2 || true
+    fi
+    
+    # Create mount point for mega.io
+    mkdir -p "${TARGET_MNT}/mnt/mega_io"
+    
+    # Add mega.io mount to fstab (using mega-fuse if available)
+    if command -v mega-fuse >/dev/null 2>&1; then
+        echo "mega-fuse /mnt/mega_io fuse defaults 0 0" >> "${TARGET_MNT}/etc/fstab" 2>/dev/null || true
+    fi
+    
+    info "mega.io configurado para backup/restore (*SAVF)"
+}
+
 install_boot_assets() {
     local iso_boot_dir=""
     local efi_asset=""
@@ -551,6 +621,7 @@ main() {
     copy_rootfs
     bootstrap_l400_root
     install_boot_assets
+    setup_mega_io
     configure_installed_system
 
     echo "=== Linux/400 instalado ==="

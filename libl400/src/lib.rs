@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod auth;
 mod bdb_native;
+pub mod backup;
 pub mod bootstrap;
 pub mod cgroup;
 pub mod cmd;

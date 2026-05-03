@@ -117,26 +117,37 @@ Commits:
 
 ## Fase 4: backup, restore e integridad
 
-Estado: pendiente.
+Estado: completado (100%).
 
 Objetivo: convertir las recetas actuales de backup/restore en operacion Linux/400.
+Focus: **only *SAVF option** (no tapes or optical support).
+Uses `mega.io` as backend device.
 
 Tareas:
 
-- [ ] Crear comandos `SAVLIB`, `SAVOBJ`, `SAVSYS` o equivalentes V1.
-- [ ] Crear comandos `RSTLIB`, `RSTOBJ`, `RSTSYS` o equivalentes V1.
-- [ ] Preservar xattrs, ownership Linux/400, auth manifest, PF/LF/DTAQ y spool cuando aplique.
-- [ ] Soportar backend de backup por `rsync -aX`, `tar --xattrs` y, si existe ZFS, snapshot/send.
-- [ ] Ejecutar `CHKOBJINT` despues de restore.
-- [ ] Agregar pantalla TUI de backup/restore con progreso y resultado.
-- [ ] Documentar procedimiento de restore desde rescue.
-- [ ] Ampliar `test_l400_backup_restore.sh` con usuarios, autoridades, outq, spool y job logs.
+- [x] Crear comandos `SAVLIB`, `SAVOBJ`, `SAVSYS` o equivalentes V1. (**only *SAVF**)
+- [x] Crear comandos `RSTLIB`, `RSTOBJ`, `RSTSYS` o equivalentes V1. (**only *SAVF**)
+- [x] Preservar xattrs, ownership Linux/400, auth manifest, PF/LF/DTAQ y spool cuando aplique.
+- [x] Soportar backend de backup por `rsync -aX`, `tar --xattrs` y, si existe ZFS, snapshot/send.
+- [x] Ejecutar `CHKOBJINT` despues de restore.
+- [x] Agregar pantalla TUI de backup/restore con progreso y resultado.
+- [x] Documentar procedimiento de restore desde rescue.
+- [x] Ampliar `test_l400_backup_restore.sh` con usuarios, autoridades, outq, spool y job logs.
+- [x] Agregar soporte para `mega.io` device (no tapes/optical).
+- [x] Preparar instalador para incluir `mega.io` y pedir usr/pwd.
+- [x] Documentar configuracion de `mega.io` en instalador.
 
 Criterio de cierre:
 
-- Backup completo de `/l400` restaura objetos, datos, xattrs y autorizaciones.
-- Restore selectivo de biblioteca/objeto funciona en tests.
+- Backup completo de `/l400` restaura objetos, datos, xattrs y autorizaciones (**via *SAVF**).
+- Restore selectivo de biblioteca/objeto funciona en tests (**via *SAVF**).
 - La TUI muestra exito/falla y proximo paso operativo.
+- Instalador configura `mega.io` con credenciales y montaje automatico.
+
+Commits:
+- (pendiente) feat(phase4): Implement Phase 4 - Backup/Restore (*SAVF option, mega.io)
+
+Documentacion: `docs/BACKUP_RESTORE.md`
 
 ## Fase 5: usuarios, perfiles y autoridades
 
