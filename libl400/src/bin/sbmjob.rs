@@ -191,16 +191,28 @@ fn main() {
             .open(&spool_path)
             .ok();
         if let Some(file) = spool.as_mut() {
+            let spool_created = chrono_like_timestamp();
             let _ = writeln!(
                 file,
-                "spool_version=1\njob={} pid={} user={} jobq={} command={} status=RUN submitted_at={}",
+                "spool_version=1\njob={}\npid={}\nuser={}\njobq={}\ncommand={}\nstatus=RUN\nsubmitted_at={}\ncreated={}",
                 args.job,
                 pid,
                 user,
                 jobq,
                 cmd_str,
-                chrono_like_timestamp()
+                spool_created,
+                spool_created
             );
+            
+            // Write spool metadata as xattrs
+            let _ = l400::storage::write_string_attr(&spool_path, l400::storage::L400_SPOOL_OWNER_ATTR, &user);
+            let _ = l400::storage::write_string_attr(&spool_path, l400::storage::L400_SPOOL_JOB_ATTR, &args.job);
+            let _ = l400::storage::write_string_attr(&spool_path, l400::storage::L400_SPOOL_OUTQ_ATTR, &jobq);
+            let _ = l400::storage::write_string_attr(&spool_path, l400::storage::L400_SPOOL_STATUS_ATTR, "*RUN");
+            let _ = l400::storage::write_string_attr(&spool_path, l400::storage::L400_SPOOL_CREATED_ATTR, &spool_created);
+            if let Ok(metadata) = std::fs::metadata(&spool_path) {
+                let _ = l400::storage::write_u32_attr(&spool_path, l400::storage::L400_SPOOL_SIZE_ATTR, metadata.len() as u32);
+            }
         }
         if let Some(file) = log.as_mut() {
             let _ = writeln!(
@@ -263,6 +275,28 @@ fn main() {
 
         // 4. Actualizar el estado final
         let _ = update_job_status(pid, final_status);
+        
+        // Update spool status based on job outcome
+        let spool_status = match final_status {
+            JobStatus::Completed => "*SAVED",
+            JobStatus::Failed => "*SAVED",
+            _ => "*READY",
+        };
+        let _ = l400::storage::write_string_attr(
+            &spool_path,
+            l400::storage::L400_SPOOL_STATUS_ATTR,
+            spool_status
+        );
+        
+        // Update spool size
+        if let Ok(metadata) = std::fs::metadata(&spool_path) {
+            let _ = l400::storage::write_u32_attr(
+                &spool_path,
+                l400::storage::L400_SPOOL_SIZE_ATTR,
+                metadata.len() as u32
+            );
+        }
+        
         append_line(
             &spool_path,
             &format!(
@@ -319,5 +353,62 @@ fn main() {
             jobq,
             child.id()
         );
+    }
+}
+
+/// Get the spool directory path
+fn spool_dir() -> PathBuf {
+    l400::resolve_l400_root()
+        .join("QUSRSYS")
+        .join("QSPL")
+}
+
+/// Cleanup old spool files based on retention days in their output queue
+pub fn cleanup_spool_files() {
+    let spool_dir = spool_dir();
+    if !spool_dir.exists() {
+        return;
+    }
+    
+    if let Ok(entries) = std::fs::read_dir(&spool_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) == Some("splf") {
+                // Get the output queue for this spool file
+                if let Ok(Some(outq)) = l400::storage::read_string_attr(&path, l400::storage::L400_SPOOL_OUTQ_ATTR) {
+                    // Get retention days from the output queue
+                    let outq_path = l400::object::resolve_l400_root()
+                        .join("QSYS")
+                        .join(format!("{}.OUTQ", outq.to_uppercase()));
+                    
+                    let retention_days = if outq_path.exists() {
+                        l400::storage::read_u32_attr(&outq_path, l400::storage::L400_OUTQ_RETENTION_DAYS_ATTR)
+                            .ok()
+                            .flatten()
+                            .unwrap_or(7)
+                    } else {
+                        7 // default retention
+                    };
+                    
+                    // Check if file is older than retention days
+                    if let Ok(metadata) = std::fs::metadata(&path) {
+                        if let Ok(created) = metadata.created() {
+                            if let Ok(duration) = std::time::SystemTime::now().duration_since(created) {
+                                let days_old = duration.as_secs() / (24 * 60 * 60);
+                                if days_old > retention_days as u64 {
+                                    let _ = std::fs::remove_file(&path);
+                                    let _ = l400::audit::audit_event(
+                                        "SPOOL_CLEANED",
+                                        &l400::audit::current_l400_user(),
+                                        &path,
+                                        &format!("Spool file cleaned up (retention: {} days)", retention_days)
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

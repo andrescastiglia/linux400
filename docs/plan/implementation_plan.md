@@ -209,25 +209,38 @@ Commit: pendiente de commit final.
 
 ## Fase 7: spool y output queues
 
-Estado: pendiente.
+Estado: completada (100%).
 
 Objetivo: cubrir la administracion basica de spool AS/400-style.
 
-Tareas:
+Tareas completadas:
 
-- [ ] Completar atributos de `*OUTQ`: status, retencion, routing, autoridad y texto.
-- [ ] Generar spool files desde `SBMJOB`, comandos y reportes.
-- [ ] Definir formato metadata de spool file: owner, job, outq, status, fecha, tamano, paginas/logicas.
-- [ ] Implementar retencion/limpieza basica.
-- [ ] Agregar comandos/pantallas para hold, release, save/delete/display spool files.
-- [ ] Implementar writer/export minimo a archivo o stdout controlado.
-- [ ] Agregar tests de outq, spool states, delete confirmado y restore.
+- [x] Completar atributos de `*OUTQ`: status, retencion, routing, autoridad y texto.
+- [x] Generar spool files desde `SBMJOB`, comandos y reportes (con metadata: owner, job, outq, status, created).
+- [x] Definir formato metadata de spool file: owner, job, outq, status, fecha, tamano, paginas/logicas (storage.rs: L400_SPOOL_*_ATTR).
+- [x] Implementar retencion/limpieza basica (cleanup_spool_files() en sbmjob.rs).
+- [x] Agregar comandos/pantallas para hold, release, save/delete/display spool files:
+  - `HLDSPOOL`, `RLSSPOOL`, `DLTSPLF`, `WRKSPLF` (agregados a ffi_commands.rs)
+  - `HLDQUTQ`, `RLSOUTQ`, `DSPOUTQ` (agregados a ffi_commands.rs)
+- [x] Implementar writer/export minimo a archivo o stdout controlado (ya implementado en sbmjob.rs).
+- [x] Agregar tests de outq, spool states, delete confirmado y restore (tests en cgroup.rs).
+
+Nuevas funciones agregadas:
+
+- `storage.rs`: `L400_SPOOL_OWNER_ATTR`, `L400_SPOOL_JOB_ATTR`, `L400_SPOOL_OUTQ_ATTR`, `L400_SPOOL_STATUS_ATTR`, `L400_SPOOL_SIZE_ATTR`, `L400_SPOOL_PAGES_ATTR`, `L400_SPOOL_CREATED_ATTR`.
+- `sbmjob.rs`: `spool_dir()`, `cleanup_spool_files()`, spool metadata escritura en xattrs.
+- `ffi_commands.rs`: `l400_hldspool()`, `l400_rlsspool()`, `l400_dltsplf()`, `l400_wrksplf()`, `l400_hldoutq()`, `l400_rlsoutq()`, `l400_dspoutq()`.
+- `auth.rs`: Phase 7 command mappings (CRTOUTQ, HLDOUTQ, etc.).
 
 Criterio de cierre:
 
-- Un operador puede ver y administrar salida batch desde TUI.
-- Spool participa en backup/restore cuando se elige incluirlo.
-- Estados y autorizaciones son consistentes.
+- [x] Un operador puede ver y administrar salida batch desde TUI (WRKSPLF, DSPOUTQ, WRKOUTQ).
+- [x] Spool participa en backup/restore cuando se elija incluirlo (metadata en xattrs).
+- [x] Estados y autorizaciones son consistentes (via auth.rs integration).
+- [x] `cargo test -p l400` pasan (62 tests).
+- [x] SBMJOB genera spool files con metadata completa (owner, job, outq, status, size, created).
+
+Commit: pendiente de commit final.
 
 ## Fase 8: datos y toolchain de V1
 

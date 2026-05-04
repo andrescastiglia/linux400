@@ -285,13 +285,16 @@ pub fn required_authority_for_operation(operation: L400Operation) -> L400Authori
 pub fn required_operation_for_command(command: &str) -> L400Operation {
     match command.trim().to_uppercase().as_str() {
         "CALL" => L400Operation::Execute,
-        "DSPOBJD" | "DSPOBJAUT" | "DSPPFM" | "DSPDTAQ" | "WRKOBJ" | "WRKLIB" => L400Operation::Read,
+        "DSPOBJ" | "DSPOBJAUT" | "DSPPFM" | "DSPDTAQ" | "WRKOBJ" | "WRKLIB" => L400Operation::Read,
         "GRTOBJAUT" | "RVKOBJAUT" | "CHGOBJD" | "DLTOBJ" | "CLRPFM" => L400Operation::Admin,
         "WRTPFM" | "SNDDTAQ" | "RCVDTAQ" | "CPYOBJ" => L400Operation::Change,
         "CRTUSRPRF" | "CHGUSRPRF" | "DLTUSRPRF" => L400Operation::Admin,
         "DSPUSRPRF" | "WRKUSRPRF" => L400Operation::Read,
         "CRTJOBQ" | "DLTJOBQ" | "HLDJOBQ" | "RLSJOBQ" => L400Operation::Admin,
         "WRKJOBQ" | "WRKACTJOB" | "WRKJOB" => L400Operation::Read,
+        "CRTOUTQ" | "DLTOUTQ" | "HLDOUTQ" | "RLSOUTQ" => L400Operation::Admin,
+        "WRKOUTQ" | "DSPOUTQ" | "WRKSPLF" => L400Operation::Read,
+        "HLDSPOOL" | "RLSSPOOL" | "DLTSPLF" => L400Operation::Change,
         _ => L400Operation::Read,
     }
 }

@@ -2672,3 +2672,342 @@ pub extern "C" fn l400_rlsjobq(spec: *const c_char) {
         }
     }
 }
+    
+
+/// DSPOUTQ - Display Output Queue
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_dspoutq(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let outq_name = fields.get("OUTQ").map(|s| s.as_str()).unwrap_or("QPRINT");
+    
+    println!("=== DSPOUTQ - Display Output Queue {} ===", outq_name);
+    
+    let outq_path = crate::object::resolve_l400_root()
+        .join("QSYS")
+        .join(format!("{}.OUTQ", outq_name.to_uppercase()));
+    
+    if !outq_path.exists() {
+        println!("Output queue {} not found.", outq_name);
+        println!("=============================");
+        return;
+    }
+    
+    // Read output queue attributes
+    let retention = crate::storage::read_u32_attr(&outq_path, crate::storage::L400_OUTQ_RETENTION_DAYS_ATTR)
+        .ok()
+        .flatten()
+        .unwrap_or(7);
+    
+    let routing = crate::storage::read_string_attr(&outq_path, crate::storage::L400_OUTQ_ROUTING_ATTR)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "QBATCH".to_string());
+    
+    let default_status = crate::storage::read_string_attr(&outq_path, crate::storage::L400_OUTQ_DEFAULT_STATUS_ATTR)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "*READY".to_string());
+    
+    println!("  Queue: {}", outq_name);
+    println!("  Retention: {} days", retention);
+    println!("  Routing: {}", routing);
+    println!("  Default Status: {}", default_status);
+    println!("");
+    println!("  Files in queue:");
+    
+    let spool_dir = spool_dir();
+    if let Ok(entries) = std::fs::read_dir(&spool_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) == Some("splf") {
+                let outq = crate::storage::read_string_attr(&path, crate::storage::L400_SPOOL_OUTQ_ATTR)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "Unknown".to_string());
+                
+                if outq.to_uppercase() == outq_name.to_uppercase() {
+                    let name = path.file_stem()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("Unknown");
+                    
+                    let status = crate::storage::read_string_attr(&path, crate::storage::L400_SPOOL_STATUS_ATTR)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| "*READY".to_string());
+                    
+                    println!("    {} - Status: {}", name, status);
+                }
+            }
+        }
+    }
+    
+    println!("=============================");
+}
+
+/// HLDQUTQ - Hold Output Queue
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_hldoutq(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let outq_name = fields.get("OUTQ").map(|s| s.as_str()).unwrap_or("");
+    
+    if outq_name.is_empty() {
+        emit_status("CPF0001", None, "OUTQ parameter required");
+        return;
+    }
+    
+    let outq_path = crate::object::resolve_l400_root()
+        .join("QSYS")
+        .join(format!("{}.OUTQ", outq_name.to_uppercase()));
+    
+    if !outq_path.exists() {
+        emit_status("CPF0001", None, &format!("Output queue {} not found", outq_name));
+        return;
+    }
+    
+    // Check authorization
+    let current_user = crate::audit::current_l400_user();
+    match crate::auth::check_command_authority(&outq_path, &current_user, "HLDOUTQ") {
+        Ok(true) => {
+            // Set status to *HLD
+            if let Err(e) = crate::storage::write_string_attr(
+                &outq_path,
+                crate::storage::L400_OUTQ_DEFAULT_STATUS_ATTR,
+                "*HLD"
+            ) {
+                emit_status("CPF0001", None, &format!("Hold failed: {}", e));
+                return;
+            }
+            
+            // Hold all spool files in this queue
+            let spool_dir = spool_dir();
+            if let Ok(entries) = std::fs::read_dir(&spool_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|ext| ext.to_str()) == Some("splf") {
+                        let outq = crate::storage::read_string_attr(&path, crate::storage::L400_SPOOL_OUTQ_ATTR)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default();
+                        
+                        if outq.to_uppercase() == outq_name.to_uppercase() {
+                            let _ = crate::storage::write_string_attr(
+                                &path,
+                                crate::storage::L400_SPOOL_STATUS_ATTR,
+                                "*HELD"
+                            );
+                        }
+                    }
+                }
+            }
+            
+            crate::audit::audit_event(
+                "OUTQ_HOLD",
+                &current_user,
+                &outq_path,
+                &format!("Output queue {} held", outq_name)
+            ).ok();
+            
+            emit_status("CPF0000", None, &format!("Output queue {} held", outq_name));
+        }
+        Ok(false) => {
+            emit_status("CPF0001", None, &format!("Not authorized to hold output queue {}", outq_name));
+        }
+        Err(e) => {
+            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+        }
+    }
+}
+
+/// RLSOUTQ - Release Output Queue
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_rlsoutq(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let outq_name = fields.get("OUTQ").map(|s| s.as_str()).unwrap_or("");
+    
+    if outq_name.is_empty() {
+        emit_status("CPF0001", None, "OUTQ parameter required");
+        return;
+    }
+    
+    let outq_path = crate::object::resolve_l400_root()
+        .join("QSYS")
+        .join(format!("{}.OUTQ", outq_name.to_uppercase()));
+    
+    if !outq_path.exists() {
+        emit_status("CPF0001", None, &format!("Output queue {} not found", outq_name));
+        return;
+    }
+    
+    // Check authorization
+    let current_user = crate::audit::current_l400_user();
+    match crate::auth::check_command_authority(&outq_path, &current_user, "RLSOUTQ") {
+        Ok(true) => {
+            // Set status to *READY
+            if let Err(e) = crate::storage::write_string_attr(
+                &outq_path,
+                crate::storage::L400_OUTQ_DEFAULT_STATUS_ATTR,
+                "*READY"
+            ) {
+                emit_status("CPF0001", None, &format!("Release failed: {}", e));
+                return;
+            }
+            
+            // Release all spool files in this queue
+            let spool_dir = spool_dir();
+            if let Ok(entries) = std::fs::read_dir(&spool_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|ext| ext.to_str()) == Some("splf") {
+                        let outq = crate::storage::read_string_attr(&path, crate::storage::L400_SPOOL_OUTQ_ATTR)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default();
+                        
+                        if outq.to_uppercase() == outq_name.to_uppercase() {
+                            let _ = crate::storage::write_string_attr(
+                                &path,
+                                crate::storage::L400_SPOOL_STATUS_ATTR,
+                                "*READY"
+                            );
+                        }
+                    }
+                }
+            }
+            
+            crate::audit::audit_event(
+                "OUTQ_RELEASE",
+                &current_user,
+                &outq_path,
+                &format!("Output queue {} released", outq_name)
+            ).ok();
+            
+            emit_status("CPF0000", None, &format!("Output queue {} released", outq_name));
+        }
+        Ok(false) => {
+            emit_status("CPF0001", None, &format!("Not authorized to release output queue {}", outq_name));
+        }
+        Err(e) => {
+            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+        }
+    }
+}
+
+// ============================================================================
+// Phase 7: Additional Spool Commands (HLDSPOOL, RLSSPOOL)
+// ============================================================================
+
+/// HLDSPOOL - Hold Spool File
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_hldspool(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let spool_file = fields.get("SPLF").map(|s| s.as_str()).unwrap_or("");
+    let job = fields.get("JOB").map(|s| s.as_str()).unwrap_or("");
+    
+    if spool_file.is_empty() && job.is_empty() {
+        emit_status("CPF0001", None, "SPLF or JOB parameter required");
+        return;
+    }
+    
+    // Find spool file(s)
+    let spool_dir = spool_dir();
+    if !spool_dir.exists() {
+        emit_status("CPF0001", None, "Spool directory not found");
+        return;
+    }
+    
+    let mut found = false;
+    if let Ok(entries) = std::fs::read_dir(&spool_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.contains(spool_file) || name.contains(job) {
+                    // Set status to *HELD
+                    if let Err(e) = crate::storage::write_string_attr(
+                        &path,
+                        crate::storage::L400_SPOOL_STATUS_ATTR,
+                        "*HELD"
+                    ) {
+                        emit_status("CPF0001", None, &format!("Hold failed: {}", e));
+                        return;
+                    }
+                    found = true;
+                }
+            }
+        }
+    }
+    
+    if found {
+        crate::audit::audit_event(
+            "SPOOL_HOLD",
+            &crate::audit::current_l400_user(),
+            &spool_dir,
+            &format!("Spool file held: {}", spool_file)
+        ).ok();
+        emit_status("CPF0000", None, &format!("Spool file {} held", spool_file));
+    } else {
+        emit_status("CPF0001", None, &format!("Spool file {} not found", spool_file));
+    }
+}
+
+/// RLSSPOOL - Release Spool File
+#[unsafe(no_mangle)]
+pub extern "C" fn l400_rlsspool(spec: *const c_char) {
+    let spec_str = c_str_to_string(spec);
+    let fields = parse_command_fields(&spec_str);
+    
+    let spool_file = fields.get("SPLF").map(|s| s.as_str()).unwrap_or("");
+    let job = fields.get("JOB").map(|s| s.as_str()).unwrap_or("");
+    
+    if spool_file.is_empty() && job.is_empty() {
+        emit_status("CPF0001", None, "SPLF or JOB parameter required");
+        return;
+    }
+    
+    // Find spool file(s)
+    let spool_dir = spool_dir();
+    if !spool_dir.exists() {
+        emit_status("CPF0001", None, "Spool directory not found");
+        return;
+    }
+    
+    let mut found = false;
+    if let Ok(entries) = std::fs::read_dir(&spool_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.contains(spool_file) || name.contains(job) {
+                    // Set status to *READY
+                    if let Err(e) = crate::storage::write_string_attr(
+                        &path,
+                        crate::storage::L400_SPOOL_STATUS_ATTR,
+                        "*READY"
+                    ) {
+                        emit_status("CPF0001", None, &format!("Release failed: {}", e));
+                        return;
+                    }
+                    found = true;
+                }
+            }
+        }
+    }
+    
+    if found {
+        crate::audit::audit_event(
+            "SPOOL_RELEASE",
+            &crate::audit::current_l400_user(),
+            &spool_dir,
+            &format!("Spool file released: {}", spool_file)
+        ).ok();
+        emit_status("CPF0000", None, &format!("Spool file {} released", spool_file));
+    } else {
+        emit_status("CPF0001", None, &format!("Spool file {} not found", spool_file));
+    }
+}
