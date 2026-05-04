@@ -414,9 +414,10 @@ mod tests {
     #[test]
     fn test_dspptf_command() {
         // dspptf is exposed via FFI as l400_dspptf in ffi_commands.rs
-        // This test just verifies the module compiles correctly
-        // Actual testing would require setting up /var/cache/l400/ptf
-        assert!(true);
+        // Verify that PTF module interfaces are available and compile correctly
+        // Test that apply_ptf fails with invalid path (basic sanity)
+        let result = apply_ptf("/nonexistent/path", false);
+        assert!(result.is_err(), "apply_ptf should fail with invalid path");
     }
 
     #[test]
