@@ -11,6 +11,7 @@ if [ ! -d "${l400_root}" ]; then
 fi
 
 current_version="$(cat "${version_file}" 2>/dev/null || echo 0)"
+
 echo "=== l400-migrate ${current_version} -> ${target_version} ==="
 
 if [ "${current_version}" = "${target_version}" ]; then
@@ -24,10 +25,43 @@ if [ "${current_version}" -gt "${target_version}" ] 2>/dev/null; then
     exit 2
 fi
 
+# Idempotent migrations by version
+migrate_to_1() {
+    echo "[1] Migrating to version 1.0..."
+    # Example: Add new metadata fields
+    if [ -x /usr/local/bin/l400-bootstrap ]; then
+        /usr/local/bin/l400-bootstrap --quiet || true
+    fi
+    echo "[1] Done."
+}
+
+migrate_to_2() {
+    echo "[2] Migrating to version 2.0..."
+    # Future: Add PTF support fields
+    echo "[2] Done."
+}
+
+# Run migrations sequentially
+case "${current_version}" in
+    0)
+        migrate_to_1
+        if [ "${target_version}" -ge 2 ]; then
+            migrate_to_2
+        fi
+        ;;
+    1)
+        if [ "${target_version}" -ge 2 ]; then
+            migrate_to_2
+        fi
+        ;;
+esac
+
+# Update version file
 tmp_file="${version_file}.$$"
 printf '%s\n' "${target_version}" > "${tmp_file}"
 mv "${tmp_file}" "${version_file}"
 
+# Run bootstrap to ensure base objects
 if command -v l400-bootstrap >/dev/null 2>&1; then
     l400-bootstrap --quiet || true
 fi

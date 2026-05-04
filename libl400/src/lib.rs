@@ -1,5 +1,6 @@
 pub mod audit;
 pub mod auth;
+pub mod backup;
 mod bdb_native;
 pub mod bootstrap;
 pub mod cgroup;
@@ -10,8 +11,8 @@ pub mod ffi;
 pub mod ffi_commands;
 pub mod lam;
 pub mod object;
+pub mod ptf;
 pub mod runtime;
-pub mod space;
 pub mod status;
 pub mod storage;
 pub mod usrprf;

@@ -1,0 +1,233 @@
+use std::env;
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::PathBuf;
+
+/// Simple tool to create PTF packages
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 5 {
+        print_usage(&args[0]);
+        return;
+    }
+
+    let mut id = String::new();
+    let mut name = String::new();
+    let mut origin_version = String::new();
+    let mut target_version = String::new();
+    let mut files: Vec<(String, String, String)> = Vec::new(); // (source, dest, mode)
+    let mut output = String::from("/var/cache/l400/ptf/package.tar.gz");
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--id" => {
+                i += 1;
+                if i < args.len() {
+                    id = args[i].clone();
+                }
+            }
+            "--name" => {
+                i += 1;
+                if i < args.len() {
+                    name = args[i].clone();
+                }
+            }
+            "--origin-version" => {
+                i += 1;
+                if i < args.len() {
+                    origin_version = args[i].clone();
+                }
+            }
+            "--target-version" => {
+                i += 1;
+                if i < args.len() {
+                    target_version = args[i].clone();
+                }
+            }
+            "--files" => {
+                i += 1;
+                while i < args.len() && !args[i].starts_with("--") {
+                    // Parse source:dest:mode
+                    let parts: Vec<&str> = args[i].split(':').collect();
+                    if parts.len() >= 2 {
+                        let source = parts[0].to_string();
+                        let dest = parts[1].to_string();
+                        let mode = if parts.len() > 2 {
+                            parts[2].to_string()
+                        } else {
+                            "644".to_string()
+                        };
+                        files.push((source, dest, mode));
+                    }
+                    i += 1;
+                }
+                continue;
+            }
+            "--output" => {
+                i += 1;
+                if i < args.len() {
+                    output = args[i].clone();
+                }
+            }
+            _ => {
+                eprintln!("Unknown argument: {}", args[i]);
+                print_usage(&args[0]);
+                return;
+            }
+        }
+        i += 1;
+    }
+
+    if id.is_empty() || name.is_empty() || target_version.is_empty() {
+        eprintln!("Error: --id, --name, and --target-version are required");
+        print_usage(&args[0]);
+        return;
+    }
+
+    println!("Creating PTF package {}...", id);
+    println!("  Name: {}", name);
+    println!("  Target version: {}", target_version);
+
+    // Create temporary directory
+    let temp_dir = env::temp_dir().join("ptf-create");
+    if temp_dir.exists() {
+        fs::remove_dir_all(&temp_dir).expect("Failed to clean temp dir");
+    }
+    fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
+
+    // Create files directory
+    let files_dir = temp_dir.join("files");
+    fs::create_dir_all(&files_dir).expect("Failed to create files dir");
+
+    // Copy files
+    for (source, dest, mode) in &files {
+        if !PathBuf::from(source).exists() {
+            eprintln!("Warning: Source file {} not found, skipping", source);
+            continue;
+        }
+        let source_path = PathBuf::from(source);
+        let file_name_os = source_path.file_name().expect("Invalid source path");
+        let file_name = file_name_os.to_str().expect("Invalid filename");
+        let dest_path = files_dir.join(file_name);
+        fs::copy(source, &dest_path).expect("Failed to copy file");
+
+        // Set mode
+        if let Ok(mode_int) = u32::from_str_radix(mode, 8) {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = fs::metadata(&dest_path)
+                    .expect("Failed to get metadata")
+                    .permissions();
+                perms.set_mode(mode_int);
+                fs::set_permissions(&dest_path, perms).expect("Failed to set permissions");
+            }
+        }
+        println!("  Added file: {} -> {}", source, dest);
+    }
+
+    // Create manifest.toml
+    let manifest_path = temp_dir.join("manifest.toml");
+    let mut manifest = String::new();
+    manifest.push_str("[package]\n");
+    manifest.push_str(&format!("id = \"{}\"\n", id));
+    manifest.push_str(&format!("name = \"{}\"\n", name));
+    manifest.push_str(&format!("version = \"{}\"\n", target_version));
+    if !origin_version.is_empty() {
+        manifest.push_str(&format!("origin_version = \"{}\"\n", origin_version));
+    }
+    manifest.push_str(&format!("release_date = \"{}\"\n", "2026-05-03"));
+    manifest.push_str("description = \"PTF package generated by l400-ptf-create\"\n");
+
+    // Add [files] section with destinations
+    if let Ok(entries) = fs::read_dir(&files_dir) {
+        let mut has_files = false;
+        for entry in entries.flatten() {
+            if entry.path().is_file() {
+                if !has_files {
+                    manifest.push_str("\n[files]\n");
+                    has_files = true;
+                }
+                let file_name = entry
+                    .path()
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                // Default destination: /l400/QGPL/ if not specified
+                // In a real implementation, this would parse a mapping file
+                let dest = format!("/l400/QGPL/{}", file_name);
+                manifest.push_str(&format!("\"{}\" = \"{}\"\n", file_name, dest));
+            }
+        }
+    }
+
+    let mut manifest_file = File::create(&manifest_path).expect("Failed to create manifest");
+    manifest_file
+        .write_all(manifest.as_bytes())
+        .expect("Failed to write manifest");
+
+    // Create checksum file
+    let checksum_path = temp_dir.join("checksum.sha256");
+    let mut checksum_content = String::new();
+    if let Ok(entries) = fs::read_dir(&files_dir) {
+        for entry in entries.flatten() {
+            if let Ok(content) = fs::read(entry.path()) {
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(&content);
+                let result = hasher.finalize();
+                checksum_content.push_str(&format!(
+                    "{:x}  {}\n",
+                    result,
+                    entry.path().file_name().unwrap().to_str().unwrap()
+                ));
+            }
+        }
+    }
+    let mut checksum_file = File::create(checksum_path).expect("Failed to create checksum");
+    checksum_file
+        .write_all(checksum_content.as_bytes())
+        .expect("Failed to write checksum");
+
+    // Create tar.gz archive
+    println!("Creating archive: {}", output);
+    let output_path = PathBuf::from(&output);
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).expect("Failed to create output directory");
+    }
+
+    let tar_file = File::create(&output_path).expect("Failed to create output file");
+    let gz = flate2::write::GzEncoder::new(tar_file, flate2::Compression::default());
+    let mut tar = tar::Builder::new(gz);
+
+    // Add files to archive
+    tar.append_dir_all(".", &temp_dir)
+        .expect("Failed to create tar archive");
+
+    // Finalize
+    let gz = tar.into_inner().expect("Failed to finalize tar");
+    gz.finish().expect("Failed to finish gzip");
+
+    // Cleanup
+    fs::remove_dir_all(&temp_dir).expect("Failed to cleanup temp dir");
+
+    println!("PTF package created successfully: {}", output);
+}
+
+fn print_usage(program: &str) {
+    println!(
+        "Usage: {} --id PTF0001 --name \"Fix bug\" --target-version 0.2.1 [options]",
+        program
+    );
+    println!("Options:");
+    println!("  --id <id>              PTF identifier (required)");
+    println!("  --name <name>          PTF name (required)");
+    println!("  --origin-version <ver>  Origin version (optional)");
+    println!("  --target-version <ver>  Target version (required)");
+    println!("  --files <list>         Files to include (source:dest:mode)");
+    println!("  --output <path>        Output archive path (default: /var/cache/l400/ptf/package.tar.gz)");
+}

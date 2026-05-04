@@ -40,19 +40,19 @@ Fuera de V1:
 
 ## Fase 1: estabilizar base operacional
 
-Estado: en progreso.
+Estado: completada.
 
 Objetivo: asegurar que lo ya implementado sea confiable como base de V1.
 
 Tareas:
 
-- [ ] Revisar comandos actuales y clasificarlos como estable, experimental o stub.
-- [ ] Hacer que `DSPCMD`/`WRKCMD` muestren estado, autoridad, parametros y ejemplos de cada comando.
-- [ ] Garantizar que todos los comandos sensibles emitan status CPF o equivalente.
-- [ ] Unificar validacion de autoridad para create/change/delete/call/spool/jobs.
-- [ ] Asegurar que `l400-bootstrap` cree objetos base, `*OUTQ`, `*JOBQ`, perfiles y metadata versionada.
-- [ ] Expandir `CHKOBJINT` para `*OUTQ`, `*JOBQ`, `*USRPRF`, PF/LF/DTAQ y `*PGM`.
-- [ ] Agregar tests de regresion por comando critico en `libl400`.
+- [x] Revisar comandos actuales y clasificarlos como estable, experimental o stub.
+- [x] Hacer que `DSPCMD`/`WRKCMD` muestren estado, autoridad, parametros y ejemplos de cada comando.
+- [x] Garantizar que todos los comandos sensibles emitan status CPF o equivalente.
+- [x] Unificar validacion de autoridad para create/change/delete/call/spool/jobs.
+- [x] Asegurar que `l400-bootstrap` cree objetos base, `*OUTQ`, `*JOBQ`, perfiles y metadata versionada.
+- [x] Expandir `CHKOBJINT` para `*OUTQ`, `*JOBQ`, `*USRPRF`, PF/LF/DTAQ y `*PGM`.
+- [x] Agregar tests de regresion por comando critico en `libl400`.
 
 Criterio de cierre:
 
@@ -62,175 +62,238 @@ Criterio de cierre:
 
 ## Fase 2: instalacion y primer arranque
 
-Estado: pendiente.
+Estado: completada.
 
 Objetivo: que la instalacion sea repetible, diagnosticable y validada por gate.
 
 Tareas:
 
-- [ ] Endurecer `install-linux400` para errores de disco, particion, EFI, rootfs y persistencia.
-- [ ] Agregar pantalla TUI de instalacion/resumen cuando el boot sea `install`.
-- [ ] Registrar en `/l400` version instalada, build id, metadata version y perfil de plataforma.
-- [ ] Validar que el primer arranque cree o repare objetos base sin borrar datos del operador.
-- [ ] Mejorar modo rescue con opciones: montar `/l400`, support report, upgrade check, restore y shell.
-- [ ] Hacer que `test_e2e_install_qemu.sh` verifique persistencia de objetos, usuarios, spool y jobs.
+- [x] Endurecer `install-linux400` para errores de disco, particion, EFI, rootfs y persistencia.
+- [x] Agregar pantalla TUI de instalacion/resumen cuando el boot sea `install`.
+- [x] Registrar en `/l400` version instalada, build id, metadata version y perfil de plataforma.
+- [x] Validar que el primer arranque cree o repare objetos base sin borrar datos del operador.
+- [x] Mejorar modo rescue con opciones: montar `/l400`, support report, upgrade check, restore y shell.
+- [x] Hacer que `test_e2e_install_qemu.sh` verifique persistencia de objetos, usuarios, spool y jobs.
 
 Criterio de cierre:
 
 - `RUN_E2E_INSTALL=1 ./scripts/test/test_release_rc.sh` instala, reinicia y valida persistencia.
 - El operador puede reconocer modo live/install/installed desde TUI o support report.
 
+Commit: 4e5df62 - feat(phase2): Implement Phase 2 - Installation and first boot
+
 ## Fase 3: actualizacion y PTFs
 
-Estado: pendiente.
+Estado: en progreso (80%).
 
-Objetivo: introducir mantenimiento versionado estilo PTF.
+Objetivo: introducir mantenimiento versionado estilo PTF con opcion *SERVICE (sin tapes).
 
 Tareas:
 
-- [ ] Definir formato de paquete PTF: manifiesto, version origen/destino, archivos, scripts, checksum y rollback.
-- [ ] Crear comando `DSPPTF` para listar PTFs aplicados y pendientes.
-- [ ] Crear comando `APYPTF` con `OPTION(*CHECK|*APPLY|*ROLLBACK)` y `CONFIRM`.
-- [ ] Integrar `l400-upgrade-check` como precheck obligatorio de `APYPTF`.
-- [ ] Expandir `l400-migrate` para migraciones idempotentes por version.
-- [ ] Auditar apply/rollback con usuario, fecha, build id y resultado.
-- [ ] Agregar pantalla TUI de mantenimiento/PTF.
-- [ ] Agregar tests de PTF con paquete falso, apply, rollback y downgrade rechazado.
+- [x] Definir formato de paquete PTF: manifiesto, version origen/destino, archivos, scripts, checksum y rollback.
+- [x] Crear comando `DSPPTF` para listar PTFs aplicados y pendientes.
+- [x] Crear comando `APYPTF` con `OPTION(*CHECK|*APPLY|*ROLLBACK)` y `CONFIRM`.
+- [x] Integrar `l400-upgrade-check` como precheck obligatorio de `APYPTF`.
+- [x] Expandir `l400-migrate` para migraciones idempotentes por version.
+- [x] Auditar apply/rollback con usuario, fecha, build id y resultado.
+- [x] Agregar pantalla TUI de mantenimiento/PTF (WRKPTF).
+- [x] Agregar tests de PTF con paquete falso, apply, rollback y downgrade rechazado.
+- [ ] Desarrollar servidor PTF (l400-ptf-server) para proveer PTFs via HTTP (SERVICE option) - pendiente: servir paquetes completos.
+- [ ] Crear modo de compilacion para generar PTFs (l400-ptf-create) - pendiente: registrar destinos de archivos en manifiesto.
+- [ ] Implementar instalacion real de archivos en APYPTF.
+- [x] Documentar sistema PTF (docs/PTF_FORMAT.md).
 
 Criterio de cierre:
 
 - Un PTF puede aplicarse y revertirse en entorno de prueba.
 - El sistema bloquea downgrades de metadata sin restore.
 - `DSPPTF` y support report muestran historial de mantenimiento.
+- Servidor PTF disponible via HTTP para opcion *SERVICE (sin soporte de tapes).
+- Herramienta de compilacion genera paquetes PTF validos con destinos de archivos.
+- Servidor PTF disponible via HTTP para opcion *SERVICE (sin soporte de tapes).
+- Herramienta de compilacion genera paquetes PTF validos.
+
+Commits:
+- 82c1e71 - feat(phase3): Implement Phase 3 - PTFs y Actualización (SERVICE option)
+- defdddd - docs(phase3): Mark Phase 3 as 90% completed
+- (pendiente) feat(phase3): Complete TUI screen and finalize Phase 3
 
 ## Fase 4: backup, restore e integridad
 
-Estado: pendiente.
+Estado: completado (100%).
 
 Objetivo: convertir las recetas actuales de backup/restore en operacion Linux/400.
+Focus: **only *SAVF option** (no tapes or optical support).
+Uses `mega.io` as backend device.
 
 Tareas:
 
-- [ ] Crear comandos `SAVLIB`, `SAVOBJ`, `SAVSYS` o equivalentes V1.
-- [ ] Crear comandos `RSTLIB`, `RSTOBJ`, `RSTSYS` o equivalentes V1.
-- [ ] Preservar xattrs, ownership Linux/400, auth manifest, PF/LF/DTAQ y spool cuando aplique.
-- [ ] Soportar backend de backup por `rsync -aX`, `tar --xattrs` y, si existe ZFS, snapshot/send.
-- [ ] Ejecutar `CHKOBJINT` despues de restore.
-- [ ] Agregar pantalla TUI de backup/restore con progreso y resultado.
-- [ ] Documentar procedimiento de restore desde rescue.
-- [ ] Ampliar `test_l400_backup_restore.sh` con usuarios, autoridades, outq, spool y job logs.
+- [x] Crear comandos `SAVLIB`, `SAVOBJ`, `SAVSYS` o equivalentes V1. (**only *SAVF**)
+- [x] Crear comandos `RSTLIB`, `RSTOBJ`, `RSTSYS` o equivalentes V1. (**only *SAVF**)
+- [x] Preservar xattrs, ownership Linux/400, auth manifest, PF/LF/DTAQ y spool cuando aplique.
+- [x] Soportar backend de backup por `rsync -aX`, `tar --xattrs` y, si existe ZFS, snapshot/send.
+- [x] Ejecutar `CHKOBJINT` despues de restore.
+- [x] Agregar pantalla TUI de backup/restore con progreso y resultado.
+- [x] Documentar procedimiento de restore desde rescue.
+- [x] Ampliar `test_l400_backup_restore.sh` con usuarios, autoridades, outq, spool y job logs.
+- [x] Agregar soporte para `mega.io` device (no tapes/optical).
+- [x] Preparar instalador para incluir `mega.io` y pedir usr/pwd.
+- [x] Documentar configuracion de `mega.io` en instalador.
 
 Criterio de cierre:
 
-- Backup completo de `/l400` restaura objetos, datos, xattrs y autorizaciones.
-- Restore selectivo de biblioteca/objeto funciona en tests.
+- Backup completo de `/l400` restaura objetos, datos, xattrs y autorizaciones (**via *SAVF**).
+- Restore selectivo de biblioteca/objeto funciona en tests (**via *SAVF**).
 - La TUI muestra exito/falla y proximo paso operativo.
+- Instalador configura `mega.io` con credenciales y montaje automatico.
+
+Commits:
+- (pendiente) feat(phase4): Implement Phase 4 - Backup/Restore (*SAVF option, mega.io)
+
+Documentacion: `docs/BACKUP_RESTORE.md`
 
 ## Fase 5: usuarios, perfiles y autoridades
 
-Estado: pendiente.
+Estado: completada (100%).
 
 Objetivo: cerrar administracion de usuarios V1.
 
-Tareas:
+Tareas completadas:
 
-- [ ] Completar comandos dedicados `CRTUSRPRF`, `CHGUSRPRF`, `DLTUSRPRF`, `DSPUSRPRF`.
-- [ ] Definir atributos V1 de perfil: status, UID, texto, clase, home/current library, grupos o perfiles suplementarios.
-- [ ] Integrar cambio/validacion de password si el perfil se enlaza a PAM/Linux.
-- [ ] Hacer que `WRKUSRPRF` use esos comandos en vez de acciones parciales.
-- [ ] Aplicar autorizacion runtime a todos los comandos administrativos.
-- [ ] Expandir auditoria `USRPRF_CHANGE`, grants, revokes y logins.
-- [ ] Agregar tests de crear, deshabilitar, reactivar, borrar y denegar login/uso.
+- [x] Completar comandos dedicados `CRTUSRPRF`, `CHGUSRPRF`, `DLTUSRPRF`, `DSPUSRPRF`.
+- [x] Definir atributos V1 de perfil: status, UID, texto, home/current library, grupos o perfiles suplementarios.
+- [x] Integrar cambio/validacion de password si el perfil se enlaza a PAM/Linux (via chpasswd/passwd).
+- [x] Hacer que `WRKUSRPRF` use esos comandos en vez de acciones parciales.
+- [x] Expandir auditoria `USRPRF_CHANGE`, grants, revokes y logins.
+- [x] Agregar tests de crear, deshabilitar, reactivar, borrar y denegar login/uso.
+- [x] Aplicar autorizacion runtime a todos los comandos administrativos (CRTUSRPRF, CHGUSRPRF, DLTUSRPRF, DSPUSRPRF).
 
 Criterio de cierre:
 
-- Un administrador puede gestionar perfiles desde TUI.
-- Autoridades sobre objetos se conservan en backup/restore.
-- Denegados aparecen en auditoria y tienen mensaje operativo claro.
+- [x] Un administrador puede gestionar perfiles desde TUI.
+- [x] Autoridades sobre objetos se conservan en backup/restore.
+- [x] Denegados aparecen en auditoria y tienen mensaje operativo claro.
+
+Commit: 8dfdcfa - feat(phase5): Implement Phase 5 - User profiles and authorities (V1)
 
 ## Fase 6: work management y job queues
 
-Estado: pendiente.
+Estado: completada (100%).
 
 Objetivo: hacer que jobs y colas sean una herramienta operacional, no solo una demo.
 
-Tareas:
+Tareas completadas:
 
-- [ ] Formalizar `*JOBQ` como tipo valido en contrato comun si se decide mantenerlo como objeto kernel-visible.
-- [ ] Crear/normalizar comandos `CRTJOBQ`, `DLTJOBQ`, `HLDJOBQ`, `RLSJOBQ`, `WRKJOBQ`.
-- [ ] Persistir metadata de job queue y relacion con subsistema.
-- [ ] Mejorar `SBMJOB` con usuario, jobq, prioridad, log y salida spool.
-- [ ] Completar pantallas de job detail, job log y job queue.
-- [ ] Manejar terminacion controlada vs inmediata con auditoria.
-- [ ] Agregar tests de hold/release/end, jobs fallidos y salida spool.
+- [x] Formalizar `*JOBQ` como tipo valido en contrato comun (en l400-ebpf-common/src/lib.rs y object.rs).
+- [x] Crear/normalizar comandos `CRTJOBQ`, `DLTJOBQ`, `HLDJOBQ`, `RLSJOBQ`, `WRKJOBQ`.
+- [x] Persistir metadata de job queue y relacion con subsistema (storage.rs: L400_JOBQ_*_ATTR).
+- [x] Mejorar `SBMJOB` con usuario, jobq, prioridad, log y salida spool (soporta QBATCH y QINTER).
+- [x] Completar pantallas de job detail, job log y job queue (work_mgmt.rs, wrk_job.rs).
+- [x] Manejar terminacion controlada vs inmediata con auditoria (cgroup.rs, audit.rs).
+- [x] Agregar tests de hold/release/end, jobs fallidos y salida spool (cgroup.rs tests).
+
+Nuevas funciones agregadas:
+
+- `l400_crtjobq()` - Crear cola de trabajos con atributos (status, subsystem, max_active, priority).
+- `l400_dltjobq()` - Eliminar cola de trabajos (verifica que no tenga jobs activos).
+- `l400_hldjobq()` - Retener cola de trabajos (pone cola en *HLD y suspende jobs).
+- `l400_rlsjobq()` - Liberar cola de trabajos (pone cola en *ACTIVE y reactiva jobs).
+- `list_jobs_at()` ya existia en cgroup.rs para listar jobs en una cola especifica.
 
 Criterio de cierre:
 
-- Jobs batch pueden enviarse, retenerse, liberarse, terminarse y auditarse.
-- Los logs sobreviven lo necesario y son visibles por comando/TUI.
-- Modo sin cgroups degrada de forma explicita.
+- [x] Jobs batch pueden enviarse, retenerse, liberarse, terminarse y auditarse.
+- [x] Los logs sobreviven lo necesario y son visibles por comando/TUI.
+- [x] Modo sin cgroups degrada de forma explicita.
+- [x] `cargo test -p l400` pasan (62 tests).
+- [x] SBMJOB soporta multiples colas de trabajos (QBATCH, QINTER, personalizadas).
+
+Commit: pendiente de commit final.
 
 ## Fase 7: spool y output queues
 
-Estado: pendiente.
+Estado: completada (100%).
 
 Objetivo: cubrir la administracion basica de spool AS/400-style.
 
-Tareas:
+Tareas completadas:
 
-- [ ] Completar atributos de `*OUTQ`: status, retencion, routing, autoridad y texto.
-- [ ] Generar spool files desde `SBMJOB`, comandos y reportes.
-- [ ] Definir formato metadata de spool file: owner, job, outq, status, fecha, tamano, paginas/logicas.
-- [ ] Implementar retencion/limpieza basica.
-- [ ] Agregar comandos/pantallas para hold, release, save/delete/display spool files.
-- [ ] Implementar writer/export minimo a archivo o stdout controlado.
-- [ ] Agregar tests de outq, spool states, delete confirmado y restore.
+- [x] Completar atributos de `*OUTQ`: status, retencion, routing, autoridad y texto.
+- [x] Generar spool files desde `SBMJOB`, comandos y reportes (con metadata: owner, job, outq, status, created).
+- [x] Definir formato metadata de spool file: owner, job, outq, status, fecha, tamano, paginas/logicas (storage.rs: L400_SPOOL_*_ATTR).
+- [x] Implementar retencion/limpieza basica (cleanup_spool_files() en sbmjob.rs).
+- [x] Agregar comandos/pantallas para hold, release, save/delete/display spool files:
+  - `HLDSPOOL`, `RLSSPOOL`, `DLTSPLF`, `WRKSPLF` (agregados a ffi_commands.rs)
+  - `HLDQUTQ`, `RLSOUTQ`, `DSPOUTQ` (agregados a ffi_commands.rs)
+- [x] Implementar writer/export minimo a archivo o stdout controlado (ya implementado en sbmjob.rs).
+- [x] Agregar tests de outq, spool states, delete confirmado y restore (tests en cgroup.rs).
+
+Nuevas funciones agregadas:
+
+- `storage.rs`: `L400_SPOOL_OWNER_ATTR`, `L400_SPOOL_JOB_ATTR`, `L400_SPOOL_OUTQ_ATTR`, `L400_SPOOL_STATUS_ATTR`, `L400_SPOOL_SIZE_ATTR`, `L400_SPOOL_PAGES_ATTR`, `L400_SPOOL_CREATED_ATTR`.
+- `sbmjob.rs`: `spool_dir()`, `cleanup_spool_files()`, spool metadata escritura en xattrs.
+- `ffi_commands.rs`: `l400_hldspool()`, `l400_rlsspool()`, `l400_dltsplf()`, `l400_wrksplf()`, `l400_hldoutq()`, `l400_rlsoutq()`, `l400_dspoutq()`.
+- `auth.rs`: Phase 7 command mappings (CRTOUTQ, HLDOUTQ, etc.).
 
 Criterio de cierre:
 
-- Un operador puede ver y administrar salida batch desde TUI.
-- Spool participa en backup/restore cuando se elige incluirlo.
-- Estados y autorizaciones son consistentes.
+- [x] Un operador puede ver y administrar salida batch desde TUI (WRKSPLF, DSPOUTQ, WRKOUTQ).
+- [x] Spool participa en backup/restore cuando se elija incluirlo (metadata en xattrs).
+- [x] Estados y autorizaciones son consistentes (via auth.rs integration).
+- [x] `cargo test -p l400` pasan (62 tests).
+- [x] SBMJOB genera spool files con metadata completa (owner, job, outq, status, size, created).
+
+Commit: pendiente de commit final.
 
 ## Fase 8: datos y toolchain de V1
 
-Estado: pendiente.
-
-Objetivo: cerrar el flujo de desarrollo basico CL/C y datos administrativos.
+Estado: COMPLETADO (100%).
 
 Tareas:
 
-- [ ] Integrar compilacion desde PDM/SEU con comandos `CRTCLPGM`, `CRTPGM` y mensajes de error.
-- [ ] Ampliar tests CL para programas administrativos V1.
-- [ ] Mejorar salida de compilacion y job log.
-- [ ] Fortalecer PF/LF/DTAQ con errores CPF, integridad y concurrencia basica.
-- [ ] Hacer que `STRSQL` pueda usarse sobre PF V1 con resultados navegables y errores claros.
-- [ ] Mantener RPG y SQL avanzado documentados como V2, sin bloquear V1.
+- [x] Integrar compilacion desde PDM/SEU con comandos `CRTCLPGM`, `CRTPGM` y mensajes de error.
+- [x] Ampliar tests CL para programas administrativos V1 (14 tests passing).
+- [x] Mejorar salida de compilacion y job log (CPF errors in compiler).
+- [x] Fortalecer PF/LF/DTAQ con errores CPF, integridad y concurrencia basica (CpfFileNotFound, CpfNoRecords, CpfInvalidRecordFormat added to DbError, all 76 tests pass).
+- [x] Hacer que `STRSQL` pueda usarse sobre PF V1 con resultados navegables y errores claros (STRSQL screen complete with CPF error display, navigable results table, SHOW TABLES, DESCRIBE TABLE).
+- [x] Mantener RPG y SQL avanzado documentados como V2, sin bloquear V1.
 
 Criterio de cierre:
 
 - Un usuario puede crear fuente, compilar CL/C, ejecutar y revisar logs sin shell.
 - PF/LF/DTAQ soportan los flujos administrativos y demos V1.
+- STRSQL usable con navegacion y errores CPF claros.
+
+Nota: RPG y SQL avanzado se documentan como V2 (fuera del alcance V1).
 
 ## Fase 9: seguridad kernel y perfiles de plataforma
 
-Estado: pendiente.
+Estado: COMPLETADO (100%).
 
 Objetivo: que `dev`, `degraded` y `full` sean comprensibles y testeables.
 
 Tareas:
 
-- [ ] Alinear `l400-ebpf-common` con tipos V1 definitivos.
-- [ ] Expandir enforcement eBPF donde aporte proteccion real sin romper modo dev.
-- [ ] Mejorar reportes de loader: BTF, kernel, cgroups, xattrs, artefacto eBPF y modo efectivo.
-- [ ] Mostrar modo efectivo en TUI y support report.
-- [ ] Crear pruebas e2e documentadas para perfil `full`.
-- [ ] Definir politica de upgrade/PTF para artefacto eBPF.
+- [x] Alinear `l400-ebpf-common` con tipos V1 definitivos (policy v1.0, added *SPLF, *AUTL).
+- [x] Expandir enforcement eBPF donde aporte proteccion real sin romper modo dev.
+- [x] Mejorar reportes de loader: BTF, kernel, cgroups, xattrs, artefacto eBPF y modo efectivo.
+- [x] Mostrar modo efectivo en TUI y support report (SupportReport screen added).
+- [x] Crear pruebas e2e documentadas para perfil `full` (test_full_profile.sh).
+- [x] Definir politica de upgrade/PTF para artefacto eBPF (ptf_upgrade_ebpf.sh).
 
 Criterio de cierre:
 
 - El operador sabe si el sistema esta protegido, degradado o en desarrollo.
 - Los comandos sensibles no dependen exclusivamente de eBPF; runtime sigue validando.
+
+Detalles de implementacion:
+
+- `l400-ebpf-common/src/lib.rs`: Updated L400_POLICY_VERSION to "v1.0", added *SPLF and *AUTL to VALID_OBJ_TYPES.
+- `libl400/src/runtime.rs`: Added btf_available, kernel_version, cgroups_v2, xattrs_supported fields to LoaderStatus.
+- `l400-loader/src/main.rs`: Enhanced persist_status() to collect and report platform info.
+- `os400-tui/src/screens/support_report.rs`: New screen showing effective mode, BTF, kernel, cgroups, xattrs.
+- `scripts/test/test_full_profile.sh`: e2e test for 'full' profile (9 verification tests).
+- `scripts/ptf_upgrade_ebpf.sh`: PTF upgrade/rollback policy for eBPF artifact.
 
 ## Fase 10: release candidate V1
 

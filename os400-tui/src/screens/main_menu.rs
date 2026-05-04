@@ -60,22 +60,23 @@ impl MainMenu {
     fn menu_items(&self) -> Vec<(&'static str, &'static str, &'static str)> {
         match self.kind {
             MenuKind::Main => vec![
-                ("1", "Work with libraries . . . . . . . . . . .", "WRKLIB"),
-                ("2", "Work with objects . . . . . . . . . . . .", "WRKOBJ"),
-                ("3", "Work with files . . . . . . . . . . . .", "WRKOBJ"),
-                ("4", "Work with jobs . . . . . . . . . . . .", "WRKACTJOB"),
-                ("5", "Data queues  . . . . . . . . . . . . .", "DSPDTAQ"),
-                ("6", "Command entry . . . . . . . . . . . .", "CMD"),
-                ("7", "Programming Development Manager . . . .", "STRPDM"),
-                ("8", "System status  . . . . . . . . . . .", "WRKSYSSTS"),
-                ("9", "System values  . . . . . . . . . . .", "WRKSYSVAL"),
+                ("1", "Work with libraries . . . . . . . . . .", "WRKLIB"),
+                ("2", "Work with objects . . . . . . . . . .", "WRKOBJ"),
+                ("3", "Work with files . . . . . . . . . .", "WRKOBJ"),
+                ("4", "Work with jobs . . . . . . . . . .", "WRKACTJOB"),
+                ("5", "Data queues  . . . . . . . . . . .", "DSPDTAQ"),
+                ("6", "Command entry . . . . . . . . . . .", "CMD"),
+                ("7", "Programming Development Manager . . .", "STRPDM"),
+                ("8", "System status  . . . . . . . . . .", "WRKSYSSTS"),
+                ("9", "System values  . . . . . . . . . .", "WRKSYSVAL"),
                 (" ", " ", " "),
                 ("10", "User profiles . . . . . . . . . . .", "WRKUSRPRF"),
                 ("11", "Spool files . . . . . . . . . . . .", "WRKSPLF"),
                 ("12", "Policy and audit  . . . . . . . . .", "DSPPOLICY"),
-                ("13", "Command groups  . . . . . . . . . . . .", "GO CMDOBJ"),
-                ("14", "Submit batch job . . . . . . . . . .", "SBMJOB"),
-                ("90", "Power down system . . . . . . . . .", "PWRDWNSYS"),
+                ("13", "Command groups  . . . . . . . . . .", "GO CMDOBJ"),
+                ("14", "Submit batch job . . . . . . . . .", "SBMJOB"),
+                ("15", "PTF Maintenance . . . . . . . . . .", "WRKPTF"),
+                ("90", "Power down system . . . . . . . .", "PWRDWNSYS"),
             ],
             MenuKind::CmdObj => vec![
                 ("1", "Work with libraries . . . . . . . . . . .", "WRKLIB"),
@@ -214,6 +215,7 @@ impl MainMenu {
             "DSPAUD" => ScreenResult::goto(ScreenId::PolicyAudit),
             "DSPOBJD" => ScreenResult::with_data(ScreenId::ObjectDetail, command),
             "DSPOBJAUT" => ScreenResult::with_data(ScreenId::ObjectAuthority, command),
+            "WRKPTF" | "DSPPTF" | "APYPTF" => ScreenResult::goto(ScreenId::PtfMaintenance),
             _ => ScreenResult::with_data(ScreenId::CommandLine, command),
         }
     }

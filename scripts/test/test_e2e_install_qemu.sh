@@ -460,7 +460,35 @@ expect {
         exit 1
     }
     timeout {
-        send_user "ERROR: timeout validando support-report persistente\n"
+        send_user "ERROR: timeout validando support-report persistent\n"
+        exit 1
+    }
+}
+
+# Check spool files persistence
+send -- "cat /var/spool/l400/* >/tmp/l400-e2e-wrksplf.out 2>&1 && grep -q 'PERSISTED_MESSAGE' /tmp/l400-e2e-wrksplf.out && printf '__E2E_SPLF_OK__\\n' || { cat /tmp/l400-e2e-wrksplf.out; printf '__E2E_SPLF_FAIL__\\n'; }\r"
+expect {
+    -re {__E2E_SPLF_OK__} {}
+    -re {__E2E_SPLF_FAIL__} {
+        send_user "ERROR: WRKSPLF no encontró spool files persistidos\n"
+        exit 1
+    }
+    timeout {
+        send_user "ERROR: timeout validando spool files persistidos\n"
+        exit 1
+    }
+}
+
+# Check jobs persistence (check if batch jobs log persists)
+send -- "ls -la /var/spool/l400/ >/tmp/l400-e2e-jobs.out 2>&1 && grep -q 'job' /tmp/l400-e2e-jobs.out && printf '__E2E_JOBS_OK__\\n' || { cat /tmp/l400-e2e-jobs.out; printf '__E2E_JOBS_FAIL__\\n'; }\r"
+expect {
+    -re {__E2E_JOBS_OK__} {}
+    -re {__E2E_JOBS_FAIL__} {
+        send_user "ERROR: jobs log no persistió\n"
+        exit 1
+    }
+    timeout {
+        send_user "ERROR: timeout validando jobs persistidos\n"
         exit 1
     }
 }

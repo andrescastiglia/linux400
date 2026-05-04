@@ -4,16 +4,19 @@ pub mod dsp_log;
 pub mod dsp_pfm;
 pub mod dsp_policy;
 pub mod dtaq_viewer;
+pub mod install_summary;
 pub mod main_menu;
 pub mod object_authority;
 pub mod object_browser;
 pub mod object_detail;
 pub mod pdm_browser;
 pub mod power_down;
+pub mod ptf_maintenance;
 pub mod sign_on;
 pub mod str_seu;
 pub mod str_sql;
 pub mod submit_job;
+pub mod support_report;
 pub mod system_panel;
 pub mod work_mgmt;
 pub mod wrk_job;
@@ -68,6 +71,9 @@ pub enum ScreenId {
     PolicyAudit,
     SpoolOutq,
     SystemPanel,
+    InstallSummary,
+    PtfMaintenance,
+    SupportReport,
     Exit,
     /// Pop the navigation stack to return to the previous screen.
     Back,

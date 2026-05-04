@@ -20,8 +20,13 @@ pub const COMMAND_METADATA_SCHEMA_VERSION: u32 = 2;
 impl CommandMetadata {
     pub fn status(&self) -> &'static str {
         match self.name {
+            // Experimental: implementación parcial, interfaz puede cambiar
             "CRTCMD" | "STRSQL" => "experimental",
-            "PWRDWNSYS" | "DLTLIB" | "DLTOBJ" | "DLTMBR" | "DLTOUTQ" | "DLTSPLF" => "admin-only",
+            // Stubs: implementación mínima o placeholder
+            "GO" | "SIGNOFF" | "STRPDM" | "STRSEU" | "PWRDWNSYS" => "stub",
+            // Admin-only: operaciones destructivas que requieren autoridad *ALL
+            "DLTLIB" | "DLTOBJ" | "DLTMBR" | "DLTOUTQ" | "DLTSPLF" => "admin-only",
+            // Stable: implementación funcional para V1
             _ => "stable",
         }
     }

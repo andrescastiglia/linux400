@@ -53,6 +53,34 @@ fn persist_status(runtime: &LoaderRuntime, phase: &str, last_error: Option<&str>
     }
     status.runtime_version = Some(l400::runtime_version().to_string());
     status.ebpf_version = Some(env!("CARGO_PKG_VERSION").to_string());
+
+    // Collect platform information
+    let btf_available = aya::Btf::from_sys_fs().is_ok();
+    status.btf_available = Some(btf_available);
+
+    // Kernel version
+    status.kernel_version = std::fs::read_to_string("/proc/version")
+        .ok()
+        .and_then(|v| v.split_whitespace().nth(2).map(|v| v.to_string()));
+
+    // Cgroups v2 availability
+    status.cgroups_v2 = Some(std::path::Path::new("/sys/fs/cgroup/cgroup.controllers").exists());
+
+    // Xattrs support (actually test setting an xattr)
+    status.xattrs_supported = if std::path::Path::new("/l400").exists() {
+        // Try to set a test xattr
+        let test_file = "/l400/.xattr_test";
+        if std::fs::write(test_file, b"test").is_ok() {
+            let result = xattr::set(test_file, "user.l400.test", b"test_value").is_ok();
+            let _ = std::fs::remove_file(test_file);
+            Some(result)
+        } else {
+            Some(false)
+        }
+    } else {
+        Some(false)
+    };
+
     status.effective_mode = Some(
         if runtime.protection_active {
             runtime.mode.as_str()

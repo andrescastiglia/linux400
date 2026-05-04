@@ -1,0 +1,12 @@
+[package]
+name = "l400-ptf-create"
+version = "0.2.0"
+edition = "2021"
+description = "Linux/400 PTF Package Creation Tool"
+authors = ["Linux/400 Team"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+tar = "0.4"
+flate2 = "1.0"
+sha2 = "0.10"
