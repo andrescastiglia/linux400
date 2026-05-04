@@ -11,6 +11,24 @@ INSTALL_MODE="${INSTALL_MODE:-uefi}"
 AUTO_PARTITION="${AUTO_PARTITION:-1}"
 EFI_ACCESS_MODE="mount"
 
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+info() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1" >&2
+}
+
+error() {
+    echo -e "${RED}[ERROR]${NC} $1" >&2
+}
+
 usage() {
     cat <<'EOF'
 Uso:
@@ -60,8 +78,15 @@ ensure_live_media_assets() {
 }
 
 require_device() {
-    if [ ! -b "$1" ]; then
-        echo "ERROR: dispositivo no válido: $1" >&2
+    local device="$1"
+    if [ ! -b "${device}" ]; then
+        error "Dispositivo no válido o no existe: ${device}"
+        error "Verifica que el disco esté conectado y sea un dispositivo de bloque."
+        exit 1
+    fi
+    # Check if device is not mounted
+    if grep -q "^${device}" /proc/mounts 2>/dev/null; then
+        error "El dispositivo ${device} está montado. Desmóntalo antes de continuar."
         exit 1
     fi
 }
@@ -133,17 +158,37 @@ mount_efi_partition() {
 partition_disk() {
     local disk="$1"
 
+    if [ ! -b "${disk}" ]; then
+        error "Dispositivo no válido para particionar: ${disk}"
+        exit 1
+    fi
+
+    # Check if disk has enough space (minimum 2GB)
+    local disk_size_bytes
+    disk_size_bytes=$(blockdev --getsize64 "${disk}" 2>/dev/null || echo "0")
+    local min_size_bytes=2147483648  # 2GB
+    if [ "${disk_size_bytes}" -lt "${min_size_bytes}" ]; then
+        error "El disco ${disk} es demasiado pequeño. Mínimo 2GB requerido."
+        exit 1
+    fi
+
     if have_cmd sfdisk; then
-        cat <<EOF | sfdisk --wipe always "${disk}"
+        info "Particionando ${disk}..."
+        if ! cat <<EOF | sfdisk --wipe always "${disk}" 2>/tmp/l400-sfdisk.log; then
 label: gpt
 size=${EFI_SIZE_MIB}MiB, type=U, name="LINUX400-EFI"
 type=L, name="LINUX400-ROOT"
 EOF
+            error "sfdisk falló al particionar ${disk}"
+            cat /tmp/l400-sfdisk.log >&2
+            exit 1
+        fi
+        info "Particionado completado exitosamente."
         return 0
     fi
 
-    echo "ERROR: no se encontró sfdisk para particionar automáticamente." >&2
-    echo "Configura AUTO_PARTITION=0 y pasa ROOT_PART / EFI_PART ya creadas." >&2
+    error "No se encontró sfdisk para particionar automáticamente."
+    error "Configura AUTO_PARTITION=0 y pasa ROOT_PART / EFI_PART ya creadas."
     exit 1
 }
 
@@ -175,16 +220,22 @@ resolve_parts() {
 format_parts() {
     local mkfs_fat_log="/tmp/l400-mkfs-fat.log"
 
+    info "Formateando partición EFI ${EFI_PART}..."
+    if [ ! -b "${EFI_PART}" ]; then
+        error "La partición EFI ${EFI_PART} no existe o no es un dispositivo de bloque."
+        exit 1
+    fi
+
     if have_cmd mkfs.fat; then
         if ! mkfs.fat -F 32 -n "${EFI_LABEL}" "${EFI_PART}" >"${mkfs_fat_log}" 2>&1; then
             cat "${mkfs_fat_log}" >&2 || true
-            echo "ERROR: mkfs.fat falló sobre ${EFI_PART}" >&2
+            error "mkfs.fat falló sobre ${EFI_PART}"
             exit 1
         fi
     else
         if ! mkdosfs -F 32 -n "${EFI_LABEL}" "${EFI_PART}" >"${mkfs_fat_log}" 2>&1; then
             cat "${mkfs_fat_log}" >&2 || true
-            echo "ERROR: mkdosfs falló sobre ${EFI_PART}" >&2
+            error "mkdosfs falló sobre ${EFI_PART}"
             exit 1
         fi
     fi
@@ -194,14 +245,32 @@ format_parts() {
             "${mkfs_fat_log}" >&2 || true
     fi
 
-    if have_cmd mkfs.ext4; then
-        mkfs.ext4 -F -L "${ROOT_LABEL}" "${ROOT_PART}"
-    else
-        mke2fs -t ext4 -F -L "${ROOT_LABEL}" "${ROOT_PART}"
+    info "Formateando partición root ${ROOT_PART}..."
+    if [ ! -b "${ROOT_PART}" ]; then
+        error "La partición root ${ROOT_PART} no existe o no es un dispositivo de bloque."
+        exit 1
     fi
+
+    if have_cmd mkfs.ext4; then
+        if ! mkfs.ext4 -F -L "${ROOT_LABEL}" "${ROOT_PART}" 2>/tmp/l400-mkfs-ext4.log; then
+            error "mkfs.ext4 falló sobre ${ROOT_PART}"
+            cat /tmp/l400-mkfs-ext4.log >&2
+            exit 1
+        fi
+    else
+        if ! mke2fs -t ext4 -F -L "${ROOT_LABEL}" "${ROOT_PART}" 2>/tmp/l400-mkfs-ext4.log; then
+            error "mke2fs falló sobre ${ROOT_PART}"
+            cat /tmp/l400-mkfs-ext4.log >&2
+            exit 1
+        fi
+    fi
+    info "Formateo completado exitosamente."
 }
 
 mount_target() {
+    info "Montando particiones..."
+
+    # Load necessary kernel modules
     modprobe vfat 2>/dev/null || true
     modprobe fat 2>/dev/null || true
     modprobe nls_cp437 2>/dev/null || true
@@ -210,20 +279,49 @@ mount_target() {
     modprobe nls_utf8 2>/dev/null || true
 
     mkdir -p "${TARGET_MNT}"
-    mount "${ROOT_PART}" "${TARGET_MNT}"
+
+    # Mount root partition
+    info "Montando partición root ${ROOT_PART} en ${TARGET_MNT}..."
+    if ! mount "${ROOT_PART}" "${TARGET_MNT}" 2>/tmp/l400-mount-root.log; then
+        error "No se pudo montar la partición root ${ROOT_PART}"
+        cat /tmp/l400-mount-root.log >&2 || true
+        log_mount_debug "${ROOT_PART}" "${TARGET_MNT}"
+        exit 1
+    fi
+
     mkdir -p "${TARGET_MNT}/boot/efi"
 
+    # Mount EFI partition
+    info "Montando partición EFI ${EFI_PART} en ${TARGET_MNT}/boot/efi..."
     if mount_efi_partition; then
+        info "Particiones montadas exitosamente."
         return 0
     fi
 
-    echo "ERROR: no se pudo montar la partición EFI ${EFI_PART} en ${TARGET_MNT}/boot/efi" >&2
+    error "No se pudo montar la partición EFI ${EFI_PART} en ${TARGET_MNT}/boot/efi"
     cat /tmp/l400-mount-efi.log >&2 || true
     log_mount_debug "${EFI_PART}" "${TARGET_MNT}/boot/efi"
+    error "Verifica que el sistema de archivos EFI sea válido y no esté corrupto."
     exit 1
 }
 
 copy_rootfs() {
+    info "Copiando rootfs a ${TARGET_MNT}..."
+
+    if [ ! -d "${TARGET_MNT}" ] || ! mountpoint -q "${TARGET_MNT}" 2>/dev/null; then
+        error "El punto de montaje ${TARGET_MNT} no está disponible o no está montado."
+        exit 1
+    fi
+
+    # Check available space
+    local available_kb
+    local required_kb=2000000 # ~2GB minimum
+    available_kb=$(df -k "${TARGET_MNT}" 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
+    if [ "${available_kb}" -lt "${required_kb}" ]; then
+        error "Espacio insuficiente en ${TARGET_MNT}. Disponible: ${available_kb}KB, Requerido: ${required_kb}KB"
+        exit 1
+    fi
+
     (
         cd /
         tar \
@@ -237,7 +335,15 @@ copy_rootfs() {
             --exclude=./l400 \
             --exclude=./var/cache/apk \
             -cpf - .
-    ) | tar -xpf - -C "${TARGET_MNT}"
+    ) | tar -xpf - -C "${TARGET_MNT}" 2>/tmp/l400-copy-rootfs.log
+
+    if [ $? -ne 0 ]; then
+        error "Error al copiar rootfs a ${TARGET_MNT}"
+        cat /tmp/l400-copy-rootfs.log >&2 || true
+        exit 1
+    fi
+
+    info "Rootfs copiado exitosamente."
 }
 
 bootstrap_l400_root() {
@@ -263,6 +369,114 @@ bootstrap_l400_root() {
     if ! L400_ROOT="${TARGET_MNT}/l400" "${bootstrap_bin}" --quiet; then
         echo "WARNING: l400-bootstrap fallo para ${TARGET_MNT}/l400; continuando instalacion." >&2
     fi
+
+    register_install_metadata
+}
+
+register_install_metadata() {
+    local root="${TARGET_MNT}/l400"
+    mkdir -p "${root}"
+
+    # Register installed version
+    if [ -f "/VERSION" ]; then
+        cp "/VERSION" "${root}/VERSION" 2>/dev/null || true
+    else
+        echo "0.2.0" > "${root}/VERSION"
+    fi
+
+    # Register build ID if available
+    if [ -f "/BUILD_ID" ]; then
+        cp "/BUILD_ID" "${root}/BUILD_ID" 2>/dev/null || true
+    else
+        echo "build-$(date +%Y%m%d%H%M%S)" > "${root}/BUILD_ID"
+    fi
+
+    # Register metadata version via xattr if xattr tools available
+    if have_cmd setfattr; then
+        setfattr -n "user.l400.version" -v "1.0" "${root}" 2>/dev/null || true
+        # Detect platform profile
+        local profile="unknown"
+        if [ -d "/proc" ] && grep -q "xattr=sa" /proc/mounts 2>/dev/null; then
+            profile="full"
+        elif [ -d "/sys/fs/bpf" ] && [ -d "/proc" ] && grep -q "cgroup" /proc/filesystems 2>/dev/null; then
+            profile="degraded"
+        else
+            profile="dev"
+        fi
+        setfattr -n "user.l400.profile" -v "${profile}" "${root}" 2>/dev/null || true
+    fi
+
+    info "Metadata de instalación registrada en ${root}"
+}
+
+setup_mega_io() {
+    # Setup mega.io for *SAVF backup/restore operations (Phase 4)
+    # No tapes or optical support - *SAVF only
+    
+    info "Configurando mega.io para backup/restore (*SAVF)..."
+    
+    # Check if mega.io tools are available
+    if ! command -v mega-login >/dev/null 2>&1; then
+        warn "mega.io tools no encontrados. Instalando..."
+        if command -v pip3 >/dev/null 2>&1; then
+            pip3 install mega.py || true
+        elif command -v pip >/dev/null 2>&1; then
+            pip install mega.py || true
+        else
+            warn "No se pudo instalar mega.io. Omitiendo configuración."
+            return 0
+        fi
+    fi
+    
+    # Prompt for mega.io credentials
+    echo ""
+    echo "=== Configuración de mega.io para backup/restore (*SAVF) ==="
+    echo "Ingrese sus credenciales de mega.io (se guardarán en /etc/l400/mega_credentials)"
+    echo ""
+    
+    local username=""
+    local password=""
+    
+    # Read username
+    while [ -z "${username}" ]; do
+        read -p "Usuario mega.io: " username
+    done
+    
+    # Read password (hidden)
+    while [ -z "${password}" ]; do
+        read -sp "Contraseña mega.io: " password
+        echo ""
+    done
+    
+    # Create credentials directory
+    local cred_dir="${TARGET_MNT}/etc/l400"
+    mkdir -p "${cred_dir}"
+    
+    # Store credentials (in production, use encryption)
+    local cred_file="${cred_dir}/mega_credentials"
+    echo "username=${username}" > "${cred_file}"
+    echo "password=${password}" >> "${cred_file}"
+    
+    # Set restrictive permissions
+    chmod 600 "${cred_file}"
+    
+    # Test login
+    if mega-login "${username}" "${password}" 2>/tmp/mega-login.log; then
+        info "Login a mega.io exitoso."
+    else
+        warn "Login a mega.io falló. Verifique credenciales."
+        cat /tmp/mega-login.log >&2 || true
+    fi
+    
+    # Create mount point for mega.io
+    mkdir -p "${TARGET_MNT}/mnt/mega_io"
+    
+    # Add mega.io mount to fstab (using mega-fuse if available)
+    if command -v mega-fuse >/dev/null 2>&1; then
+        echo "mega-fuse /mnt/mega_io fuse defaults 0 0" >> "${TARGET_MNT}/etc/fstab" 2>/dev/null || true
+    fi
+    
+    info "mega.io configurado para backup/restore (*SAVF)"
 }
 
 install_boot_assets() {
@@ -407,6 +621,7 @@ main() {
     copy_rootfs
     bootstrap_l400_root
     install_boot_assets
+    setup_mega_io
     configure_installed_system
 
     echo "=== Linux/400 instalado ==="

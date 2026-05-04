@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+
 members = [
     "l400-ebpf",
     "l400-ebpf-common",
@@ -8,6 +9,8 @@ members = [
     "cl_compiler/clc",
     "libl400",
     "os400-tui",
+    "l400-ptf-server",
+    "l400-ptf-create",
 ]
 
 [profile.dev]

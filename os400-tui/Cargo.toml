@@ -8,6 +8,7 @@ description = "OS/400-style Green Screen TUI for Linux/400"
 ratatui = "0.30"
 crossterm = "0.29"
 l400 = { path = "../libl400" }
+l400-ebpf-common = { path = "../l400-ebpf-common" }
 anyhow = "1.0"
 libc = "0.2"
 sha-crypt = "0.6.0-rc.4"

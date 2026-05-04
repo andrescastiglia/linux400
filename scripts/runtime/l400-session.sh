@@ -42,7 +42,72 @@ fi
 
 case "${boot_mode}" in
     rescue)
-        exec "${fallback_shell}"
+        echo "=== Linux/400 Rescue Mode ==="
+        echo "Opciones:"
+        echo "  1) Montar /l400"
+        echo "  2) Support report"
+        echo "  3) Upgrade check"
+        echo "  4) Restore from backup"
+        echo "  5) Shell"
+        echo ""
+        printf "Seleccione una opción [1-5]: "
+        read -r rescue_option
+
+        case "${rescue_option}" in
+            1)
+                echo "Montando /l400..."
+                if [ -x /usr/local/bin/l400-mount-l400 ]; then
+                    /usr/local/bin/l400-mount-l400
+                else
+                    mount /l400 2>/dev/null || mount -a 2>/dev/null || true
+                fi
+                echo "Presione Enter para continuar..."
+                read -r
+                exec "${fallback_shell}"
+                ;;
+            2)
+                echo "Generando support report..."
+                if [ -x /usr/local/bin/l400-support-report ]; then
+                    /usr/local/bin/l400-support-report
+                else
+                    echo "l400-support-report no disponible."
+                    echo "Mostrando información básica:"
+                    echo "Boot mode: ${boot_mode}"
+                    cat /run/l400/boot-mode 2>/dev/null || echo "No boot-mode file"
+                    echo "L400_ROOT: ${L400_ROOT:-/l400}"
+                    ls -la /l400 2>/dev/null || echo "/l400 no existe o no está montado"
+                fi
+                echo "Presione Enter para continuar..."
+                read -r
+                exec "${fallback_shell}"
+                ;;
+            3)
+                echo "Ejecutando upgrade check..."
+                if [ -x /usr/local/bin/l400-upgrade-check ]; then
+                    /usr/local/bin/l400-upgrade-check
+                else
+                    echo "l400-upgrade-check no disponible."
+                fi
+                echo "Presione Enter para continuar..."
+                read -r
+                exec "${fallback_shell}"
+                ;;
+            4)
+                echo "Restore from backup..."
+                if [ -x /usr/local/bin/l400-restore ]; then
+                    /usr/local/bin/l400-restore
+                else
+                    echo "l400-restore no disponible."
+                    echo "Puede restaurar manualmente desde /var/backups/l400/"
+                fi
+                echo "Presione Enter para continuar..."
+                read -r
+                exec "${fallback_shell}"
+                ;;
+            5|*)
+                exec "${fallback_shell}"
+                ;;
+        esac
         ;;
 esac
 
