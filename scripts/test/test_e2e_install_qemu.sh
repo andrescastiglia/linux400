@@ -503,18 +503,6 @@ expect {
 }
 EOF
 }
-}
-
-send -- "poweroff -f || halt -f\r"
-expect {
-    eof {}
-    timeout {
-        send_user "ERROR: la VM de persistencia no se apagó correctamente\n"
-        exit 1
-    }
-}
-EOF
-}
 
 summarize() {
     echo "=== E2E Linux/400 OK ==="
