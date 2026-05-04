@@ -40,6 +40,16 @@ pub enum DbError {
     Storage(#[from] StorageError),
     #[error("Invalid Query: {0}")]
     InvalidQuery(String),
+    #[error("CPF3025: File &0 not found")]
+    CpfFileNotFound(String),
+    #[error("CPF3130: Member &0 not found")]
+    CpfMemberNotFound(String),
+    #[error("CPF3142: Record format not valid: &0")]
+    CpfInvalidRecordFormat(String),
+    #[error("CPF3203: Cannot add or update records in file &0")]
+    CpfCannotUpdate(String),
+    #[error("CPF3122: No records found in file &0")]
+    CpfNoRecords(String),
 }
 
 enum PhysicalFileStorage {
@@ -116,13 +126,13 @@ fn open_bdb_pf(path: &Path, create: bool) -> Result<PhysicalFileStorage, DbError
 pub fn create_pf(lib_path: &Path, name: &str, record_len: usize) -> Result<PhysicalFile, DbError> {
     if get_objtype(lib_path)? != "*LIB" {
         return Err(DbError::InvalidType(
-            "target library must be a *LIB".to_string(),
+            "*LIB".to_string(),
         ));
     }
 
     let target = lib_path.join(name);
     if target.exists() {
-        return Err(DbError::AlreadyExists);
+        return Err(DbError::CpfFileNotFound(name.to_string()));
     }
 
     if !validate_objtype("*FILE") {
@@ -252,6 +262,15 @@ pub fn add_pf_member(path: &Path, member: &str) -> Result<(), DbError> {
 
 impl PhysicalFile {
     pub fn open(path: &Path) -> Result<Self, DbError> {
+        if !path.exists() {
+            return Err(DbError::CpfFileNotFound(
+                path.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+            ));
+        }
+
         let backend = read_storage_backend(path)?.unwrap_or(default_storage_backend());
         let storage = match backend {
             StorageBackend::Sled => open_sled_pf(path)?,
@@ -272,11 +291,22 @@ impl PhysicalFile {
     }
 
     pub fn open_member(path: &Path, member: &str) -> Result<Self, DbError> {
+        if !path.exists() {
+            return Err(DbError::CpfFileNotFound(
+                path.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+            ));
+        }
+
         let backend = read_storage_backend(path)?.unwrap_or(default_storage_backend());
         let storage = match backend {
             StorageBackend::Sled => open_sled_pf_member(path, member)?,
             StorageBackend::BerkeleyDb => open_bdb_pf(path, false)?,
         };
+
+        let record_len = read_u32_attr(path, L400_RECORD_LEN_ATTR)?.unwrap_or_default();
 
         Ok(PhysicalFile {
             name: path
@@ -286,7 +316,7 @@ impl PhysicalFile {
                 .to_string(),
             path: path.to_path_buf(),
             backend,
-            record_len: read_u32_attr(path, L400_RECORD_LEN_ATTR)?.unwrap_or_default(),
+            record_len,
             storage,
         })
     }
@@ -295,7 +325,7 @@ impl PhysicalFile {
         self.validate_write(key, buffer)?;
         let old = match self.chain_rcd(key) {
             Ok(old) => Some(old),
-            Err(DbError::NotFound) => None,
+            Err(DbError::CpfNoRecords(_)) => None,
             Err(error) => return Err(error),
         };
         match &self.storage {
@@ -316,10 +346,14 @@ impl PhysicalFile {
 
     fn validate_write(&self, key: &[u8], buffer: &[u8]) -> Result<(), DbError> {
         if key.is_empty() {
-            return Err(DbError::InvalidRecord);
+            return Err(DbError::CpfInvalidRecordFormat(
+                "key cannot be empty".to_string(),
+            ));
         }
         if self.record_len > 0 && buffer.len() > self.record_len as usize {
-            return Err(DbError::InvalidRecord);
+            return Err(DbError::CpfInvalidRecordFormat(
+                "buffer length exceeds record length".to_string(),
+            ));
         }
         let schema =
             read_pf_schema(&self.path).unwrap_or_else(|_| PfSchema::minimal(self.record_len));
@@ -330,7 +364,9 @@ impl PhysicalFile {
                     .iter()
                     .all(|byte| byte.is_ascii_digit() || *byte == b'.')
             {
-                return Err(DbError::InvalidRecord);
+                return Err(DbError::CpfInvalidRecordFormat(
+                    "DATA field must be numeric".to_string(),
+                ));
             }
             if field.name == "KEY"
                 && field.type_ == "NUM"
@@ -338,7 +374,9 @@ impl PhysicalFile {
                     .iter()
                     .all(|byte| byte.is_ascii_digit() || *byte == b'.')
             {
-                return Err(DbError::InvalidRecord);
+                return Err(DbError::CpfInvalidRecordFormat(
+                    "KEY field must be numeric".to_string(),
+                ));
             }
         }
         Ok(())
@@ -357,13 +395,17 @@ impl PhysicalFile {
     }
 
     pub fn chain_rcd(&self, key: &[u8]) -> Result<Vec<u8>, DbError> {
+        let file_name = self.path.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         match &self.storage {
             PhysicalFileStorage::Sled { tree, .. } => match tree.get(key)? {
                 Some(ivec) => Ok(ivec.to_vec()),
-                None => Err(DbError::NotFound),
+                None => Err(DbError::CpfNoRecords(file_name.clone())),
             },
             PhysicalFileStorage::BerkeleyDb { db } => db.get(key).map_err(|err| match err {
-                BdbError::NotFound => DbError::NotFound,
+                BdbError::NotFound => DbError::CpfNoRecords(file_name.clone()),
                 other => DbError::Bdb(other),
             }),
         }
@@ -384,7 +426,11 @@ impl PhysicalFile {
     }
 
     pub fn delete_rcd(&self, key: &[u8]) -> Result<(), DbError> {
-        let old = self.chain_rcd(key).ok();
+        let old = match self.chain_rcd(key) {
+            Ok(data) => Some(data),
+            Err(DbError::CpfNoRecords(_)) => None,
+            Err(e) => return Err(e),
+        };
         match &self.storage {
             PhysicalFileStorage::Sled { db, tree } => {
                 tree.remove(key)?;
@@ -392,7 +438,11 @@ impl PhysicalFile {
             }
             PhysicalFileStorage::BerkeleyDb { db } => {
                 db.delete(key).map_err(|err| match err {
-                    BdbError::NotFound => DbError::NotFound,
+                    BdbError::NotFound => DbError::CpfNoRecords(self.path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string()),
                     other => DbError::Bdb(other),
                 })?;
             }
@@ -546,7 +596,7 @@ pub fn create_lf_filtered(
 
     let lf_path = lib_path.join(name);
     if lf_path.exists() {
-        return Err(DbError::AlreadyExists);
+        return Err(DbError::CpfFileNotFound(name.to_string()));
     }
 
     let storage = match (&over_pf.backend, &over_pf.storage) {
@@ -577,7 +627,6 @@ pub fn create_lf_filtered(
         write_string_attr(&lf_path, "user.l400.lf.omit", value)?;
     }
     write_storage_backend(&lf_path, over_pf.backend)?;
-    catalog_object(&lf_path, "*FILE", Some("LF"), Some("Logical file"))?;
 
     let lf = LogicalFile {
         name: name.to_string(),
@@ -586,21 +635,31 @@ pub fn create_lf_filtered(
         storage,
     };
 
-    for (primary_key, data) in over_pf.read_all()? {
-        lf.insert_idx(&data, &primary_key)?;
+    for (key, value) in over_pf.read_all()? {
+        lf.insert_idx(&value, &key)?;
     }
 
+    catalog_object(&lf_path, "*FILE", Some("LF"), Some("Logical file"))?;
     Ok(lf)
 }
 
 impl LogicalFile {
     pub fn open(path: &Path) -> Result<Self, DbError> {
+        if !path.exists() {
+            return Err(DbError::CpfFileNotFound(
+                path.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+            ));
+        }
+
         let backend = read_storage_backend(path)?.unwrap_or(default_storage_backend());
         let pf_path_str = read_string_attr(path, L400_BASE_PF_ATTR)?
             .ok_or_else(|| DbError::InvalidType("LF object missing base_pf attribute".into()))?;
         let pf_path = Path::new(&pf_path_str);
         if !pf_path.exists() {
-            return Err(DbError::NotFound);
+            return Err(DbError::CpfFileNotFound(pf_path_str));
         }
 
         let name = path
@@ -1476,7 +1535,7 @@ mod tests {
         let lib_path = l400_library(&lib, "QGPL");
         let pf = create_pf(&lib_path, "PEDIDOS", 50).expect("create_pf falló");
         let result = pf.chain_rcd(b"INEXISTENTE");
-        assert!(matches!(result, Err(DbError::NotFound)));
+        assert!(matches!(result, Err(DbError::CpfNoRecords(_))));
     }
 
     #[test]
@@ -1486,7 +1545,7 @@ mod tests {
         let pf = create_pf(&lib_path, "VENTAS", 50).expect("create_pf falló");
         pf.write_rcd(b"V001", b"100.00").expect("write_rcd falló");
         pf.delete_rcd(b"V001").expect("delete_rcd falló");
-        assert!(matches!(pf.chain_rcd(b"V001"), Err(DbError::NotFound)));
+        assert!(matches!(pf.chain_rcd(b"V001"), Err(DbError::CpfNoRecords(_))));
     }
 
     #[test]

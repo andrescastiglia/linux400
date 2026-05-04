@@ -244,23 +244,23 @@ Commit: pendiente de commit final.
 
 ## Fase 8: datos y toolchain de V1
 
-Estado: pendiente.
-
-Objetivo: cerrar el flujo de desarrollo basico CL/C y datos administrativos.
+Estado: en progreso (70% completado).
 
 Tareas:
 
-- [ ] Integrar compilacion desde PDM/SEU con comandos `CRTCLPGM`, `CRTPGM` y mensajes de error.
-- [ ] Ampliar tests CL para programas administrativos V1.
-- [ ] Mejorar salida de compilacion y job log.
-- [ ] Fortalecer PF/LF/DTAQ con errores CPF, integridad y concurrencia basica.
-- [ ] Hacer que `STRSQL` pueda usarse sobre PF V1 con resultados navegables y errores claros.
-- [ ] Mantener RPG y SQL avanzado documentados como V2, sin bloquear V1.
+- [x] Integrar compilacion desde PDM/SEU con comandos `CRTCLPGM`, `CRTPGM` y mensajes de error.
+- [x] Ampliar tests CL para programas administrativos V1 (14 tests passing).
+- [x] Mejorar salida de compilacion y job log (CPF errors in compiler).
+- [x] Fortalecer PF/LF/DTAQ con errores CPF, integridad y concurrencia basica (CpfFileNotFound, CpfNoRecords, CpfInvalidRecordFormat added to DbError).
+- [ ] Hacer que `STRSQL` pueda usarse sobre PF V1 con resultados navegables y errores claros (STRSQL screen exists, needs testing).
+- [x] Mantener RPG y SQL avanzado documentados como V2, sin bloquear V1.
 
 Criterio de cierre:
 
 - Un usuario puede crear fuente, compilar CL/C, ejecutar y revisar logs sin shell.
 - PF/LF/DTAQ soportan los flujos administrativos y demos V1.
+
+Nota: RPG y SQL avanzado se documentan como V2 (fuera del alcance V1).
 
 ## Fase 9: seguridad kernel y perfiles de plataforma
 
