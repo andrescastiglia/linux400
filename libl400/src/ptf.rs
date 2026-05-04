@@ -61,55 +61,42 @@ pub fn list_pending_ptfs() -> Result<Vec<PtfPackage>, String> {
 
     let mut packages = Vec::new();
     if let Ok(entries) = fs::read_dir(cache_dir) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.is_dir()
-                    || path
-                        .extension()
-                        .is_some_and(|ext| ext == "tar.gz" || ext == "tgz")
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir()
+                || path
+                    .extension()
+                    .is_some_and(|ext| ext == "tar.gz" || ext == "tgz")
+            {
+                // Try to read manifest
+                let manifest_path = if path.is_dir() {
+                    path.join("manifest.toml")
+                } else {
+                    // For archives, we'd need to extract - skip for now
+                    continue;
+                };
+
+                if manifest_path.exists()
+                    && let Ok(content) = fs::read_to_string(&manifest_path)
+                    && let Some(id) = extract_toml_value(&content, "package.id")
                 {
-                    // Try to read manifest
-                    let manifest_path = if path.is_dir() {
-                        path.join("manifest.toml")
-                    } else {
-                        // For archives, we'd need to extract - skip for now
-                        continue;
-                    };
+                    let name = extract_toml_value(&content, "package.name")
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    let target_version = extract_toml_value(&content, "package.version")
+                        .unwrap_or_else(|| "Unknown".to_string());
 
-                    if manifest_path.exists() {
-                        if let Ok(content) = fs::read_to_string(&manifest_path) {
-                            if let Some(id) = extract_toml_value(&content, "package.id") {
-                                let name = extract_toml_value(&content, "package.name")
-                                    .unwrap_or_else(|| "Unknown".to_string());
-                                let target_version =
-                                    extract_toml_value(&content, "package.version")
-                                        .unwrap_or_else(|| "Unknown".to_string());
-
-                                packages.push(PtfPackage {
-                                    id,
-                                    name,
-                                    version: target_version.clone(),
-                                    origin_version: extract_toml_value(
-                                        &content,
-                                        "package.origin_version",
-                                    )
-                                    .unwrap_or_default(),
-                                    target_version,
-                                    release_date: extract_toml_value(
-                                        &content,
-                                        "package.release_date",
-                                    )
-                                    .unwrap_or_default(),
-                                    description: extract_toml_value(
-                                        &content,
-                                        "package.description",
-                                    )
-                                    .unwrap_or_default(),
-                                });
-                            }
-                        }
-                    }
+                    packages.push(PtfPackage {
+                        id,
+                        name,
+                        version: target_version.clone(),
+                        origin_version: extract_toml_value(&content, "package.origin_version")
+                            .unwrap_or_default(),
+                        target_version,
+                        release_date: extract_toml_value(&content, "package.release_date")
+                            .unwrap_or_default(),
+                        description: extract_toml_value(&content, "package.description")
+                            .unwrap_or_default(),
+                    });
                 }
             }
         }
@@ -122,14 +109,12 @@ pub fn list_pending_ptfs() -> Result<Vec<PtfPackage>, String> {
 fn extract_toml_value(content: &str, key: &str) -> Option<String> {
     for line in content.lines() {
         let line = line.trim();
-        if line.starts_with(&format!("{key} = ")) {
-            if let Some(start) = line.find('"') {
-                if let Some(end) = line.rfind('"') {
-                    if start != end {
-                        return Some(line[start + 1..end].to_string());
-                    }
-                }
-            }
+        if line.starts_with(&format!("{key} = "))
+            && let Some(start) = line.find('"')
+            && let Some(end) = line.rfind('"')
+            && start != end
+        {
+            return Some(line[start + 1..end].to_string());
         }
     }
     None
@@ -164,10 +149,10 @@ pub fn apply_ptf(ptf_id: &str, confirm: bool) -> Result<String, String> {
 
     // Execute pre-apply script if exists
     let pre_apply = ptf_dir.join("scripts/pre-apply.sh");
-    if pre_apply.exists() {
-        if let Err(e) = run_script(&pre_apply) {
-            return Err(format!("Script pre-apply falló: {e}"));
-        }
+    if pre_apply.exists()
+        && let Err(e) = run_script(&pre_apply)
+    {
+        return Err(format!("Script pre-apply falló: {e}"));
     }
 
     // Apply files (simplified - just copy for now)
@@ -180,10 +165,10 @@ pub fn apply_ptf(ptf_id: &str, confirm: bool) -> Result<String, String> {
 
     // Execute post-apply script if exists
     let post_apply = ptf_dir.join("scripts/post-apply.sh");
-    if post_apply.exists() {
-        if let Err(e) = run_script(&post_apply) {
-            return Err(format!("Script post-apply falló: {e}"));
-        }
+    if post_apply.exists()
+        && let Err(e) = run_script(&post_apply)
+    {
+        return Err(format!("Script post-apply falló: {e}"));
     }
 
     // Record in audit log
@@ -215,10 +200,10 @@ pub fn rollback_ptf(ptf_id: &str, confirm: bool) -> Result<String, String> {
 
     // Execute pre-rollback script
     let pre_rollback = ptf_dir.join("scripts/pre-rollback.sh");
-    if pre_rollback.exists() {
-        if let Err(e) = run_script(&pre_rollback) {
-            return Err(format!("Script pre-rollback falló: {e}"));
-        }
+    if pre_rollback.exists()
+        && let Err(e) = run_script(&pre_rollback)
+    {
+        return Err(format!("Script pre-rollback falló: {e}"));
     }
 
     // Restore backups (simplified)
@@ -229,10 +214,10 @@ pub fn rollback_ptf(ptf_id: &str, confirm: bool) -> Result<String, String> {
 
     // Execute post-rollback script
     let post_rollback = ptf_dir.join("scripts/post-rollback.sh");
-    if post_rollback.exists() {
-        if let Err(e) = run_script(&post_rollback) {
-            return Err(format!("Script post-rollback falló: {e}"));
-        }
+    if post_rollback.exists()
+        && let Err(e) = run_script(&post_rollback)
+    {
+        return Err(format!("Script post-rollback falló: {e}"));
     }
 
     // Record in audit log

@@ -355,12 +355,11 @@ pub fn list_user_profiles() -> Result<Vec<String>, UsrPrfError> {
     for entry in std::fs::read_dir(qsys)? {
         let entry = entry?;
         let path = entry.path();
-        if let Some(ext) = path.extension() {
-            if ext == "USRPRF" {
-                if let Some(stem) = path.file_stem() {
-                    profiles.push(stem.to_string_lossy().to_string());
-                }
-            }
+        if let Some(ext) = path.extension()
+            && ext == "USRPRF"
+            && let Some(stem) = path.file_stem()
+        {
+            profiles.push(stem.to_string_lossy().to_string());
         }
     }
 

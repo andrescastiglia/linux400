@@ -133,12 +133,11 @@ fn main() {
     // Check if job queue is held
     if let Ok(Some(status)) =
         l400::storage::read_string_attr(&jobq_path, l400::storage::L400_JOBQ_STATUS_ATTR)
+        && status == "*HLD"
     {
-        if status == "*HLD" {
-            eprintln!("SBMJOB Error: Job queue {} is held.", jobq);
-            eprintln!("CPF:0001");
-            std::process::exit(2);
-        }
+        eprintln!("SBMJOB Error: Job queue {} is held.", jobq);
+        eprintln!("CPF:0001");
+        std::process::exit(2);
     }
 
     if args.daemon {
@@ -414,25 +413,22 @@ pub fn cleanup_spool_files() {
                     };
 
                     // Check if file is older than retention days
-                    if let Ok(metadata) = std::fs::metadata(&path) {
-                        if let Ok(created) = metadata.created() {
-                            if let Ok(duration) =
-                                std::time::SystemTime::now().duration_since(created)
-                            {
-                                let days_old = duration.as_secs() / (24 * 60 * 60);
-                                if days_old > retention_days as u64 {
-                                    let _ = std::fs::remove_file(&path);
-                                    let _ = l400::audit::audit_event(
-                                        "SPOOL_CLEANED",
-                                        &l400::audit::current_l400_user(),
-                                        &path,
-                                        &format!(
-                                            "Spool file cleaned up (retention: {} days)",
-                                            retention_days
-                                        ),
-                                    );
-                                }
-                            }
+                    if let Ok(metadata) = std::fs::metadata(&path)
+                        && let Ok(created) = metadata.created()
+                        && let Ok(duration) = std::time::SystemTime::now().duration_since(created)
+                    {
+                        let days_old = duration.as_secs() / (24 * 60 * 60);
+                        if days_old > retention_days as u64 {
+                            let _ = std::fs::remove_file(&path);
+                            let _ = l400::audit::audit_event(
+                                "SPOOL_CLEANED",
+                                &l400::audit::current_l400_user(),
+                                &path,
+                                &format!(
+                                    "Spool file cleaned up (retention: {} days)",
+                                    retention_days
+                                ),
+                            );
                         }
                     }
                 }

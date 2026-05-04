@@ -6,7 +6,6 @@ use std::process::Command;
 /// Backup/Restore module for Linux/400
 /// Focus: *SAVF (Save File) option only - no tapes or optical support
 /// Uses mega.io as backend device for *SAVF operations
-
 const SAVF_DIR: &str = "/var/lib/l400/savf";
 const MEGA_IO_MOUNT: &str = "/mnt/mega_io";
 const MEGA_CREDENTIALS: &str = "/etc/l400/mega_credentials";
@@ -54,7 +53,7 @@ pub fn init_mega_io(username: &str, password: &str) -> SavResult<()> {
     }
 
     let output = Command::new("mega-login")
-        .args(&[username, password])
+        .args([username, password])
         .output()
         .map_err(|e| format!("Error running mega-login: {}", e))?;
 
@@ -119,7 +118,7 @@ pub fn savlib(library: &str, savf_name: &str, target: &str) -> SavResult<String>
 
     // Create tar archive with xattrs for the library
     let tar_output = Command::new("tar")
-        .args(&[
+        .args([
             "--xattrs",
             "--xattrs-include=*",
             "-czf",
@@ -171,7 +170,7 @@ pub fn rstlib(savf_name: &str, target_library: &str, source: &str) -> SavResult<
 
     // Extract tar archive with xattrs
     let tar_output = Command::new("tar")
-        .args(&[
+        .args([
             "--xattrs",
             "--xattrs-include=*",
             "-xzf",
@@ -191,7 +190,7 @@ pub fn rstlib(savf_name: &str, target_library: &str, source: &str) -> SavResult<
 
     // Run CHKOBJINT to verify integrity
     let check_output = Command::new("l400")
-        .args(&["CHKOBJINT", &format!("OBJ({}/{})", target_library, "*ALL")])
+        .args(["CHKOBJINT", &format!("OBJ({}/{})", target_library, "*ALL")])
         .output()
         .map_err(|e| format!("Error running CHKOBJINT: {}", e))?;
 
@@ -225,7 +224,7 @@ pub fn savobj(object: &str, library: &str, savf_name: &str, target: &str) -> Sav
 
     // Create tar archive with xattrs
     let tar_output = Command::new("tar")
-        .args(&[
+        .args([
             "--xattrs",
             "--xattrs-include=*",
             "-czf",
@@ -253,24 +252,24 @@ pub fn list_savf() -> SavResult<Vec<SavfInfo>> {
     let mut savfs = Vec::new();
     let savf_dir = Path::new(SAVF_DIR);
 
-    if savf_dir.exists() {
-        if let Ok(entries) = fs::read_dir(savf_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "savf") {
-                    let name = path.file_stem().unwrap().to_string_lossy().to_string();
+    if savf_dir.exists()
+        && let Ok(entries) = fs::read_dir(savf_dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "savf") {
+                let name = path.file_stem().unwrap().to_string_lossy().to_string();
 
-                    let metadata = fs::metadata(&path).ok();
-                    let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+                let metadata = fs::metadata(&path).ok();
+                let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
 
-                    savfs.push(SavfInfo {
-                        name: name.clone(),
-                        library: "*ALL".to_string(),
-                        size,
-                        created: "2026-05-03".to_string(),
-                        description: format!("SAVF: {}", name),
-                    });
-                }
+                savfs.push(SavfInfo {
+                    name: name.clone(),
+                    library: "*ALL".to_string(),
+                    size,
+                    created: "2026-05-03".to_string(),
+                    description: format!("SAVF: {}", name),
+                });
             }
         }
     }
@@ -302,7 +301,7 @@ pub fn list_savf() -> SavResult<Vec<SavfInfo>> {
 /// Execute CHKOBJINT to verify object integrity after restore
 pub fn chkobjint(object: &str) -> SavResult<String> {
     let output = Command::new("l400")
-        .args(&["CHKOBJINT", &format!("OBJ({})", object)])
+        .args(["CHKOBJINT", &format!("OBJ({})", object)])
         .output()
         .map_err(|e| format!("Error running CHKOBJINT: {}", e))?;
 

@@ -31,6 +31,12 @@ enum PtfAction {
     Rollback(String),
 }
 
+impl Default for PtfMaintenanceScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PtfMaintenanceScreen {
     pub fn new() -> Self {
         let mut screen = Self {
@@ -54,24 +60,24 @@ impl PtfMaintenanceScreen {
                 let path = entry.path();
                 if path.is_dir() {
                     let manifest_path = path.join("manifest.toml");
-                    if manifest_path.exists() {
-                        if let Ok(content) = std::fs::read_to_string(&manifest_path) {
-                            let id = extract_toml_value(&content, "package.id")
-                                .unwrap_or_else(|| "Unknown".to_string());
-                            let name = extract_toml_value(&content, "package.name")
-                                .unwrap_or_else(|| "Unknown".to_string());
-                            let version = extract_toml_value(&content, "package.version")
-                                .unwrap_or_else(|| "Unknown".to_string());
+                    if manifest_path.exists()
+                        && let Ok(content) = std::fs::read_to_string(&manifest_path)
+                    {
+                        let id = extract_toml_value(&content, "package.id")
+                            .unwrap_or_else(|| "Unknown".to_string());
+                        let name = extract_toml_value(&content, "package.name")
+                            .unwrap_or_else(|| "Unknown".to_string());
+                        let version = extract_toml_value(&content, "package.version")
+                            .unwrap_or_else(|| "Unknown".to_string());
 
-                            let status = check_ptf_status(&id);
+                        let status = check_ptf_status(&id);
 
-                            self.ptf_list.push(PtfInfo {
-                                id,
-                                name,
-                                version,
-                                status: status.clone(),
-                            });
-                        }
+                        self.ptf_list.push(PtfInfo {
+                            id,
+                            name,
+                            version,
+                            status: status.clone(),
+                        });
                     }
                 }
             }
@@ -335,14 +341,12 @@ impl PtfMaintenanceScreen {
 fn extract_toml_value(content: &str, key: &str) -> Option<String> {
     for line in content.lines() {
         let line = line.trim();
-        if line.starts_with(&format!("{} = ", key)) {
-            if let Some(start) = line.find('"') {
-                if let Some(end) = line.rfind('"') {
-                    if start != end {
-                        return Some(line[start + 1..end].to_string());
-                    }
-                }
-            }
+        if line.starts_with(&format!("{} = ", key))
+            && let Some(start) = line.find('"')
+            && let Some(end) = line.rfind('"')
+            && start != end
+        {
+            return Some(line[start + 1..end].to_string());
         }
     }
     None

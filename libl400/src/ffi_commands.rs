@@ -24,22 +24,6 @@ fn now_epoch_string() -> String {
         .unwrap_or_else(|_| "0".to_string())
 }
 
-fn resolve_file_spec(file_spec: &str) -> (String, String) {
-    let trimmed = file_spec.trim();
-    if let Some((library, file)) = trimmed.split_once('/') {
-        (library.trim().to_uppercase(), file.trim().to_uppercase())
-    } else {
-        (
-            std::env::var("L400_CURLIB")
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-                .map(|value| value.trim().to_uppercase())
-                .unwrap_or_else(|| "QGPL".to_string()),
-            trimmed.to_uppercase(),
-        )
-    }
-}
-
 fn parse_command_fields(input: &str) -> std::collections::HashMap<String, String> {
     let mut fields = std::collections::HashMap::new();
     let chars = input.chars().collect::<Vec<_>>();
@@ -792,24 +776,6 @@ fn spool_dir() -> PathBuf {
                 .join("QUSRSYS")
                 .join("QSPL")
         })
-}
-
-fn compile_spool_file(program: &str) -> PathBuf {
-    let safe_name = program
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' {
-                ch.to_ascii_uppercase()
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    spool_dir().join(format!(
-        "CRTCLPGM_{}_{}.splf",
-        safe_name,
-        now_epoch_string()
-    ))
 }
 
 #[unsafe(no_mangle)]
@@ -2897,7 +2863,7 @@ pub extern "C" fn l400_dspoutq(spec: *const c_char) {
     println!("  Retention: {} days", retention);
     println!("  Routing: {}", routing);
     println!("  Default Status: {}", default_status);
-    println!("");
+    println!();
     println!("  Files in queue:");
 
     let spool_dir = spool_dir();
@@ -3151,19 +3117,19 @@ pub extern "C" fn l400_hldspool(spec: *const c_char) {
     if let Ok(entries) = std::fs::read_dir(&spool_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.contains(spool_file) || name.contains(job) {
-                    // Set status to *HELD
-                    if let Err(e) = crate::storage::write_string_attr(
-                        &path,
-                        crate::storage::L400_SPOOL_STATUS_ATTR,
-                        "*HELD",
-                    ) {
-                        emit_status("CPF0001", None, &format!("Hold failed: {}", e));
-                        return;
-                    }
-                    found = true;
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && (name.contains(spool_file) || name.contains(job))
+            {
+                // Set status to *HELD
+                if let Err(e) = crate::storage::write_string_attr(
+                    &path,
+                    crate::storage::L400_SPOOL_STATUS_ATTR,
+                    "*HELD",
+                ) {
+                    emit_status("CPF0001", None, &format!("Hold failed: {}", e));
+                    return;
                 }
+                found = true;
             }
         }
     }
@@ -3211,19 +3177,19 @@ pub extern "C" fn l400_rlsspool(spec: *const c_char) {
     if let Ok(entries) = std::fs::read_dir(&spool_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.contains(spool_file) || name.contains(job) {
-                    // Set status to *READY
-                    if let Err(e) = crate::storage::write_string_attr(
-                        &path,
-                        crate::storage::L400_SPOOL_STATUS_ATTR,
-                        "*READY",
-                    ) {
-                        emit_status("CPF0001", None, &format!("Release failed: {}", e));
-                        return;
-                    }
-                    found = true;
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && (name.contains(spool_file) || name.contains(job))
+            {
+                // Set status to *READY
+                if let Err(e) = crate::storage::write_string_attr(
+                    &path,
+                    crate::storage::L400_SPOOL_STATUS_ATTR,
+                    "*READY",
+                ) {
+                    emit_status("CPF0001", None, &format!("Release failed: {}", e));
+                    return;
                 }
+                found = true;
             }
         }
     }
