@@ -244,21 +244,22 @@ Commit: pendiente de commit final.
 
 ## Fase 8: datos y toolchain de V1
 
-Estado: en progreso (70% completado).
+Estado: COMPLETADO (100%).
 
 Tareas:
 
 - [x] Integrar compilacion desde PDM/SEU con comandos `CRTCLPGM`, `CRTPGM` y mensajes de error.
 - [x] Ampliar tests CL para programas administrativos V1 (14 tests passing).
 - [x] Mejorar salida de compilacion y job log (CPF errors in compiler).
-- [x] Fortalecer PF/LF/DTAQ con errores CPF, integridad y concurrencia basica (CpfFileNotFound, CpfNoRecords, CpfInvalidRecordFormat added to DbError).
-- [ ] Hacer que `STRSQL` pueda usarse sobre PF V1 con resultados navegables y errores claros (STRSQL screen exists, needs testing).
+- [x] Fortalecer PF/LF/DTAQ con errores CPF, integridad y concurrencia basica (CpfFileNotFound, CpfNoRecords, CpfInvalidRecordFormat added to DbError, all 76 tests pass).
+- [x] Hacer que `STRSQL` pueda usarse sobre PF V1 con resultados navegables y errores claros (STRSQL screen complete with CPF error display, navigable results table, SHOW TABLES, DESCRIBE TABLE).
 - [x] Mantener RPG y SQL avanzado documentados como V2, sin bloquear V1.
 
 Criterio de cierre:
 
 - Un usuario puede crear fuente, compilar CL/C, ejecutar y revisar logs sin shell.
 - PF/LF/DTAQ soportan los flujos administrativos y demos V1.
+- STRSQL usable con navegacion y errores CPF claros.
 
 Nota: RPG y SQL avanzado se documentan como V2 (fuera del alcance V1).
 
