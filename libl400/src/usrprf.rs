@@ -290,9 +290,22 @@ pub fn display_user_profile(name: &str) -> Result<UserProfileInfo, UsrPrfError> 
         return Err(UsrPrfError::NotFound);
     }
 
-    // Get metadata
-    let metadata = std::fs::metadata(&path)?;
-    let uid = metadata.uid();
+    // Get metadata - we want the UID of the linked Linux account, not the object file
+    // The object file is owned by root, but the USRPRF should show the linked account's UID
+    let uid = if let Some(linked_uid_str) =
+        read_string_attr(&path, crate::object::L400_OWNER_UID_ATTR)
+            .ok()
+            .flatten()
+    {
+        linked_uid_str.parse::<u32>().unwrap_or_else(|_| {
+            // Fallback to file metadata if parse fails
+            let metadata = std::fs::metadata(&path).expect("Failed to get metadata");
+            metadata.uid()
+        })
+    } else {
+        let metadata = std::fs::metadata(&path).expect("Failed to get metadata");
+        metadata.uid()
+    };
 
     // Get description
     let description = read_string_attr(&path, crate::object::L400_TEXT_ATTR)
@@ -324,9 +337,9 @@ pub fn display_user_profile(name: &str) -> Result<UserProfileInfo, UsrPrfError> 
     let owner = "QSYS".to_string(); // Default owner
 
     // Get creation date from metadata
-    let creation_date = metadata
-        .created()
+    let creation_date = std::fs::metadata(&path)
         .ok()
+        .and_then(|m| m.created().ok())
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| format!("{}", d.as_secs()))
         .unwrap_or_else(|| "Unknown".to_string());

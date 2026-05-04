@@ -10,6 +10,7 @@ EFI_LABEL="${EFI_LABEL:-L400EFI}"
 INSTALL_MODE="${INSTALL_MODE:-uefi}"
 AUTO_PARTITION="${AUTO_PARTITION:-1}"
 EFI_ACCESS_MODE="mount"
+SETUP_MEGA_IO="${SETUP_MEGA_IO:-1}"  # Set to 0 to skip mega.io setup for unattended installs
 
 # Colors for output
 RED='\033[0;31m'
@@ -623,6 +624,13 @@ main() {
     install_boot_assets
     setup_mega_io
     configure_installed_system
+
+    # Setup mega.io only if enabled (set SETUP_MEGA_IO=0 for unattended installs)
+    if [ "${SETUP_MEGA_IO}" = "1" ]; then
+        setup_mega_io
+    else
+        info "Omitiendo configuración de mega.io (SETUP_MEGA_IO=${SETUP_MEGA_IO})"
+    fi
 
     echo "=== Linux/400 instalado ==="
     echo "Disco : ${disk}"

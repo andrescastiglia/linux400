@@ -84,7 +84,7 @@ Commit: 4e5df62 - feat(phase2): Implement Phase 2 - Installation and first boot
 
 ## Fase 3: actualizacion y PTFs
 
-Estado: completado (100%).
+Estado: en progreso (80%).
 
 Objetivo: introducir mantenimiento versionado estilo PTF con opcion *SERVICE (sin tapes).
 
@@ -98,8 +98,9 @@ Tareas:
 - [x] Auditar apply/rollback con usuario, fecha, build id y resultado.
 - [x] Agregar pantalla TUI de mantenimiento/PTF (WRKPTF).
 - [x] Agregar tests de PTF con paquete falso, apply, rollback y downgrade rechazado.
-- [x] Desarrollar servidor PTF (l400-ptf-server) para proveer PTFs via HTTP (SERVICE option).
-- [x] Crear modo de compilacion para generar PTFs (l400-ptf-create).
+- [ ] Desarrollar servidor PTF (l400-ptf-server) para proveer PTFs via HTTP (SERVICE option) - pendiente: servir paquetes completos.
+- [ ] Crear modo de compilacion para generar PTFs (l400-ptf-create) - pendiente: registrar destinos de archivos en manifiesto.
+- [ ] Implementar instalacion real de archivos en APYPTF.
 - [x] Documentar sistema PTF (docs/PTF_FORMAT.md).
 
 Criterio de cierre:
@@ -107,6 +108,8 @@ Criterio de cierre:
 - Un PTF puede aplicarse y revertirse en entorno de prueba.
 - El sistema bloquea downgrades de metadata sin restore.
 - `DSPPTF` y support report muestran historial de mantenimiento.
+- Servidor PTF disponible via HTTP para opcion *SERVICE (sin soporte de tapes).
+- Herramienta de compilacion genera paquetes PTF validos con destinos de archivos.
 - Servidor PTF disponible via HTTP para opcion *SERVICE (sin soporte de tapes).
 - Herramienta de compilacion genera paquetes PTF validos.
 

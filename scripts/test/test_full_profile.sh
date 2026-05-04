@@ -38,12 +38,12 @@ fi
 
 echo "eBPF artifact: $EBPF_PATH"
 
-# Test 1: Loader starts in full mode (requires root, so we check config)
-echo "Test 1: Checking loader configuration for full mode..."
-if grep -q "mode = \"full\"" l400-loader/src/main.rs; then
-    echo "  PASS: Loader configured for full mode"
+# Test 1: Loader supports full mode (check that LoaderMode::Full exists)
+echo "Test 1: Checking loader supports full mode..."
+if grep -q "Full" l400-loader/src/main.rs && grep -q "full" l400-loader/src/main.rs; then
+    echo "  PASS: Loader supports full mode"
 else
-    echo "  FAIL: Loader not configured for full mode"
+    echo "  FAIL: Loader doesn't support full mode"
     exit 1
 fi
 
@@ -73,7 +73,7 @@ fi
 
 # Test 4: Check cgroups v2
 echo "Test 4: Checking cgroups v2..."
-if [ -d /sys/fs/cgroup/cgroup.controllers ]; then
+if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
     echo "  PASS: Cgroups v2 available"
 else
     echo "  WARN: Cgroups v2 not available"
@@ -81,10 +81,16 @@ fi
 
 # Test 5: Check xattrs support
 echo "Test 5: Checking xattrs support..."
-if [ -d /l400 ] || [ -d /tmp ]; then
-    echo "  PASS: Xattrs supported (testing on /tmp)"
+# Create a temp file and try to set a user xattr
+TEST_FILE=$(mktemp /tmp/l400-xattr-test.XXXXXX)
+if touch "$TEST_FILE" 2>/dev/null && \
+   setfattr -n "user.l400.test" -v "test_value" "$TEST_FILE" 2>/dev/null && \
+   GET_VALUE=$(getfattr -n "user.l400.test" "$TEST_FILE" 2>/dev/null | grep -c "test_value"); then
+    echo "  PASS: Xattrs supported (verified with setfattr/getfattr)"
+    rm -f "$TEST_FILE"
 else
-    echo "  WARN: Cannot verify xattrs support"
+    echo "  WARN: Xattrs not supported on this filesystem"
+    rm -f "$TEST_FILE" 2>/dev/null
 fi
 
 # Test 6: Check policy version

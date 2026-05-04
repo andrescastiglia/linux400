@@ -218,6 +218,9 @@ pub fn savobj(object: &str, library: &str, savf_name: &str, target: &str) -> Sav
     }
 
     let savf_path = if target == "MEGA" {
+        if !is_mega_io_mounted() {
+            return Err("mega.io not mounted. Run init_mega_io first.".to_string());
+        }
         PathBuf::from(MEGA_IO_MOUNT).join(format!("{}.savf", savf_name))
     } else {
         PathBuf::from(SAVF_DIR).join(format!("{}.savf", savf_name))

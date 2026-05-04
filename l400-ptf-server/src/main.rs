@@ -113,9 +113,37 @@ fn handle_get_ptf(stream: &mut TcpStream, request_line: &str) -> std::io::Result
     if ptf_path.is_dir() {
         let manifest_path = ptf_path.join("manifest.toml");
         if manifest_path.exists() {
-            let content = fs::read_to_string(&manifest_path)?;
-            return send_response(stream, 200, "text/plain", &content);
+            // Serve the entire directory as a tar archive
+            let output = std::process::Command::new("tar")
+                .args(["-czf", "-", "-C", ptf_path.to_str().unwrap(), "."])
+                .output()
+                .map_err(std::io::Error::other)?;
+
+            if output.status.success() {
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/gzip\r\nContent-Length: {}\r\n\r\n",
+                    output.stdout.len()
+                );
+                stream.write_all(response.as_bytes())?;
+                stream.write_all(&output.stdout)?;
+                return Ok(());
+            }
         }
+    } else if ptf_path.is_file()
+        && ptf_path
+            .extension()
+            .map(|e| e == "tar.gz" || e == "tgz")
+            .unwrap_or(false)
+    {
+        // Serve the archive file directly
+        let content = fs::read(&ptf_path)?;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/gzip\r\nContent-Length: {}\r\n\r\n",
+            content.len()
+        );
+        stream.write_all(response.as_bytes())?;
+        stream.write_all(&content)?;
+        return Ok(());
     }
 
     handle_not_found(stream)
