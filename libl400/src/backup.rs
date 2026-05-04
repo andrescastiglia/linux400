@@ -135,7 +135,7 @@ pub fn savlib(library: &str, savf_name: &str, target: &str) -> SavResult<String>
         ));
     }
 
-    // Update SAVF manifest
+    // Update SAVF manifest as xattr instead of overwriting the archive
     let manifest = format!(
         "[savf]\nname = \"{}\"\nlibrary = \"{}\"\ncreated = \"{}\"\ntarget = \"{}\"\nsize = {}\n",
         savf_name,
@@ -144,7 +144,8 @@ pub fn savlib(library: &str, savf_name: &str, target: &str) -> SavResult<String>
         target,
         fs::metadata(&savf_path).map(|m| m.len()).unwrap_or(0)
     );
-    fs::write(&savf_path, manifest).map_err(|e| format!("Error writing manifest: {}", e))?;
+    let _ = crate::storage::write_string_attr(&savf_path, "user.l400.savf.manifest", &manifest);
+    drop(tar_output); // Ensure tar process is complete
 
     Ok(format!("Library {} saved to {:?}", library, savf_path))
 }
