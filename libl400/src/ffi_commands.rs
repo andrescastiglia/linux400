@@ -1635,6 +1635,14 @@ pub extern "C" fn l400_chgobjd(spec: *const c_char) {
     };
     let root = crate::object::resolve_l400_root();
     let (_, _, path) = resolve_object_spec(&root, obj, fields.get("LIB").map(String::as_str));
+
+    // Check if object exists; if not, emit CPF9801 (object not found)
+    if !path.exists() {
+        emit_status("CPF9801", Some(&path), "Object not found");
+        println!("[CHGOBJD] Objeto no encontrado: {}", path.display());
+        return;
+    }
+
     let user = runtime_user();
     match crate::auth::check_authority(&path, &user, crate::auth::L400Authority::Change) {
         Ok(true) => {}
@@ -1648,6 +1656,14 @@ pub extern "C" fn l400_chgobjd(spec: *const c_char) {
             return;
         }
         Err(error) => {
+            // Map NotFound to CPF9801 (object not found) instead of CPF0001
+            if let crate::auth::AuthError::Io(ref io_err) = error
+                && io_err.kind() == std::io::ErrorKind::NotFound
+            {
+                emit_status("CPF9801", Some(&path), "Object not found");
+                println!("[CHGOBJD] Objeto no encontrado: {}", path.display());
+                return;
+            }
             emit_status("CPF0001", Some(&path), &error.to_string());
             println!("[CHGOBJD] Error verificando autoridad: {}", error);
             return;
@@ -2484,12 +2500,10 @@ pub extern "C" fn l400_crtjobq(spec: *const c_char) {
         return;
     }
 
-    // Check authorization
-    let path = crate::object::resolve_l400_root()
-        .join("QSYS")
-        .join(format!("{}.JOBQ", jobq_name.to_uppercase()));
+    // Check authorization on parent directory (QSYS), not on object path
+    let qsys_path = crate::object::resolve_l400_root().join("QSYS");
     let current_user = crate::audit::current_l400_user();
-    match crate::auth::check_command_authority(&path, &current_user, "CRTJOBQ") {
+    match crate::auth::check_command_authority(&qsys_path, &current_user, "CRTJOBQ") {
         Ok(true) => {
             match crate::object::create_object_with_metadata(
                 &crate::object::resolve_l400_root().join("QSYS"),

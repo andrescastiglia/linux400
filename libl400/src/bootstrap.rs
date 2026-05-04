@@ -275,6 +275,14 @@ fn ensure_outq(
             crate::L400_DATA_FORMAT_VERSION_ATTR
         ));
     }
+    // Populate OUTQ operational attributes for CHKOBJINT compliance
+    let _ = write_string_attr(&path, crate::storage::L400_OUTQ_RETENTION_DAYS_ATTR, "7");
+    let _ = write_string_attr(&path, crate::storage::L400_OUTQ_ROUTING_ATTR, "QBATCH");
+    let _ = write_string_attr(
+        &path,
+        crate::storage::L400_OUTQ_DEFAULT_STATUS_ATTR,
+        "*READY",
+    );
     report.created(marker);
     Ok(())
 }
