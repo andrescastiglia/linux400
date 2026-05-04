@@ -27,6 +27,11 @@ pub struct LoaderStatus {
     pub effective_mode: Option<String>,
     pub known_gaps: Option<String>,
     pub last_error: Option<String>,
+    // Phase 9: Platform information
+    pub btf_available: Option<bool>,
+    pub kernel_version: Option<String>,
+    pub cgroups_v2: Option<bool>,
+    pub xattrs_supported: Option<bool>,
 }
 
 impl LoaderStatus {
@@ -43,6 +48,11 @@ impl LoaderStatus {
             effective_mode: None,
             known_gaps: None,
             last_error: None,
+            // Phase 9: Platform information
+            btf_available: None,
+            kernel_version: None,
+            cgroups_v2: None,
+            xattrs_supported: None,
         }
     }
 
@@ -79,6 +89,22 @@ impl LoaderStatus {
         if let Some(err) = &self.last_error {
             lines.push(format!("last_error={err}"));
         }
+        // Phase 9: Platform information
+        if let Some(btf) = &self.btf_available {
+            lines.push(format!("btf_available={}", if *btf { "1" } else { "0" }));
+        }
+        if let Some(kernel) = &self.kernel_version {
+            lines.push(format!("kernel_version={kernel}"));
+        }
+        if let Some(cgroups) = &self.cgroups_v2 {
+            lines.push(format!("cgroups_v2={}", if *cgroups { "1" } else { "0" }));
+        }
+        if let Some(xattrs) = &self.xattrs_supported {
+            lines.push(format!(
+                "xattrs_supported={}",
+                if *xattrs { "1" } else { "0" }
+            ));
+        }
         lines.push(String::new());
         lines.join("\n")
     }
@@ -107,6 +133,11 @@ impl LoaderStatus {
             .cloned()
             .ok_or_else(|| RuntimeStatusError::InvalidEntry("missing phase".to_string()))?;
 
+        let btf_available = map.get("btf_available").map(|v| v == "1");
+        let kernel_version = map.get("kernel_version").cloned();
+        let cgroups_v2 = map.get("cgroups_v2").map(|v| v == "1");
+        let xattrs_supported = map.get("xattrs_supported").map(|v| v == "1");
+
         Ok(Self {
             mode,
             protection_active,
@@ -119,6 +150,10 @@ impl LoaderStatus {
             effective_mode: map.get("effective_mode").cloned(),
             known_gaps: map.get("known_gaps").cloned(),
             last_error: map.get("last_error").cloned(),
+            btf_available,
+            kernel_version,
+            cgroups_v2,
+            xattrs_supported,
         })
     }
 }
@@ -170,12 +205,17 @@ mod tests {
         let mut status = LoaderStatus::new("degraded", false, "fallback");
         status.bpf_path = Some("/opt/l400/hooks/l400-ebpf".to_string());
         status.attached_hooks = Some("file_open,bprm_creds_from_file,bprm_check_security".into());
-        status.policy_version = Some("phase3-v1".into());
+        status.policy_version = Some("v1.0".into());
         status.runtime_version = Some(runtime_version().into());
         status.ebpf_version = Some("0.2.0".into());
         status.effective_mode = Some("degraded".into());
         status.known_gaps = Some("test-gap".into());
         status.last_error = Some("missing btf".to_string());
+        // Phase 9: Platform information
+        status.btf_available = Some(true);
+        status.kernel_version = Some("6.11.0".to_string());
+        status.cgroups_v2 = Some(true);
+        status.xattrs_supported = Some(true);
         write_loader_status(&status).unwrap();
 
         let parsed = read_loader_status().unwrap();

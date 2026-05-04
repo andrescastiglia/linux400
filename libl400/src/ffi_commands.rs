@@ -1849,27 +1849,33 @@ pub extern "C" fn l400_chkobjaut(spec: *const c_char) {
 pub extern "C" fn l400_savlib(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let parts: Vec<&str> = spec_str.split_whitespace().collect();
-    
+
     let mut library = String::new();
     let mut savf = String::new();
     let mut target = "*LOCAL";
-    
+
     for part in parts {
         if part.starts_with("LIB(") {
-            library = part.trim_start_matches("LIB(").trim_end_matches(')').to_string();
+            library = part
+                .trim_start_matches("LIB(")
+                .trim_end_matches(')')
+                .to_string();
         } else if part.starts_with("DEV(") {
         } else if part.starts_with("SAVF(") {
-            savf = part.trim_start_matches("SAVF(").trim_end_matches(')').to_string();
+            savf = part
+                .trim_start_matches("SAVF(")
+                .trim_end_matches(')')
+                .to_string();
         } else if part.starts_with("TARGET(") {
             target = part.trim_start_matches("TARGET(").trim_end_matches(')');
         }
     }
-    
+
     if library.is_empty() || savf.is_empty() {
         emit_status("CPF0001", None, "LIB and SAVF required");
         return;
     }
-    
+
     match crate::backup::savlib(&library, &savf, target) {
         Ok(msg) => {
             emit_status("CPF0000", None, &msg);
@@ -1886,22 +1892,28 @@ pub extern "C" fn l400_savlib(spec: *const c_char) {
 pub extern "C" fn l400_rstlib(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let parts: Vec<&str> = spec_str.split_whitespace().collect();
-    
+
     let mut library = String::new();
     let mut savf = String::new();
     let mut source = "*LOCAL";
-    
+
     for part in parts {
         if part.starts_with("LIB(") {
-            library = part.trim_start_matches("LIB(").trim_end_matches(')').to_string();
+            library = part
+                .trim_start_matches("LIB(")
+                .trim_end_matches(')')
+                .to_string();
         } else if part.starts_with("DEV(") {
         } else if part.starts_with("SAVF(") {
-            savf = part.trim_start_matches("SAVF(").trim_end_matches(')').to_string();
+            savf = part
+                .trim_start_matches("SAVF(")
+                .trim_end_matches(')')
+                .to_string();
         } else if part.starts_with("SOURCE(") {
             source = part.trim_start_matches("SOURCE(").trim_end_matches(')');
         }
     }
-    
+
     if library.is_empty() || savf.is_empty() {
         emit_status("CPF0001", None, "LIB and SAVF required");
         return;
@@ -1922,30 +1934,39 @@ pub extern "C" fn l400_rstlib(spec: *const c_char) {
 pub extern "C" fn l400_savobj(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let parts: Vec<&str> = spec_str.split_whitespace().collect();
-    
+
     let mut object = String::new();
     let mut library = String::new();
     let mut savf = String::new();
     let mut target = "*LOCAL";
-    
+
     for part in parts {
         if part.starts_with("OBJ(") {
-            object = part.trim_start_matches("OBJ(").trim_end_matches(')').to_string();
+            object = part
+                .trim_start_matches("OBJ(")
+                .trim_end_matches(')')
+                .to_string();
         } else if part.starts_with("LIB(") {
-            library = part.trim_start_matches("LIB(").trim_end_matches(')').to_string();
+            library = part
+                .trim_start_matches("LIB(")
+                .trim_end_matches(')')
+                .to_string();
         } else if part.starts_with("DEV(") {
         } else if part.starts_with("SAVF(") {
-            savf = part.trim_start_matches("SAVF(").trim_end_matches(')').to_string();
+            savf = part
+                .trim_start_matches("SAVF(")
+                .trim_end_matches(')')
+                .to_string();
         } else if part.starts_with("TARGET(") {
             target = part.trim_start_matches("TARGET(").trim_end_matches(')');
         }
     }
-    
+
     if object.is_empty() || library.is_empty() || savf.is_empty() {
         emit_status("CPF0001", None, "OBJ, LIB and SAVF required");
         return;
     }
-    
+
     match crate::backup::savobj(&object, &library, &savf, target) {
         Ok(msg) => {
             emit_status("CPF0000", None, &msg);
@@ -1962,10 +1983,14 @@ pub extern "C" fn l400_savobj(spec: *const c_char) {
 pub extern "C" fn l400_chkobjint(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let object = spec_str.trim_start_matches("OBJ(").trim_end_matches(')');
-    
+
     match crate::backup::chkobjint(object) {
         Ok(result) => {
-            emit_status("CPF0000", None, &format!("Result . . . . . . . . : {}", result));
+            emit_status(
+                "CPF0000",
+                None,
+                &format!("Result . . . . . . . . : {}", result),
+            );
         }
         Err(e) => {
             emit_status("CPF0001", None, &format!("CHKOBJINT failed: {}", e));
@@ -1983,16 +2008,18 @@ pub extern "C" fn l400_wrksavf(_spec: *const c_char) {
                 emit_status("CPF0000", None, "No *SAVF files found");
                 return;
             }
-            
+
             let mut output = String::new();
             output.push_str("SAVF NAME       LIBRARY    SIZE     CREATED    DESCRIPTION\n");
             output.push_str("-------------  ---------  --------  ---------  -----------\n");
-            
+
             for savf in savfs {
-                output.push_str(&format!("{:<15} {:<10} {:<10} {:<10} {}\n",
-                    savf.name, savf.library, savf.size, savf.created, savf.description));
+                output.push_str(&format!(
+                    "{:<15} {:<10} {:<10} {:<10} {}\n",
+                    savf.name, savf.library, savf.size, savf.created, savf.description
+                ));
             }
-            
+
             emit_status("CPF0000", None, &output);
         }
         Err(e) => {
@@ -2205,34 +2232,44 @@ pub extern "C" fn l400_go(target: *const c_char) {
 pub extern "C" fn l400_crtusrprf(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let usrprf_name = fields.get("USRPRF").map(|s| s.as_str()).unwrap_or("");
     let text = fields.get("TEXT").map(|s| s.as_str()).unwrap_or("");
-    
+
     if usrprf_name.is_empty() {
         emit_status("CPF0001", None, "USRPRF parameter required");
         return;
     }
-    
+
     // Check authorization
     let path = crate::usrprf::get_usrprf_path(usrprf_name);
     let current_user = crate::audit::current_l400_user();
     match crate::auth::check_command_authority(&path, &current_user, "CRTUSRPRF") {
-        Ok(true) => {
-            match crate::usrprf::create_user_profile(usrprf_name, Some(text)) {
-                Ok(_) => {
-                    emit_status("CPF0000", None, &format!("User profile {} created", usrprf_name));
-                }
-                Err(e) => {
-                    emit_status("CPF0001", None, &format!("Create failed: {}", e));
-                }
+        Ok(true) => match crate::usrprf::create_user_profile(usrprf_name, Some(text)) {
+            Ok(_) => {
+                emit_status(
+                    "CPF0000",
+                    None,
+                    &format!("User profile {} created", usrprf_name),
+                );
             }
-        }
+            Err(e) => {
+                emit_status("CPF0001", None, &format!("Create failed: {}", e));
+            }
+        },
         Ok(false) => {
-            emit_status("CPF0001", None, &format!("Not authorized to create user profile {}", usrprf_name));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Not authorized to create user profile {}", usrprf_name),
+            );
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Authorization check failed: {}", e),
+            );
         }
     }
 }
@@ -2242,7 +2279,7 @@ pub extern "C" fn l400_crtusrprf(spec: *const c_char) {
 pub extern "C" fn l400_chgusrprf(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let usrprf_name = fields.get("USRPRF").map(|s| s.as_str()).unwrap_or("");
     let text = fields.get("TEXT").map(|s| s.as_str());
     let status = fields.get("STATUS").map(|s| s.as_str());
@@ -2250,12 +2287,12 @@ pub extern "C" fn l400_chgusrprf(spec: *const c_char) {
     let home_library = fields.get("HOMELIB").map(|s| s.as_str());
     let current_library = fields.get("CURRLIB").map(|s| s.as_str());
     let group_profiles = fields.get("GRPPRF").map(|s| s.as_str());
-    
+
     if usrprf_name.is_empty() {
         emit_status("CPF0001", None, "USRPRF parameter required");
         return;
     }
-    
+
     // Check authorization
     let path = crate::usrprf::get_usrprf_path(usrprf_name);
     let current_user = crate::audit::current_l400_user();
@@ -2271,7 +2308,11 @@ pub extern "C" fn l400_chgusrprf(spec: *const c_char) {
                 group_profiles,
             ) {
                 Ok(_) => {
-                    emit_status("CPF0000", None, &format!("User profile {} changed", usrprf_name));
+                    emit_status(
+                        "CPF0000",
+                        None,
+                        &format!("User profile {} changed", usrprf_name),
+                    );
                 }
                 Err(e) => {
                     emit_status("CPF0001", None, &format!("Change failed: {}", e));
@@ -2279,10 +2320,18 @@ pub extern "C" fn l400_chgusrprf(spec: *const c_char) {
             }
         }
         Ok(false) => {
-            emit_status("CPF0001", None, &format!("Not authorized to change user profile {}", usrprf_name));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Not authorized to change user profile {}", usrprf_name),
+            );
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Authorization check failed: {}", e),
+            );
         }
     }
 }
@@ -2292,14 +2341,14 @@ pub extern "C" fn l400_chgusrprf(spec: *const c_char) {
 pub extern "C" fn l400_dltusrprf(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let usrprf_name = fields.get("USRPRF").map(|s| s.as_str()).unwrap_or("");
-    
+
     if usrprf_name.is_empty() {
         emit_status("CPF0001", None, "USRPRF parameter required");
         return;
     }
-    
+
     // Check authorization
     let path = crate::usrprf::get_usrprf_path(usrprf_name);
     let current_user = crate::audit::current_l400_user();
@@ -2307,10 +2356,14 @@ pub extern "C" fn l400_dltusrprf(spec: *const c_char) {
         Ok(true) => {
             // Check if we should keep the system user
             let keep_system = fields.get("OWNSOBJ").map(|s| s == "*KEEP").unwrap_or(false);
-            
+
             match crate::usrprf::delete_user_profile(usrprf_name, keep_system) {
                 Ok(_) => {
-                    emit_status("CPF0000", None, &format!("User profile {} deleted", usrprf_name));
+                    emit_status(
+                        "CPF0000",
+                        None,
+                        &format!("User profile {} deleted", usrprf_name),
+                    );
                 }
                 Err(e) => {
                     emit_status("CPF0001", None, &format!("Delete failed: {}", e));
@@ -2318,10 +2371,18 @@ pub extern "C" fn l400_dltusrprf(spec: *const c_char) {
             }
         }
         Ok(false) => {
-            emit_status("CPF0001", None, &format!("Not authorized to delete user profile {}", usrprf_name));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Not authorized to delete user profile {}", usrprf_name),
+            );
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Authorization check failed: {}", e),
+            );
         }
     }
 }
@@ -2331,51 +2392,66 @@ pub extern "C" fn l400_dltusrprf(spec: *const c_char) {
 pub extern "C" fn l400_dspusrprf(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let usrprf_name = fields.get("USRPRF").map(|s| s.as_str()).unwrap_or("");
-    
+
     if usrprf_name.is_empty() {
         emit_status("CPF0001", None, "USRPRF parameter required");
         return;
     }
-    
+
     // Check authorization
     let path = crate::usrprf::get_usrprf_path(usrprf_name);
     let current_user = crate::audit::current_l400_user();
     match crate::auth::check_command_authority(&path, &current_user, "DSPUSRPRF") {
-        Ok(true) => {
-            match crate::usrprf::display_user_profile(usrprf_name) {
-                Ok(info) => {
-                    let mut output = String::new();
-                    output.push_str(&format!("User profile . . . . . . . . . : {}\n", info.name));
-                    output.push_str(&format!("Description . . . . . . . . . : {}\n", info.description));
-                    output.push_str(&format!("Status . . . . . . . . . . . : {}\n", info.status));
-                    output.push_str(&format!("User ID  . . . . . . . . . . : {}\n", info.uid));
-                    output.push_str(&format!("Owner . . . . . . . . . . . : {}\n", info.owner));
-                    output.push_str(&format!("Creation date . . . . . . . . : {}\n", info.creation_date));
-                    
-                    if let Some(ref lib) = info.home_library {
-                        output.push_str(&format!("Home library  . . . . . . . : {}\n", lib));
-                    }
-                    if let Some(ref lib) = info.current_library {
-                        output.push_str(&format!("Current library . . . . . . : {}\n", lib));
-                    }
-                    if !info.group_profiles.is_empty() {
-                        output.push_str(&format!("Group profiles . . . . . . .: {}\n", info.group_profiles.join(", ")));
-                    }
-                    
-                    emit_status("CPF0000", None, &output);
+        Ok(true) => match crate::usrprf::display_user_profile(usrprf_name) {
+            Ok(info) => {
+                let mut output = String::new();
+                output.push_str(&format!("User profile . . . . . . . . . : {}\n", info.name));
+                output.push_str(&format!(
+                    "Description . . . . . . . . . : {}\n",
+                    info.description
+                ));
+                output.push_str(&format!("Status . . . . . . . . . . . : {}\n", info.status));
+                output.push_str(&format!("User ID  . . . . . . . . . . : {}\n", info.uid));
+                output.push_str(&format!("Owner . . . . . . . . . . . : {}\n", info.owner));
+                output.push_str(&format!(
+                    "Creation date . . . . . . . . : {}\n",
+                    info.creation_date
+                ));
+
+                if let Some(ref lib) = info.home_library {
+                    output.push_str(&format!("Home library  . . . . . . . : {}\n", lib));
                 }
-                Err(e) => {
-                    emit_status("CPF0001", None, &format!("Display failed: {}", e));
+                if let Some(ref lib) = info.current_library {
+                    output.push_str(&format!("Current library . . . . . . : {}\n", lib));
                 }
+                if !info.group_profiles.is_empty() {
+                    output.push_str(&format!(
+                        "Group profiles . . . . . . .: {}\n",
+                        info.group_profiles.join(", ")
+                    ));
+                }
+
+                emit_status("CPF0000", None, &output);
             }
-        }
+            Err(e) => {
+                emit_status("CPF0001", None, &format!("Display failed: {}", e));
+            }
+        },
         Ok(false) => {
-            emit_status("CPF0001", None, &format!("Not authorized to display user profile {}", usrprf_name));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Not authorized to display user profile {}", usrprf_name),
+            );
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Authorization check failed: {}", e),
+            );
         }
     }
 }
@@ -2394,8 +2470,11 @@ pub extern "C" fn l400_crtclpgm(pgm: *const c_char, srcfile: *const c_char, srcm
     let pgm_str = c_str_to_string(pgm);
     let srcfile_str = c_str_to_string(srcfile);
     let srcmbr_str = c_str_to_string(srcmbr);
-    
-    let spec = format!("PGM({}) SRCFILE({}) SRCMBR({})", pgm_str, srcfile_str, srcmbr_str);
+
+    let spec = format!(
+        "PGM({}) SRCFILE({}) SRCMBR({})",
+        pgm_str, srcfile_str, srcmbr_str
+    );
     l400_crtpgm(spec.as_ptr() as *const c_char);
 }
 
@@ -2424,20 +2503,25 @@ pub extern "C" fn l400_strsql() {
 pub extern "C" fn l400_crtjobq(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let jobq_name = fields.get("JOBQ").map(|s| s.as_str()).unwrap_or("");
-    let text = fields.get("TEXT").map(|s| s.as_str()).unwrap_or("Job Queue");
+    let text = fields
+        .get("TEXT")
+        .map(|s| s.as_str())
+        .unwrap_or("Job Queue");
     let subsystem = fields.get("SBS").map(|s| s.as_str()).unwrap_or("QBATCH");
     let max_active = fields.get("MAXACT").map(|s| s.as_str()).unwrap_or("1");
     let priority = fields.get("PRIORITY").map(|s| s.as_str()).unwrap_or("5");
-    
+
     if jobq_name.is_empty() {
         emit_status("CPF0001", None, "JOBQ parameter required");
         return;
     }
-    
+
     // Check authorization
-    let path = crate::object::resolve_l400_root().join("QSYS").join(format!("{}.JOBQ", jobq_name.to_uppercase()));
+    let path = crate::object::resolve_l400_root()
+        .join("QSYS")
+        .join(format!("{}.JOBQ", jobq_name.to_uppercase()));
     let current_user = crate::audit::current_l400_user();
     match crate::auth::check_command_authority(&path, &current_user, "CRTJOBQ") {
         Ok(true) => {
@@ -2453,24 +2537,41 @@ pub extern "C" fn l400_crtjobq(spec: *const c_char) {
                     let jobq_path = crate::object::resolve_l400_root()
                         .join("QSYS")
                         .join(format!("{}.JOBQ", jobq_name.to_uppercase()));
-                    
-                    crate::storage::write_string_attr(&jobq_path, crate::storage::L400_JOBQ_STATUS_ATTR, "*ACTIVE")
-                        .ok();
-                    crate::storage::write_string_attr(&jobq_path, crate::storage::L400_JOBQ_SUBSYSTEM_ATTR, subsystem)
-                        .ok();
-                    crate::storage::write_string_attr(&jobq_path, crate::storage::L400_JOBQ_MAX_ACTIVE_ATTR, max_active)
-                        .ok();
-                    crate::storage::write_string_attr(&jobq_path, crate::storage::L400_JOBQ_PRIORITY_ATTR, priority)
-                        .ok();
-                    
+
+                    crate::storage::write_string_attr(
+                        &jobq_path,
+                        crate::storage::L400_JOBQ_STATUS_ATTR,
+                        "*ACTIVE",
+                    )
+                    .ok();
+                    crate::storage::write_string_attr(
+                        &jobq_path,
+                        crate::storage::L400_JOBQ_SUBSYSTEM_ATTR,
+                        subsystem,
+                    )
+                    .ok();
+                    crate::storage::write_string_attr(
+                        &jobq_path,
+                        crate::storage::L400_JOBQ_MAX_ACTIVE_ATTR,
+                        max_active,
+                    )
+                    .ok();
+                    crate::storage::write_string_attr(
+                        &jobq_path,
+                        crate::storage::L400_JOBQ_PRIORITY_ATTR,
+                        priority,
+                    )
+                    .ok();
+
                     // Log creation
                     crate::audit::audit_event(
                         "JOBQ_CREATE",
                         &current_user,
                         &jobq_path,
-                        &format!("Job queue {} created", jobq_name)
-                    ).ok();
-                    
+                        &format!("Job queue {} created", jobq_name),
+                    )
+                    .ok();
+
                     emit_status("CPF0000", None, &format!("Job queue {} created", jobq_name));
                 }
                 Err(e) => {
@@ -2479,10 +2580,18 @@ pub extern "C" fn l400_crtjobq(spec: *const c_char) {
             }
         }
         Ok(false) => {
-            emit_status("CPF0001", None, &format!("Not authorized to create job queue {}", jobq_name));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Not authorized to create job queue {}", jobq_name),
+            );
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Authorization check failed: {}", e),
+            );
         }
     }
 }
@@ -2492,36 +2601,58 @@ pub extern "C" fn l400_crtjobq(spec: *const c_char) {
 pub extern "C" fn l400_dltjobq(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let jobq_name = fields.get("JOBQ").map(|s| s.as_str()).unwrap_or("");
-    
+
     if jobq_name.is_empty() {
         emit_status("CPF0001", None, "JOBQ parameter required");
         return;
     }
-    
+
     let jobq_path = crate::object::resolve_l400_root()
         .join("QSYS")
         .join(format!("{}.JOBQ", jobq_name.to_uppercase()));
-    
+
     if !jobq_path.exists() {
-        emit_status("CPF0001", None, &format!("Job queue {} not found", jobq_name));
+        emit_status(
+            "CPF0001",
+            None,
+            &format!("Job queue {} not found", jobq_name),
+        );
         return;
     }
-    
+
     // Check authorization
     let current_user = crate::audit::current_l400_user();
     match crate::auth::check_command_authority(&jobq_path, &current_user, "DLTJOBQ") {
         Ok(true) => {
             // Check if there are active jobs in this queue
             let jobs = crate::cgroup::list_jobs_at(&jobq_path).unwrap_or_default();
-            let active_jobs: Vec<_> = jobs.iter().filter(|j| matches!(j.status, crate::cgroup::JobStatus::JobQ | crate::cgroup::JobStatus::Active | crate::cgroup::JobStatus::Held)).collect();
-            
+            let active_jobs: Vec<_> = jobs
+                .iter()
+                .filter(|j| {
+                    matches!(
+                        j.status,
+                        crate::cgroup::JobStatus::JobQ
+                            | crate::cgroup::JobStatus::Active
+                            | crate::cgroup::JobStatus::Held
+                    )
+                })
+                .collect();
+
             if !active_jobs.is_empty() {
-                emit_status("CPF0001", None, &format!("Job queue {} has {} active/held jobs", jobq_name, active_jobs.len()));
+                emit_status(
+                    "CPF0001",
+                    None,
+                    &format!(
+                        "Job queue {} has {} active/held jobs",
+                        jobq_name,
+                        active_jobs.len()
+                    ),
+                );
                 return;
             }
-            
+
             // Delete the job queue object
             match std::fs::remove_file(&jobq_path) {
                 Ok(_) => {
@@ -2530,9 +2661,10 @@ pub extern "C" fn l400_dltjobq(spec: *const c_char) {
                         "JOBQ_DELETE",
                         &current_user,
                         &jobq_path,
-                        &format!("Job queue {} deleted", jobq_name)
-                    ).ok();
-                    
+                        &format!("Job queue {} deleted", jobq_name),
+                    )
+                    .ok();
+
                     emit_status("CPF0000", None, &format!("Job queue {} deleted", jobq_name));
                 }
                 Err(e) => {
@@ -2541,10 +2673,18 @@ pub extern "C" fn l400_dltjobq(spec: *const c_char) {
             }
         }
         Ok(false) => {
-            emit_status("CPF0001", None, &format!("Not authorized to delete job queue {}", jobq_name));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Not authorized to delete job queue {}", jobq_name),
+            );
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Authorization check failed: {}", e),
+            );
         }
     }
 }
@@ -2554,47 +2694,59 @@ pub extern "C" fn l400_dltjobq(spec: *const c_char) {
 pub extern "C" fn l400_hldjobq(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let jobq_name = fields.get("JOBQ").map(|s| s.as_str()).unwrap_or("");
-    
+
     if jobq_name.is_empty() {
         emit_status("CPF0001", None, "JOBQ parameter required");
         return;
     }
-    
+
     let jobq_path = crate::object::resolve_l400_root()
         .join("QSYS")
         .join(format!("{}.JOBQ", jobq_name.to_uppercase()));
-    
+
     if !jobq_path.exists() {
-        emit_status("CPF0001", None, &format!("Job queue {} not found", jobq_name));
+        emit_status(
+            "CPF0001",
+            None,
+            &format!("Job queue {} not found", jobq_name),
+        );
         return;
     }
-    
+
     // Check authorization
     let current_user = crate::audit::current_l400_user();
     match crate::auth::check_command_authority(&jobq_path, &current_user, "HLDJOBQ") {
         Ok(true) => {
             // Set status to *HLD
-            match crate::storage::write_string_attr(&jobq_path, crate::storage::L400_JOBQ_STATUS_ATTR, "*HLD") {
+            match crate::storage::write_string_attr(
+                &jobq_path,
+                crate::storage::L400_JOBQ_STATUS_ATTR,
+                "*HLD",
+            ) {
                 Ok(_) => {
                     // Hold all jobs in this queue
                     if let Ok(jobs) = crate::cgroup::list_jobs_at(&jobq_path) {
                         for job in jobs {
-                            if matches!(job.status, crate::cgroup::JobStatus::JobQ | crate::cgroup::JobStatus::Active) {
+                            if matches!(
+                                job.status,
+                                crate::cgroup::JobStatus::JobQ | crate::cgroup::JobStatus::Active
+                            ) {
                                 let _ = crate::cgroup::hold_job(job.pid);
                             }
                         }
                     }
-                    
+
                     // Log hold
                     crate::audit::audit_event(
                         "JOBQ_HOLD",
                         &current_user,
                         &jobq_path,
-                        &format!("Job queue {} held", jobq_name)
-                    ).ok();
-                    
+                        &format!("Job queue {} held", jobq_name),
+                    )
+                    .ok();
+
                     emit_status("CPF0000", None, &format!("Job queue {} held", jobq_name));
                 }
                 Err(e) => {
@@ -2603,10 +2755,18 @@ pub extern "C" fn l400_hldjobq(spec: *const c_char) {
             }
         }
         Ok(false) => {
-            emit_status("CPF0001", None, &format!("Not authorized to hold job queue {}", jobq_name));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Not authorized to hold job queue {}", jobq_name),
+            );
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Authorization check failed: {}", e),
+            );
         }
     }
 }
@@ -2616,29 +2776,37 @@ pub extern "C" fn l400_hldjobq(spec: *const c_char) {
 pub extern "C" fn l400_rlsjobq(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let jobq_name = fields.get("JOBQ").map(|s| s.as_str()).unwrap_or("");
-    
+
     if jobq_name.is_empty() {
         emit_status("CPF0001", None, "JOBQ parameter required");
         return;
     }
-    
+
     let jobq_path = crate::object::resolve_l400_root()
         .join("QSYS")
         .join(format!("{}.JOBQ", jobq_name.to_uppercase()));
-    
+
     if !jobq_path.exists() {
-        emit_status("CPF0001", None, &format!("Job queue {} not found", jobq_name));
+        emit_status(
+            "CPF0001",
+            None,
+            &format!("Job queue {} not found", jobq_name),
+        );
         return;
     }
-    
+
     // Check authorization
     let current_user = crate::audit::current_l400_user();
     match crate::auth::check_command_authority(&jobq_path, &current_user, "RLSJOBQ") {
         Ok(true) => {
             // Set status to *ACTIVE
-            match crate::storage::write_string_attr(&jobq_path, crate::storage::L400_JOBQ_STATUS_ATTR, "*ACTIVE") {
+            match crate::storage::write_string_attr(
+                &jobq_path,
+                crate::storage::L400_JOBQ_STATUS_ATTR,
+                "*ACTIVE",
+            ) {
                 Ok(_) => {
                     // Release all held jobs in this queue
                     if let Ok(jobs) = crate::cgroup::list_jobs_at(&jobq_path) {
@@ -2648,16 +2816,21 @@ pub extern "C" fn l400_rlsjobq(spec: *const c_char) {
                             }
                         }
                     }
-                    
+
                     // Log release
                     crate::audit::audit_event(
                         "JOBQ_RELEASE",
                         &current_user,
                         &jobq_path,
-                        &format!("Job queue {} released", jobq_name)
-                    ).ok();
-                    
-                    emit_status("CPF0000", None, &format!("Job queue {} released", jobq_name));
+                        &format!("Job queue {} released", jobq_name),
+                    )
+                    .ok();
+
+                    emit_status(
+                        "CPF0000",
+                        None,
+                        &format!("Job queue {} released", jobq_name),
+                    );
                 }
                 Err(e) => {
                     emit_status("CPF0001", None, &format!("Release failed: {}", e));
@@ -2665,84 +2838,99 @@ pub extern "C" fn l400_rlsjobq(spec: *const c_char) {
             }
         }
         Ok(false) => {
-            emit_status("CPF0001", None, &format!("Not authorized to release job queue {}", jobq_name));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Not authorized to release job queue {}", jobq_name),
+            );
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Authorization check failed: {}", e),
+            );
         }
     }
 }
-    
 
 /// DSPOUTQ - Display Output Queue
 #[unsafe(no_mangle)]
 pub extern "C" fn l400_dspoutq(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let outq_name = fields.get("OUTQ").map(|s| s.as_str()).unwrap_or("QPRINT");
-    
+
     println!("=== DSPOUTQ - Display Output Queue {} ===", outq_name);
-    
+
     let outq_path = crate::object::resolve_l400_root()
         .join("QSYS")
         .join(format!("{}.OUTQ", outq_name.to_uppercase()));
-    
+
     if !outq_path.exists() {
         println!("Output queue {} not found.", outq_name);
         println!("=============================");
         return;
     }
-    
+
     // Read output queue attributes
-    let retention = crate::storage::read_u32_attr(&outq_path, crate::storage::L400_OUTQ_RETENTION_DAYS_ATTR)
-        .ok()
-        .flatten()
-        .unwrap_or(7);
-    
-    let routing = crate::storage::read_string_attr(&outq_path, crate::storage::L400_OUTQ_ROUTING_ATTR)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| "QBATCH".to_string());
-    
-    let default_status = crate::storage::read_string_attr(&outq_path, crate::storage::L400_OUTQ_DEFAULT_STATUS_ATTR)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| "*READY".to_string());
-    
+    let retention =
+        crate::storage::read_u32_attr(&outq_path, crate::storage::L400_OUTQ_RETENTION_DAYS_ATTR)
+            .ok()
+            .flatten()
+            .unwrap_or(7);
+
+    let routing =
+        crate::storage::read_string_attr(&outq_path, crate::storage::L400_OUTQ_ROUTING_ATTR)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "QBATCH".to_string());
+
+    let default_status =
+        crate::storage::read_string_attr(&outq_path, crate::storage::L400_OUTQ_DEFAULT_STATUS_ATTR)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "*READY".to_string());
+
     println!("  Queue: {}", outq_name);
     println!("  Retention: {} days", retention);
     println!("  Routing: {}", routing);
     println!("  Default Status: {}", default_status);
     println!("");
     println!("  Files in queue:");
-    
+
     let spool_dir = spool_dir();
     if let Ok(entries) = std::fs::read_dir(&spool_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|ext| ext.to_str()) == Some("splf") {
-                let outq = crate::storage::read_string_attr(&path, crate::storage::L400_SPOOL_OUTQ_ATTR)
-                    .ok()
-                    .flatten()
-                    .unwrap_or_else(|| "Unknown".to_string());
-                
-                if outq.to_uppercase() == outq_name.to_uppercase() {
-                    let name = path.file_stem()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("Unknown");
-                    
-                    let status = crate::storage::read_string_attr(&path, crate::storage::L400_SPOOL_STATUS_ATTR)
+                let outq =
+                    crate::storage::read_string_attr(&path, crate::storage::L400_SPOOL_OUTQ_ATTR)
                         .ok()
                         .flatten()
-                        .unwrap_or_else(|| "*READY".to_string());
-                    
+                        .unwrap_or_else(|| "Unknown".to_string());
+
+                if outq.to_uppercase() == outq_name.to_uppercase() {
+                    let name = path
+                        .file_stem()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("Unknown");
+
+                    let status = crate::storage::read_string_attr(
+                        &path,
+                        crate::storage::L400_SPOOL_STATUS_ATTR,
+                    )
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "*READY".to_string());
+
                     println!("    {} - Status: {}", name, status);
                 }
             }
         }
     }
-    
+
     println!("=============================");
 }
 
@@ -2751,23 +2939,27 @@ pub extern "C" fn l400_dspoutq(spec: *const c_char) {
 pub extern "C" fn l400_hldoutq(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let outq_name = fields.get("OUTQ").map(|s| s.as_str()).unwrap_or("");
-    
+
     if outq_name.is_empty() {
         emit_status("CPF0001", None, "OUTQ parameter required");
         return;
     }
-    
+
     let outq_path = crate::object::resolve_l400_root()
         .join("QSYS")
         .join(format!("{}.OUTQ", outq_name.to_uppercase()));
-    
+
     if !outq_path.exists() {
-        emit_status("CPF0001", None, &format!("Output queue {} not found", outq_name));
+        emit_status(
+            "CPF0001",
+            None,
+            &format!("Output queue {} not found", outq_name),
+        );
         return;
     }
-    
+
     // Check authorization
     let current_user = crate::audit::current_l400_user();
     match crate::auth::check_command_authority(&outq_path, &current_user, "HLDOUTQ") {
@@ -2776,48 +2968,60 @@ pub extern "C" fn l400_hldoutq(spec: *const c_char) {
             if let Err(e) = crate::storage::write_string_attr(
                 &outq_path,
                 crate::storage::L400_OUTQ_DEFAULT_STATUS_ATTR,
-                "*HLD"
+                "*HLD",
             ) {
                 emit_status("CPF0001", None, &format!("Hold failed: {}", e));
                 return;
             }
-            
+
             // Hold all spool files in this queue
             let spool_dir = spool_dir();
             if let Ok(entries) = std::fs::read_dir(&spool_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.extension().and_then(|ext| ext.to_str()) == Some("splf") {
-                        let outq = crate::storage::read_string_attr(&path, crate::storage::L400_SPOOL_OUTQ_ATTR)
-                            .ok()
-                            .flatten()
-                            .unwrap_or_default();
-                        
+                        let outq = crate::storage::read_string_attr(
+                            &path,
+                            crate::storage::L400_SPOOL_OUTQ_ATTR,
+                        )
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+
                         if outq.to_uppercase() == outq_name.to_uppercase() {
                             let _ = crate::storage::write_string_attr(
                                 &path,
                                 crate::storage::L400_SPOOL_STATUS_ATTR,
-                                "*HELD"
+                                "*HELD",
                             );
                         }
                     }
                 }
             }
-            
+
             crate::audit::audit_event(
                 "OUTQ_HOLD",
                 &current_user,
                 &outq_path,
-                &format!("Output queue {} held", outq_name)
-            ).ok();
-            
+                &format!("Output queue {} held", outq_name),
+            )
+            .ok();
+
             emit_status("CPF0000", None, &format!("Output queue {} held", outq_name));
         }
         Ok(false) => {
-            emit_status("CPF0001", None, &format!("Not authorized to hold output queue {}", outq_name));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Not authorized to hold output queue {}", outq_name),
+            );
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Authorization check failed: {}", e),
+            );
         }
     }
 }
@@ -2827,23 +3031,27 @@ pub extern "C" fn l400_hldoutq(spec: *const c_char) {
 pub extern "C" fn l400_rlsoutq(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let outq_name = fields.get("OUTQ").map(|s| s.as_str()).unwrap_or("");
-    
+
     if outq_name.is_empty() {
         emit_status("CPF0001", None, "OUTQ parameter required");
         return;
     }
-    
+
     let outq_path = crate::object::resolve_l400_root()
         .join("QSYS")
         .join(format!("{}.OUTQ", outq_name.to_uppercase()));
-    
+
     if !outq_path.exists() {
-        emit_status("CPF0001", None, &format!("Output queue {} not found", outq_name));
+        emit_status(
+            "CPF0001",
+            None,
+            &format!("Output queue {} not found", outq_name),
+        );
         return;
     }
-    
+
     // Check authorization
     let current_user = crate::audit::current_l400_user();
     match crate::auth::check_command_authority(&outq_path, &current_user, "RLSOUTQ") {
@@ -2852,48 +3060,64 @@ pub extern "C" fn l400_rlsoutq(spec: *const c_char) {
             if let Err(e) = crate::storage::write_string_attr(
                 &outq_path,
                 crate::storage::L400_OUTQ_DEFAULT_STATUS_ATTR,
-                "*READY"
+                "*READY",
             ) {
                 emit_status("CPF0001", None, &format!("Release failed: {}", e));
                 return;
             }
-            
+
             // Release all spool files in this queue
             let spool_dir = spool_dir();
             if let Ok(entries) = std::fs::read_dir(&spool_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.extension().and_then(|ext| ext.to_str()) == Some("splf") {
-                        let outq = crate::storage::read_string_attr(&path, crate::storage::L400_SPOOL_OUTQ_ATTR)
-                            .ok()
-                            .flatten()
-                            .unwrap_or_default();
-                        
+                        let outq = crate::storage::read_string_attr(
+                            &path,
+                            crate::storage::L400_SPOOL_OUTQ_ATTR,
+                        )
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+
                         if outq.to_uppercase() == outq_name.to_uppercase() {
                             let _ = crate::storage::write_string_attr(
                                 &path,
                                 crate::storage::L400_SPOOL_STATUS_ATTR,
-                                "*READY"
+                                "*READY",
                             );
                         }
                     }
                 }
             }
-            
+
             crate::audit::audit_event(
                 "OUTQ_RELEASE",
                 &current_user,
                 &outq_path,
-                &format!("Output queue {} released", outq_name)
-            ).ok();
-            
-            emit_status("CPF0000", None, &format!("Output queue {} released", outq_name));
+                &format!("Output queue {} released", outq_name),
+            )
+            .ok();
+
+            emit_status(
+                "CPF0000",
+                None,
+                &format!("Output queue {} released", outq_name),
+            );
         }
         Ok(false) => {
-            emit_status("CPF0001", None, &format!("Not authorized to release output queue {}", outq_name));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Not authorized to release output queue {}", outq_name),
+            );
         }
         Err(e) => {
-            emit_status("CPF0001", None, &format!("Authorization check failed: {}", e));
+            emit_status(
+                "CPF0001",
+                None,
+                &format!("Authorization check failed: {}", e),
+            );
         }
     }
 }
@@ -2907,22 +3131,22 @@ pub extern "C" fn l400_rlsoutq(spec: *const c_char) {
 pub extern "C" fn l400_hldspool(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let spool_file = fields.get("SPLF").map(|s| s.as_str()).unwrap_or("");
     let job = fields.get("JOB").map(|s| s.as_str()).unwrap_or("");
-    
+
     if spool_file.is_empty() && job.is_empty() {
         emit_status("CPF0001", None, "SPLF or JOB parameter required");
         return;
     }
-    
+
     // Find spool file(s)
     let spool_dir = spool_dir();
     if !spool_dir.exists() {
         emit_status("CPF0001", None, "Spool directory not found");
         return;
     }
-    
+
     let mut found = false;
     if let Ok(entries) = std::fs::read_dir(&spool_dir) {
         for entry in entries.flatten() {
@@ -2933,7 +3157,7 @@ pub extern "C" fn l400_hldspool(spec: *const c_char) {
                     if let Err(e) = crate::storage::write_string_attr(
                         &path,
                         crate::storage::L400_SPOOL_STATUS_ATTR,
-                        "*HELD"
+                        "*HELD",
                     ) {
                         emit_status("CPF0001", None, &format!("Hold failed: {}", e));
                         return;
@@ -2943,17 +3167,22 @@ pub extern "C" fn l400_hldspool(spec: *const c_char) {
             }
         }
     }
-    
+
     if found {
         crate::audit::audit_event(
             "SPOOL_HOLD",
             &crate::audit::current_l400_user(),
             &spool_dir,
-            &format!("Spool file held: {}", spool_file)
-        ).ok();
+            &format!("Spool file held: {}", spool_file),
+        )
+        .ok();
         emit_status("CPF0000", None, &format!("Spool file {} held", spool_file));
     } else {
-        emit_status("CPF0001", None, &format!("Spool file {} not found", spool_file));
+        emit_status(
+            "CPF0001",
+            None,
+            &format!("Spool file {} not found", spool_file),
+        );
     }
 }
 
@@ -2962,22 +3191,22 @@ pub extern "C" fn l400_hldspool(spec: *const c_char) {
 pub extern "C" fn l400_rlsspool(spec: *const c_char) {
     let spec_str = c_str_to_string(spec);
     let fields = parse_command_fields(&spec_str);
-    
+
     let spool_file = fields.get("SPLF").map(|s| s.as_str()).unwrap_or("");
     let job = fields.get("JOB").map(|s| s.as_str()).unwrap_or("");
-    
+
     if spool_file.is_empty() && job.is_empty() {
         emit_status("CPF0001", None, "SPLF or JOB parameter required");
         return;
     }
-    
+
     // Find spool file(s)
     let spool_dir = spool_dir();
     if !spool_dir.exists() {
         emit_status("CPF0001", None, "Spool directory not found");
         return;
     }
-    
+
     let mut found = false;
     if let Ok(entries) = std::fs::read_dir(&spool_dir) {
         for entry in entries.flatten() {
@@ -2988,7 +3217,7 @@ pub extern "C" fn l400_rlsspool(spec: *const c_char) {
                     if let Err(e) = crate::storage::write_string_attr(
                         &path,
                         crate::storage::L400_SPOOL_STATUS_ATTR,
-                        "*READY"
+                        "*READY",
                     ) {
                         emit_status("CPF0001", None, &format!("Release failed: {}", e));
                         return;
@@ -2998,16 +3227,25 @@ pub extern "C" fn l400_rlsspool(spec: *const c_char) {
             }
         }
     }
-    
+
     if found {
         crate::audit::audit_event(
             "SPOOL_RELEASE",
             &crate::audit::current_l400_user(),
             &spool_dir,
-            &format!("Spool file released: {}", spool_file)
-        ).ok();
-        emit_status("CPF0000", None, &format!("Spool file {} released", spool_file));
+            &format!("Spool file released: {}", spool_file),
+        )
+        .ok();
+        emit_status(
+            "CPF0000",
+            None,
+            &format!("Spool file {} released", spool_file),
+        );
     } else {
-        emit_status("CPF0001", None, &format!("Spool file {} not found", spool_file));
+        emit_status(
+            "CPF0001",
+            None,
+            &format!("Spool file {} not found", spool_file),
+        );
     }
 }

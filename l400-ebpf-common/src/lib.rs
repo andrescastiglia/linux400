@@ -2,7 +2,8 @@
 
 // Shared types between kernel and user space
 
-pub const L400_POLICY_VERSION: &str = "phase3-v1";
+/// V1 definitive policy version - updated for Phase 9 completion
+pub const L400_POLICY_VERSION: &str = "v1.0";
 
 pub const STAT_OPEN_ALLOWED: u32 = 0;
 pub const STAT_DENIED_INVALID_TAG: u32 = 1;
@@ -27,6 +28,7 @@ pub struct L400ObjType {
     pub name: &'static str,
 }
 
+/// V1 definitive object types - aligned with runtime and eBPF enforcement
 pub const VALID_OBJ_TYPES: &[L400ObjType] = &[
     L400ObjType {
         prefix: *b"*PGM",
@@ -63,5 +65,13 @@ pub const VALID_OBJ_TYPES: &[L400ObjType] = &[
     L400ObjType {
         prefix: *b"*JOB",
         name: "*JOBQ",
+    },
+    L400ObjType {
+        prefix: *b"*SPL",
+        name: "*SPLF",
+    },
+    L400ObjType {
+        prefix: *b"*AUT",
+        name: "*AUTL",
     },
 ];

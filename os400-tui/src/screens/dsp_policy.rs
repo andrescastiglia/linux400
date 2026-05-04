@@ -12,9 +12,10 @@ use crate::widgets::help_bar::{CpfMessage, HelpAction, HelpBar};
 use crate::widgets::subfile_table::SubfileTable;
 
 const RUNTIME_POLICY_VERSION: &str = "auth-v2";
-const EXPECTED_EBPF_POLICY_VERSION: &str = "phase3-v1";
+const EXPECTED_EBPF_POLICY_VERSION: &str = "v1.0";
 const OBJ_TYPES: &[&str] = &[
-    "*PGM", "*FILE", "*USRPRF", "*LIB", "*DTAQ", "*CMD", "*SRVPGM", "*OUTQ",
+    "*PGM", "*FILE", "*USRPRF", "*LIB", "*DTAQ", "*CMD", "*SRVPGM", "*OUTQ", "*JOBQ", "*SPLF",
+    "*AUTL",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,6 +72,19 @@ impl DspPolicy {
                 }
             })
             .unwrap_or("degraded");
+        let effective_mode = loader
+            .as_ref()
+            .and_then(|status| status.effective_mode.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+        let btf = loader
+            .as_ref()
+            .and_then(|status| status.btf_available)
+            .map(|b| if b { "yes" } else { "no" })
+            .unwrap_or("unknown");
+        let kernel = loader
+            .as_ref()
+            .and_then(|status| status.kernel_version.clone())
+            .unwrap_or_else(|| "unknown".to_string());
         let loader_gap = loader
             .as_ref()
             .and_then(|status| {
@@ -102,9 +116,12 @@ impl DspPolicy {
             .collect();
         self.table.set_rows(self.rows.clone());
         self.status = format!(
-            "Runtime policy {}. Expected eBPF {}. Filter: {}.",
+            "Runtime policy {}. Expected eBPF {}. Effective mode: {}. BTF: {}. Kernel: {}. Filter: {}.",
             RUNTIME_POLICY_VERSION,
             EXPECTED_EBPF_POLICY_VERSION,
+            effective_mode,
+            btf,
+            kernel,
             filter_label(self.filter)
         );
     }

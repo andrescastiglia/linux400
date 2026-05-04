@@ -116,7 +116,7 @@ fn main() {
     let args = Args::parse();
     let user = args.user.unwrap_or_else(current_user_name);
     let jobq = args.jobq.trim().to_uppercase();
-    
+
     // Validate that the job queue exists
     let jobq_path = l400::object::resolve_l400_root()
         .join("QSYS")
@@ -129,9 +129,11 @@ fn main() {
         eprintln!("CPF:0001");
         std::process::exit(2);
     }
-    
+
     // Check if job queue is held
-    if let Ok(Some(status)) = l400::storage::read_string_attr(&jobq_path, l400::storage::L400_JOBQ_STATUS_ATTR) {
+    if let Ok(Some(status)) =
+        l400::storage::read_string_attr(&jobq_path, l400::storage::L400_JOBQ_STATUS_ATTR)
+    {
         if status == "*HLD" {
             eprintln!("SBMJOB Error: Job queue {} is held.", jobq);
             eprintln!("CPF:0001");
@@ -142,14 +144,14 @@ fn main() {
     if args.daemon {
         // Somos el proceso daemon que maneja la ejecución real
         let pid = std::process::id() as u64;
-        
+
         // 1. Asignar este daemon al cgroup correspondiente según el job queue
         let workload_type = if jobq == "QINTER" {
             WorkloadType::Interactive
         } else {
             WorkloadType::Batch
         };
-        
+
         if let Err(e) = assign_to_workload(pid, workload_type) {
             eprintln!("SBMJOB Error: No se pudo asignar a QBATCH: {}", e);
             eprintln!("CPF:9898");
@@ -195,23 +197,41 @@ fn main() {
             let _ = writeln!(
                 file,
                 "spool_version=1\njob={}\npid={}\nuser={}\njobq={}\ncommand={}\nstatus=RUN\nsubmitted_at={}\ncreated={}",
-                args.job,
-                pid,
-                user,
-                jobq,
-                cmd_str,
-                spool_created,
-                spool_created
+                args.job, pid, user, jobq, cmd_str, spool_created, spool_created
             );
-            
+
             // Write spool metadata as xattrs
-            let _ = l400::storage::write_string_attr(&spool_path, l400::storage::L400_SPOOL_OWNER_ATTR, &user);
-            let _ = l400::storage::write_string_attr(&spool_path, l400::storage::L400_SPOOL_JOB_ATTR, &args.job);
-            let _ = l400::storage::write_string_attr(&spool_path, l400::storage::L400_SPOOL_OUTQ_ATTR, &jobq);
-            let _ = l400::storage::write_string_attr(&spool_path, l400::storage::L400_SPOOL_STATUS_ATTR, "*RUN");
-            let _ = l400::storage::write_string_attr(&spool_path, l400::storage::L400_SPOOL_CREATED_ATTR, &spool_created);
+            let _ = l400::storage::write_string_attr(
+                &spool_path,
+                l400::storage::L400_SPOOL_OWNER_ATTR,
+                &user,
+            );
+            let _ = l400::storage::write_string_attr(
+                &spool_path,
+                l400::storage::L400_SPOOL_JOB_ATTR,
+                &args.job,
+            );
+            let _ = l400::storage::write_string_attr(
+                &spool_path,
+                l400::storage::L400_SPOOL_OUTQ_ATTR,
+                &jobq,
+            );
+            let _ = l400::storage::write_string_attr(
+                &spool_path,
+                l400::storage::L400_SPOOL_STATUS_ATTR,
+                "*RUN",
+            );
+            let _ = l400::storage::write_string_attr(
+                &spool_path,
+                l400::storage::L400_SPOOL_CREATED_ATTR,
+                &spool_created,
+            );
             if let Ok(metadata) = std::fs::metadata(&spool_path) {
-                let _ = l400::storage::write_u32_attr(&spool_path, l400::storage::L400_SPOOL_SIZE_ATTR, metadata.len() as u32);
+                let _ = l400::storage::write_u32_attr(
+                    &spool_path,
+                    l400::storage::L400_SPOOL_SIZE_ATTR,
+                    metadata.len() as u32,
+                );
             }
         }
         if let Some(file) = log.as_mut() {
@@ -275,7 +295,7 @@ fn main() {
 
         // 4. Actualizar el estado final
         let _ = update_job_status(pid, final_status);
-        
+
         // Update spool status based on job outcome
         let spool_status = match final_status {
             JobStatus::Completed => "*SAVED",
@@ -285,18 +305,18 @@ fn main() {
         let _ = l400::storage::write_string_attr(
             &spool_path,
             l400::storage::L400_SPOOL_STATUS_ATTR,
-            spool_status
+            spool_status,
         );
-        
+
         // Update spool size
         if let Ok(metadata) = std::fs::metadata(&spool_path) {
             let _ = l400::storage::write_u32_attr(
                 &spool_path,
                 l400::storage::L400_SPOOL_SIZE_ATTR,
-                metadata.len() as u32
+                metadata.len() as u32,
             );
         }
-        
+
         append_line(
             &spool_path,
             &format!(
@@ -358,9 +378,7 @@ fn main() {
 
 /// Get the spool directory path
 fn spool_dir() -> PathBuf {
-    l400::resolve_l400_root()
-        .join("QUSRSYS")
-        .join("QSPL")
+    l400::resolve_l400_root().join("QUSRSYS").join("QSPL")
 }
 
 /// Cleanup old spool files based on retention days in their output queue
@@ -369,31 +387,38 @@ pub fn cleanup_spool_files() {
     if !spool_dir.exists() {
         return;
     }
-    
+
     if let Ok(entries) = std::fs::read_dir(&spool_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|ext| ext.to_str()) == Some("splf") {
                 // Get the output queue for this spool file
-                if let Ok(Some(outq)) = l400::storage::read_string_attr(&path, l400::storage::L400_SPOOL_OUTQ_ATTR) {
+                if let Ok(Some(outq)) =
+                    l400::storage::read_string_attr(&path, l400::storage::L400_SPOOL_OUTQ_ATTR)
+                {
                     // Get retention days from the output queue
                     let outq_path = l400::object::resolve_l400_root()
                         .join("QSYS")
                         .join(format!("{}.OUTQ", outq.to_uppercase()));
-                    
+
                     let retention_days = if outq_path.exists() {
-                        l400::storage::read_u32_attr(&outq_path, l400::storage::L400_OUTQ_RETENTION_DAYS_ATTR)
-                            .ok()
-                            .flatten()
-                            .unwrap_or(7)
+                        l400::storage::read_u32_attr(
+                            &outq_path,
+                            l400::storage::L400_OUTQ_RETENTION_DAYS_ATTR,
+                        )
+                        .ok()
+                        .flatten()
+                        .unwrap_or(7)
                     } else {
                         7 // default retention
                     };
-                    
+
                     // Check if file is older than retention days
                     if let Ok(metadata) = std::fs::metadata(&path) {
                         if let Ok(created) = metadata.created() {
-                            if let Ok(duration) = std::time::SystemTime::now().duration_since(created) {
+                            if let Ok(duration) =
+                                std::time::SystemTime::now().duration_since(created)
+                            {
                                 let days_old = duration.as_secs() / (24 * 60 * 60);
                                 if days_old > retention_days as u64 {
                                     let _ = std::fs::remove_file(&path);
@@ -401,7 +426,10 @@ pub fn cleanup_spool_files() {
                                         "SPOOL_CLEANED",
                                         &l400::audit::current_l400_user(),
                                         &path,
-                                        &format!("Spool file cleaned up (retention: {} days)", retention_days)
+                                        &format!(
+                                            "Spool file cleaned up (retention: {} days)",
+                                            retention_days
+                                        ),
                                     );
                                 }
                             }

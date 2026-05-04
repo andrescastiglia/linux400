@@ -125,9 +125,7 @@ fn open_bdb_pf(path: &Path, create: bool) -> Result<PhysicalFileStorage, DbError
 
 pub fn create_pf(lib_path: &Path, name: &str, record_len: usize) -> Result<PhysicalFile, DbError> {
     if get_objtype(lib_path)? != "*LIB" {
-        return Err(DbError::InvalidType(
-            "*LIB".to_string(),
-        ));
+        return Err(DbError::InvalidType("*LIB".to_string()));
     }
 
     let target = lib_path.join(name);
@@ -395,7 +393,9 @@ impl PhysicalFile {
     }
 
     pub fn chain_rcd(&self, key: &[u8]) -> Result<Vec<u8>, DbError> {
-        let file_name = self.path.file_name()
+        let file_name = self
+            .path
+            .file_name()
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
@@ -438,11 +438,13 @@ impl PhysicalFile {
             }
             PhysicalFileStorage::BerkeleyDb { db } => {
                 db.delete(key).map_err(|err| match err {
-                    BdbError::NotFound => DbError::CpfNoRecords(self.path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string()),
+                    BdbError::NotFound => DbError::CpfNoRecords(
+                        self.path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string(),
+                    ),
                     other => DbError::Bdb(other),
                 })?;
             }
@@ -1545,7 +1547,10 @@ mod tests {
         let pf = create_pf(&lib_path, "VENTAS", 50).expect("create_pf falló");
         pf.write_rcd(b"V001", b"100.00").expect("write_rcd falló");
         pf.delete_rcd(b"V001").expect("delete_rcd falló");
-        assert!(matches!(pf.chain_rcd(b"V001"), Err(DbError::CpfNoRecords(_))));
+        assert!(matches!(
+            pf.chain_rcd(b"V001"),
+            Err(DbError::CpfNoRecords(_))
+        ));
     }
 
     #[test]

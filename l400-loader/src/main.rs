@@ -53,6 +53,22 @@ fn persist_status(runtime: &LoaderRuntime, phase: &str, last_error: Option<&str>
     }
     status.runtime_version = Some(l400::runtime_version().to_string());
     status.ebpf_version = Some(env!("CARGO_PKG_VERSION").to_string());
+
+    // Collect platform information
+    let btf_available = aya::Btf::from_sys_fs().is_ok();
+    status.btf_available = Some(btf_available);
+
+    // Kernel version
+    status.kernel_version = std::fs::read_to_string("/proc/version")
+        .ok()
+        .and_then(|v| v.split_whitespace().nth(2).map(|v| v.to_string()));
+
+    // Cgroups v2 availability
+    status.cgroups_v2 = Some(std::path::Path::new("/sys/fs/cgroup/cgroup.controllers").exists());
+
+    // Xattrs support (check for user.l400.* xattrs)
+    status.xattrs_supported = Some(std::path::Path::new("/l400").exists());
+
     status.effective_mode = Some(
         if runtime.protection_active {
             runtime.mode.as_str()

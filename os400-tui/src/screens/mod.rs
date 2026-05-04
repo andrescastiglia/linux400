@@ -16,6 +16,7 @@ pub mod sign_on;
 pub mod str_seu;
 pub mod str_sql;
 pub mod submit_job;
+pub mod support_report;
 pub mod system_panel;
 pub mod work_mgmt;
 pub mod wrk_job;
@@ -72,6 +73,7 @@ pub enum ScreenId {
     SystemPanel,
     InstallSummary,
     PtfMaintenance,
+    SupportReport,
     Exit,
     /// Pop the navigation stack to return to the previous screen.
     Back,

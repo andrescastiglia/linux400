@@ -265,23 +265,32 @@ Nota: RPG y SQL avanzado se documentan como V2 (fuera del alcance V1).
 
 ## Fase 9: seguridad kernel y perfiles de plataforma
 
-Estado: pendiente.
+Estado: COMPLETADO (100%).
 
 Objetivo: que `dev`, `degraded` y `full` sean comprensibles y testeables.
 
 Tareas:
 
-- [ ] Alinear `l400-ebpf-common` con tipos V1 definitivos.
-- [ ] Expandir enforcement eBPF donde aporte proteccion real sin romper modo dev.
-- [ ] Mejorar reportes de loader: BTF, kernel, cgroups, xattrs, artefacto eBPF y modo efectivo.
-- [ ] Mostrar modo efectivo en TUI y support report.
-- [ ] Crear pruebas e2e documentadas para perfil `full`.
-- [ ] Definir politica de upgrade/PTF para artefacto eBPF.
+- [x] Alinear `l400-ebpf-common` con tipos V1 definitivos (policy v1.0, added *SPLF, *AUTL).
+- [x] Expandir enforcement eBPF donde aporte proteccion real sin romper modo dev.
+- [x] Mejorar reportes de loader: BTF, kernel, cgroups, xattrs, artefacto eBPF y modo efectivo.
+- [x] Mostrar modo efectivo en TUI y support report (SupportReport screen added).
+- [x] Crear pruebas e2e documentadas para perfil `full` (test_full_profile.sh).
+- [x] Definir politica de upgrade/PTF para artefacto eBPF (ptf_upgrade_ebpf.sh).
 
 Criterio de cierre:
 
 - El operador sabe si el sistema esta protegido, degradado o en desarrollo.
 - Los comandos sensibles no dependen exclusivamente de eBPF; runtime sigue validando.
+
+Detalles de implementacion:
+
+- `l400-ebpf-common/src/lib.rs`: Updated L400_POLICY_VERSION to "v1.0", added *SPLF and *AUTL to VALID_OBJ_TYPES.
+- `libl400/src/runtime.rs`: Added btf_available, kernel_version, cgroups_v2, xattrs_supported fields to LoaderStatus.
+- `l400-loader/src/main.rs`: Enhanced persist_status() to collect and report platform info.
+- `os400-tui/src/screens/support_report.rs`: New screen showing effective mode, BTF, kernel, cgroups, xattrs.
+- `scripts/test/test_full_profile.sh`: e2e test for 'full' profile (9 verification tests).
+- `scripts/ptf_upgrade_ebpf.sh`: PTF upgrade/rollback policy for eBPF artifact.
 
 ## Fase 10: release candidate V1
 

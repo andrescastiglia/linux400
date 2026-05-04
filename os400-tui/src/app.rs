@@ -23,6 +23,7 @@ use crate::screens::sign_on::SignOnScreen;
 use crate::screens::str_seu::StrSeu;
 use crate::screens::str_sql::StrSql;
 use crate::screens::submit_job::SubmitJob;
+use crate::screens::support_report::SupportReport;
 use crate::screens::system_panel::SystemPanel;
 use crate::screens::work_mgmt::WorkManagement;
 use crate::screens::wrk_job::WrkJob;
@@ -313,6 +314,7 @@ impl App {
             )),
             ScreenId::InstallSummary => Box::new(InstallSummary::new()),
             ScreenId::PtfMaintenance => Box::new(PtfMaintenanceScreen::new()),
+            ScreenId::SupportReport => Box::new(SupportReport::new()),
             ScreenId::Exit | ScreenId::Back => {
                 // Exit is handled in switch_screen; Back is handled in handle_key.
                 // This branch should not be reached.
