@@ -105,8 +105,10 @@ pub fn list_pending_ptfs() -> Result<Vec<PtfPackage>, String> {
     Ok(packages)
 }
 
-/// Extract value from simple TOML key = "value" format
+/// Extract value from TOML content, supporting both dotted keys (package.id = "...")
+/// and section-based keys ([package] \n id = "...")
 fn extract_toml_value(content: &str, key: &str) -> Option<String> {
+    // Handle dotted key format: package.id = "value"
     for line in content.lines() {
         let line = line.trim();
         if line.starts_with(&format!("{key} = "))
@@ -115,6 +117,31 @@ fn extract_toml_value(content: &str, key: &str) -> Option<String> {
             && start != end
         {
             return Some(line[start + 1..end].to_string());
+        }
+    }
+
+    // Handle section-based format: [package] \n id = "value"
+    if let Some((section, subkey)) = key.split_once('.') {
+        let mut in_section = false;
+        for line in content.lines() {
+            let line = line.trim();
+            if line == format!("[{section}]") {
+                in_section = true;
+                continue;
+            }
+            if in_section {
+                if line.starts_with('[') {
+                    // Entered a new section
+                    break;
+                }
+                if line.starts_with(&format!("{subkey} = "))
+                    && let Some(start) = line.find('"')
+                    && let Some(end) = line.rfind('"')
+                    && start != end
+                {
+                    return Some(line[start + 1..end].to_string());
+                }
+            }
         }
     }
     None
