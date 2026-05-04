@@ -105,8 +105,10 @@ pub fn list_pending_ptfs() -> Result<Vec<PtfPackage>, String> {
     Ok(packages)
 }
 
-/// Extract value from simple TOML key = "value" format
+/// Extract value from TOML content, supporting both dotted keys (package.id = "...")
+/// and section-based keys ([package] \n id = "...")
 fn extract_toml_value(content: &str, key: &str) -> Option<String> {
+    // Handle dotted key format: package.id = "value"
     for line in content.lines() {
         let line = line.trim();
         if line.starts_with(&format!("{key} = "))
@@ -115,6 +117,31 @@ fn extract_toml_value(content: &str, key: &str) -> Option<String> {
             && start != end
         {
             return Some(line[start + 1..end].to_string());
+        }
+    }
+
+    // Handle section-based format: [package] \n id = "value"
+    if let Some((section, subkey)) = key.split_once('.') {
+        let mut in_section = false;
+        for line in content.lines() {
+            let line = line.trim();
+            if line == format!("[{section}]") {
+                in_section = true;
+                continue;
+            }
+            if in_section {
+                if line.starts_with('[') {
+                    // Entered a new section
+                    break;
+                }
+                if line.starts_with(&format!("{subkey} = "))
+                    && let Some(start) = line.find('"')
+                    && let Some(end) = line.rfind('"')
+                    && start != end
+                {
+                    return Some(line[start + 1..end].to_string());
+                }
+            }
         }
     }
     None
@@ -155,12 +182,42 @@ pub fn apply_ptf(ptf_id: &str, confirm: bool) -> Result<String, String> {
         return Err(format!("Script pre-apply falló: {e}"));
     }
 
-    // Apply files (simplified - just copy for now)
+    // Apply files - install them based on manifest destinations
     let files_dir = ptf_dir.join("files");
     if files_dir.exists() {
-        // In real implementation, would parse manifest for file destinations
-        // For now, just log
-        eprintln!("[PTF] Aplicando archivos desde {files_dir:?}");
+        // Read manifest to get file destinations
+        if let Ok(manifest_content) = fs::read_to_string(&manifest_path) {
+            // Parse [files] section for destinations
+            let mut in_files_section = false;
+            for line in manifest_content.lines() {
+                let line = line.trim();
+                if line == "[files]" {
+                    in_files_section = true;
+                    continue;
+                }
+                if line.starts_with('[') {
+                    in_files_section = false;
+                    continue;
+                }
+                if in_files_section && line.contains('=') {
+                    let parts: Vec<&str> = line.splitn(2, '=').collect();
+                    if parts.len() == 2 {
+                        let src_file = parts[0].trim().trim_matches('"');
+                        let dest_path = parts[1].trim().trim_matches('"').trim_matches('"');
+
+                        let src = files_dir.join(src_file);
+                        if src.exists() {
+                            let dest = Path::new(dest_path);
+                            if let Some(parent) = dest.parent() {
+                                fs::create_dir_all(parent).ok();
+                            }
+                            fs::copy(&src, dest).ok();
+                            eprintln!("[PTF] Installed {} to {}", src_file, dest_path);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Execute post-apply script if exists
@@ -284,7 +341,13 @@ fn run_script(script: &Path) -> Result<(), String> {
 }
 
 fn record_audit(ptf_id: &str, action: &str, result: &str, build_id: &str) -> Result<(), String> {
-    let audit_path = Path::new("/var/log/l400/ptf-audit.log");
+    let audit_dir = Path::new("/var/log/l400");
+    let audit_path = audit_dir.join("ptf-audit.log");
+
+    // Ensure log directory exists
+    fs::create_dir_all(audit_dir)
+        .map_err(|e| format!("Error creando directorio de auditoría: {e}"))?;
+
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs().to_string())
@@ -296,7 +359,7 @@ fn record_audit(ptf_id: &str, action: &str, result: &str, build_id: &str) -> Res
     let mut file = fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(audit_path)
+        .open(&audit_path)
         .map_err(|e| format!("Error abriendo audit log: {e}"))?;
 
     use std::io::Write;

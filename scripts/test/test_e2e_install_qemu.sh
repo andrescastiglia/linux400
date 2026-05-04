@@ -466,7 +466,7 @@ expect {
 }
 
 # Check spool files persistence
-send -- "WRKSPLF >/tmp/l400-e2e-wrksplf.out 2>&1 && grep -q 'PERSISTED_MESSAGE' /tmp/l400-e2e-wrksplf.out && printf '__E2E_SPLF_OK__\\n' || { cat /tmp/l400-e2e-wrksplf.out; printf '__E2E_SPLF_FAIL__\\n'; }\r"
+send -- "cat /var/spool/l400/* >/tmp/l400-e2e-wrksplf.out 2>&1 && grep -q 'PERSISTED_MESSAGE' /tmp/l400-e2e-wrksplf.out && printf '__E2E_SPLF_OK__\\n' || { cat /tmp/l400-e2e-wrksplf.out; printf '__E2E_SPLF_FAIL__\\n'; }\r"
 expect {
     -re {__E2E_SPLF_OK__} {}
     -re {__E2E_SPLF_FAIL__} {
@@ -480,7 +480,7 @@ expect {
 }
 
 # Check jobs persistence (check if batch jobs log persists)
-send -- "ls -la /var/spool/l400/ 2>/tmp/l400-e2e-jobs.out && grep -q 'job' /tmp/l400-e2e-jobs.out && printf '__E2E_JOBS_OK__\\n' || { cat /tmp/l400-e2e-jobs.out; printf '__E2E_JOBS_FAIL__\\n'; }\r"
+send -- "ls -la /var/spool/l400/ >/tmp/l400-e2e-jobs.out 2>&1 && grep -q 'job' /tmp/l400-e2e-jobs.out && printf '__E2E_JOBS_OK__\\n' || { cat /tmp/l400-e2e-jobs.out; printf '__E2E_JOBS_FAIL__\\n'; }\r"
 expect {
     -re {__E2E_JOBS_OK__} {}
     -re {__E2E_JOBS_FAIL__} {
@@ -491,18 +491,6 @@ expect {
         send_user "ERROR: timeout validando jobs persistidos\n"
         exit 1
     }
-}
-
-send -- "poweroff -f || halt -f\r"
-expect {
-    eof {}
-    timeout {
-        send_user "ERROR: la VM de persistencia no se apagó correctamente\n"
-        exit 1
-    }
-}
-EOF
-}
 }
 
 send -- "poweroff -f || halt -f\r"

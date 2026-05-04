@@ -53,7 +53,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let pf = match create_pf(&qsys, "CUSTOMERS", 128) {
         Ok(pf) => pf,
-        Err(l400::DbError::AlreadyExists) => l400::PhysicalFile::open(&qsys.join("CUSTOMERS"))?,
+        Err(l400::DbError::CpfFileAlreadyExists(_)) => {
+            l400::PhysicalFile::open(&qsys.join("CUSTOMERS"))?
+        }
         Err(err) => return Err(Box::new(err)),
     };
     pf.write_rcd(b"C001", b"Ana,CABA")?;
@@ -61,7 +63,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let lf = match create_lf(&qsys, "CUSTBYNAME", &pf) {
         Ok(lf) => lf,
-        Err(l400::DbError::AlreadyExists) => l400::LogicalFile::open(&qsys.join("CUSTBYNAME"))?,
+        Err(l400::DbError::CpfFileAlreadyExists(_)) => {
+            l400::LogicalFile::open(&qsys.join("CUSTBYNAME"))?
+        }
         Err(err) => return Err(Box::new(err)),
     };
     let _ = lf.insert_idx(b"Ana", b"C001");

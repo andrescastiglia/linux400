@@ -123,7 +123,7 @@ impl Screen for PtfMaintenanceScreen {
                             PtfAction::Apply(ptf_id) => {
                                 self.status_message = format!("Applying PTF {}...", ptf_id);
                                 let output = Command::new("l400")
-                                    .args(["aptptf", ptf_id, "*APPLY", "*YES"])
+                                    .args(["APYPTF", ptf_id, "*APPLY", "*YES"])
                                     .output();
                                 match output {
                                     Ok(out) => {
@@ -145,7 +145,7 @@ impl Screen for PtfMaintenanceScreen {
                             PtfAction::Rollback(ptf_id) => {
                                 self.status_message = format!("Rolling back PTF {}...", ptf_id);
                                 let output = Command::new("l400")
-                                    .args(["aptptf", ptf_id, "*ROLLBACK", "*YES"])
+                                    .args(["APYPTF", ptf_id, "*ROLLBACK", "*YES"])
                                     .output();
                                 match output {
                                     Ok(out) => {
@@ -339,6 +339,7 @@ impl PtfMaintenanceScreen {
 }
 
 fn extract_toml_value(content: &str, key: &str) -> Option<String> {
+    // Handle dotted key format: package.id = "..."
     for line in content.lines() {
         let line = line.trim();
         if line.starts_with(&format!("{} = ", key))
@@ -349,6 +350,31 @@ fn extract_toml_value(content: &str, key: &str) -> Option<String> {
             return Some(line[start + 1..end].to_string());
         }
     }
+
+    // Handle section-based format: [package] \n id = "..."
+    if let Some((section, subkey)) = key.split_once('.') {
+        let mut in_section = false;
+        for line in content.lines() {
+            let line = line.trim();
+            if line == format!("[{}]", section) {
+                in_section = true;
+                continue;
+            }
+            if in_section {
+                if line.starts_with('[') {
+                    // Entered a new section
+                    break;
+                }
+                if line.starts_with(&format!("{} = ", subkey))
+                    && let Some(start) = line.find('"')
+                    && let Some(end) = line.rfind('"')
+                    && start != end
+                {
+                    return Some(line[start + 1..end].to_string());
+                }
+            }
+        }
+    }
     None
 }
 
@@ -356,10 +382,16 @@ fn check_ptf_status(ptf_id: &str) -> String {
     let audit_path = "/var/log/l400/ptf-audit.log";
     if let Ok(content) = std::fs::read_to_string(audit_path) {
         for line in content.lines() {
-            if line.contains(ptf_id) && line.contains("apply") && line.contains("Ok") {
+            if line.contains(ptf_id)
+                && (line.contains("APPLY") || line.contains("apply"))
+                && (line.contains("success") || line.contains("Ok"))
+            {
                 return "APPLIED".to_string();
             }
-            if line.contains(ptf_id) && line.contains("rollback") && line.contains("Ok") {
+            if line.contains(ptf_id)
+                && (line.contains("ROLLBACK") || line.contains("rollback"))
+                && (line.contains("success") || line.contains("Ok"))
+            {
                 return "ROLLED BACK".to_string();
             }
         }

@@ -66,8 +66,20 @@ fn persist_status(runtime: &LoaderRuntime, phase: &str, last_error: Option<&str>
     // Cgroups v2 availability
     status.cgroups_v2 = Some(std::path::Path::new("/sys/fs/cgroup/cgroup.controllers").exists());
 
-    // Xattrs support (check for user.l400.* xattrs)
-    status.xattrs_supported = Some(std::path::Path::new("/l400").exists());
+    // Xattrs support (actually test setting an xattr)
+    status.xattrs_supported = if std::path::Path::new("/l400").exists() {
+        // Try to set a test xattr
+        let test_file = "/l400/.xattr_test";
+        if std::fs::write(test_file, b"test").is_ok() {
+            let result = xattr::set(test_file, "user.l400.test", b"test_value").is_ok();
+            let _ = std::fs::remove_file(test_file);
+            Some(result)
+        } else {
+            Some(false)
+        }
+    } else {
+        Some(false)
+    };
 
     status.effective_mode = Some(
         if runtime.protection_active {

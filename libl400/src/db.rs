@@ -17,6 +17,7 @@ pub type RecordSet = Vec<RecordPair>;
 pub const DEFAULT_PF_MEMBER: &str = "PF_MEMBER";
 
 #[derive(Error, Debug)]
+#[repr(C)]
 pub enum DbError {
     #[error("ZFS Metadata Error: {0}")]
     Zfs(#[from] ZfsError),
@@ -26,30 +27,24 @@ pub enum DbError {
     Sled(#[from] sled::Error),
     #[error("Berkeley DB Error: {0}")]
     Bdb(#[from] BdbError),
-    #[error("Invalid Object Type: {0}")]
-    InvalidType(String),
     #[error("Object Error: {0}")]
     Object(#[from] ObjectError),
-    #[error("Already Exists")]
-    AlreadyExists,
-    #[error("Record out of bounds / Invalid Schema")]
-    InvalidRecord,
-    #[error("Not Found")]
-    NotFound,
     #[error("Storage Error: {0}")]
     Storage(#[from] StorageError),
+    #[error("Invalid Object Type: {0}")]
+    InvalidType(String),
+    #[error("CPF File Not Found: {0}")]
+    CpfFileNotFound(String),
+    #[error("CPF File Already Exists: {0}")]
+    CpfFileAlreadyExists(String),
     #[error("Invalid Query: {0}")]
     InvalidQuery(String),
-    #[error("CPF3025: File &0 not found")]
-    CpfFileNotFound(String),
-    #[error("CPF3130: Member &0 not found")]
-    CpfMemberNotFound(String),
-    #[error("CPF3142: Record format not valid: &0")]
-    CpfInvalidRecordFormat(String),
-    #[error("CPF3203: Cannot add or update records in file &0")]
-    CpfCannotUpdate(String),
-    #[error("CPF3122: No records found in file &0")]
+    #[error("CPF No Records: {0}")]
     CpfNoRecords(String),
+    #[error("Invalid Record Format: {0}")]
+    CpfInvalidRecordFormat(String),
+    #[error("Not Found")]
+    NotFound,
 }
 
 enum PhysicalFileStorage {
@@ -130,7 +125,7 @@ pub fn create_pf(lib_path: &Path, name: &str, record_len: usize) -> Result<Physi
 
     let target = lib_path.join(name);
     if target.exists() {
-        return Err(DbError::CpfFileNotFound(name.to_string()));
+        return Err(DbError::CpfFileAlreadyExists(name.to_string()));
     }
 
     if !validate_objtype("*FILE") {

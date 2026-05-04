@@ -135,7 +135,7 @@ pub fn savlib(library: &str, savf_name: &str, target: &str) -> SavResult<String>
         ));
     }
 
-    // Update SAVF manifest
+    // Update SAVF manifest as xattr instead of overwriting the archive
     let manifest = format!(
         "[savf]\nname = \"{}\"\nlibrary = \"{}\"\ncreated = \"{}\"\ntarget = \"{}\"\nsize = {}\n",
         savf_name,
@@ -144,7 +144,8 @@ pub fn savlib(library: &str, savf_name: &str, target: &str) -> SavResult<String>
         target,
         fs::metadata(&savf_path).map(|m| m.len()).unwrap_or(0)
     );
-    fs::write(&savf_path, manifest).map_err(|e| format!("Error writing manifest: {}", e))?;
+    let _ = crate::storage::write_string_attr(&savf_path, "user.l400.savf.manifest", &manifest);
+    drop(tar_output); // Ensure tar process is complete
 
     Ok(format!("Library {} saved to {:?}", library, savf_path))
 }
@@ -217,6 +218,9 @@ pub fn savobj(object: &str, library: &str, savf_name: &str, target: &str) -> Sav
     }
 
     let savf_path = if target == "MEGA" {
+        if !is_mega_io_mounted() {
+            return Err("mega.io not mounted. Run init_mega_io first.".to_string());
+        }
         PathBuf::from(MEGA_IO_MOUNT).join(format!("{}.savf", savf_name))
     } else {
         PathBuf::from(SAVF_DIR).join(format!("{}.savf", savf_name))
